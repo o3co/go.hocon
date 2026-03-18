@@ -36,7 +36,7 @@ func TestConfigError_Error(t *testing.T) {
 }
 
 func TestParseError_IsError(t *testing.T) {
-	var pe *hocon.ParseError = &hocon.ParseError{Message: "oops"}
+	pe := &hocon.ParseError{Message: "oops"}
 	var err error = pe
 	var target *hocon.ParseError
 	if !errors.As(err, &target) {

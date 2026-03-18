@@ -234,14 +234,11 @@ func (p *parser) parseValue() (Node, error) {
 	// check for concatenation (adjacent values on same line)
 	var nodes []Node
 	nodes = append(nodes, first)
-	for {
-		if p.current.Type == lexer.TokenNewline ||
-			p.current.Type == lexer.TokenEOF ||
-			p.current.Type == lexer.TokenComma ||
-			p.current.Type == lexer.TokenRBrace ||
-			p.current.Type == lexer.TokenRBracket {
-			break
-		}
+	for p.current.Type != lexer.TokenNewline &&
+		p.current.Type != lexer.TokenEOF &&
+		p.current.Type != lexer.TokenComma &&
+		p.current.Type != lexer.TokenRBrace &&
+		p.current.Type != lexer.TokenRBracket {
 		// If there was whitespace between the previous value and this token,
 		// insert a space node for proper concatenation.
 		hadSpace := p.current.PrecedingSpace
@@ -330,6 +327,3 @@ func (p *parser) parseArray() (*ArrayNode, error) {
 	return arr, nil
 }
 
-func parseErr(tok lexer.Token, msg string) error {
-	return fmt.Errorf("parse error at line %d, col %d: %s", tok.Line, tok.Col, msg)
-}
