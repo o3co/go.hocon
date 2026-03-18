@@ -2,14 +2,9 @@ pre-commit:
   parallel: true
   commands:
     gofmt:
-      run: |
-        unformatted=$(gofmt -l {staged_files})
-        if [ -n "$unformatted" ]; then
-          echo "gofmt: unformatted files:"
-          echo "$unformatted"
-          exit 1
-        fi
+      run: gofmt -w {staged_files}
       glob: "*.go"
+      stage_fixed: true
     govet:
       run: go vet ./...
 
