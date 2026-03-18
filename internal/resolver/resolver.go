@@ -22,13 +22,16 @@ type Val interface{ val() }
 
 // ObjectVal is a resolved object with ordered keys.
 type ObjectVal struct {
-	keys   []string
-	values map[string]Val
+	keys        []string
+	values      map[string]Val
+	priorValues map[string]Val // prior non-object values for optional-substitution fallback
 }
 
 func (o *ObjectVal) val() {}
 
-func newObjectVal() *ObjectVal { return &ObjectVal{values: make(map[string]Val)} }
+func newObjectVal() *ObjectVal {
+	return &ObjectVal{values: make(map[string]Val), priorValues: make(map[string]Val)}
+}
 
 func (o *ObjectVal) set(key string, v Val) {
 	if _, exists := o.values[key]; !exists {
@@ -217,6 +220,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (
 				} else {
 					// non-object overwrite: save prior value for self-referential substitution support
 					r.priorValues[key] = existing
+					obj.priorValues[key] = existing // per-object scope for optional-substitution fallback
 				}
 				// non-object: last value wins (fall through to obj.set below)
 			}
@@ -292,8 +296,8 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			if obj == root {
 				r.resolvedCache[k] = resolved
 			}
-		} else if prior, ok := r.priorValues[k]; ok {
-			// optional substitution resolved to nothing — fall back to prior value
+		} else if prior, ok := obj.priorValues[k]; ok {
+			// optional substitution resolved to nothing — fall back to prior value (per-object scope)
 			fallback, ferr := r.resolveVal(prior, root, k)
 			if ferr != nil {
 				return nil, ferr
@@ -365,6 +369,15 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 		case *substPlaceholder, *concatPlaceholder:
 			if prior, ok2 := r.priorValues[pathStr]; ok2 {
 				return r.resolveVal(prior, root, pathStr)
+			}
+			// For nested paths, check the parent object's per-object priorValues.
+			if len(segments) > 1 {
+				if parent, pok := r.lookupPathObj(root, segments[:len(segments)-1]); pok {
+					lastKey := segments[len(segments)-1]
+					if prior2, ok3 := parent.priorValues[lastKey]; ok3 {
+						return r.resolveVal(prior2, root, pathStr)
+					}
+				}
 			}
 		}
 		return r.resolveVal(val, root, pathStr)
@@ -460,6 +473,15 @@ func (r *resolver) lookupPath(obj *ObjectVal, segments []string) (Val, bool) {
 		return nil, false
 	}
 	return r.lookupPath(child, segments[1:])
+}
+
+func (r *resolver) lookupPathObj(obj *ObjectVal, segments []string) (*ObjectVal, bool) {
+	v, ok := r.lookupPath(obj, segments)
+	if !ok {
+		return nil, false
+	}
+	ov, ok := v.(*ObjectVal)
+	return ov, ok
 }
 
 func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {

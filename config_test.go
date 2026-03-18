@@ -206,6 +206,31 @@ func TestConfig_OptionalSubstitutionFallback(t *testing.T) {
 	}
 }
 
+func TestConfig_OptionalSubstitutionFallback_SubstPrior(t *testing.T) {
+	// Regression: prior value is itself a substitution (not a literal).
+	// permissionVerifier.timeout should resolve via clients.default.timeout → 30s.
+	src := `
+clients {
+  default {
+    timeout = 30s
+    timeout = ${?CLIENT_DEFAULT_TIMEOUT_UNSET_XYZ}
+  }
+  permissionVerifier {
+    timeout = ${clients.default.timeout}
+    timeout = ${?CLIENT_PERMISSION_VERIFIER_TIMEOUT_UNSET_XYZ}
+  }
+}`
+	cfg := mustParseCfg(t, src)
+	defaultTimeout := cfg.GetDuration("clients.default.timeout")
+	if defaultTimeout.String() != "30s" {
+		t.Errorf("clients.default.timeout: expected 30s, got %s", defaultTimeout)
+	}
+	got := cfg.GetDuration("clients.permissionVerifier.timeout")
+	if got.String() != "30s" {
+		t.Errorf("clients.permissionVerifier.timeout: expected 30s, got %s", got)
+	}
+}
+
 func TestConfig_WithFallback(t *testing.T) {
 	base := mustParseCfg(t, "a=1\nb=2")
 	over := mustParseCfg(t, "b=99\nc=3")
