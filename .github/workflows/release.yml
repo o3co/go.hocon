@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  proxy-fetch:
+    name: Trigger Go module proxy indexing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch via GOPROXY
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          MODULE="github.com/o3co/go.hocon"
+          echo "Triggering proxy fetch for ${MODULE}@${VERSION}"
+          curl -sSf "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info" | jq .
+
+      - name: Fetch via sum database
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          MODULE="github.com/o3co/go.hocon"
+          curl -sSf "https://sum.golang.org/lookup/${MODULE}@${VERSION}" || true

@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - gofmt
+    - misspell
+
+linters-settings:
+  gofmt:
+    simplify: true
+
+issues:
+  exclude-rules:
+    # Test files: allow unused variables and error ignoring
+    - path: "_test\\.go"
+      linters:
+        - errcheck

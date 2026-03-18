@@ -17,46 +17,46 @@ import (
 type TokenType int
 
 const (
-	TokenInvalid      TokenType = iota // zero value sentinel
-	TokenString                        // quoted, unquoted, or triple-quoted string
-	TokenInt                           // integer literal
-	TokenFloat                         // float literal (has . or e/E)
-	TokenBool                          // true / false
-	TokenNull                          // null
-	TokenLBrace                        // {
-	TokenRBrace                        // }
-	TokenLBracket                      // [
-	TokenRBracket                      // ]
-	TokenLParen                        // (
-	TokenRParen                        // )
-	TokenComma                         // ,
-	TokenColon                         // :
-	TokenEquals                        // =
-	TokenPlusEquals                    // +=
-	TokenSubstitution                  // ${path}
-	TokenOptSubstitution               // ${?path}
-	TokenInclude                       // include keyword
-	TokenNewline                       // \n
+	TokenInvalid         TokenType = iota // zero value sentinel
+	TokenString                           // quoted, unquoted, or triple-quoted string
+	TokenInt                              // integer literal
+	TokenFloat                            // float literal (has . or e/E)
+	TokenBool                             // true / false
+	TokenNull                             // null
+	TokenLBrace                           // {
+	TokenRBrace                           // }
+	TokenLBracket                         // [
+	TokenRBracket                         // ]
+	TokenLParen                           // (
+	TokenRParen                           // )
+	TokenComma                            // ,
+	TokenColon                            // :
+	TokenEquals                           // =
+	TokenPlusEquals                       // +=
+	TokenSubstitution                     // ${path}
+	TokenOptSubstitution                  // ${?path}
+	TokenInclude                          // include keyword
+	TokenNewline                          // \n
 	TokenEOF
 )
 
 // Token is a single lexed unit.
 type Token struct {
-	Type            TokenType
-	Value           string
-	Line            int
-	Col             int
-	IsQuoted        bool // true for quoted strings (single or triple-quoted)
-	PrecedingSpace  bool // true if whitespace preceded this token (for concatenation)
+	Type           TokenType
+	Value          string
+	Line           int
+	Col            int
+	IsQuoted       bool // true for quoted strings (single or triple-quoted)
+	PrecedingSpace bool // true if whitespace preceded this token (for concatenation)
 }
 
 // Lexer tokenizes HOCON input.
 type Lexer struct {
-	src           []rune
-	pos           int
-	line          int
-	col           int
-	skippedSpace  bool // set by skipWhitespaceAndComments
+	src          []rune
+	pos          int
+	line         int
+	col          int
+	skippedSpace bool // set by skipWhitespaceAndComments
 }
 
 // New returns a Lexer for the given input.
