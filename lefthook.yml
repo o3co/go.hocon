@@ -7,6 +7,27 @@ pre-commit:
       stage_fixed: true
     govet:
       run: go vet ./...
+    gomodtidy:
+      run: |
+        go mod tidy
+        if ! git diff --quiet go.mod go.sum; then
+          echo "go mod tidy changed go.mod/go.sum — changes have been staged"
+          git add go.mod go.sum
+        fi
+      glob: "{go.mod,go.sum,**/*.go}"
+
+commit-msg:
+  commands:
+    conventional-commits:
+      run: |
+        msg=$(cat {1})
+        pattern='^(feat|fix|docs|chore|refactor|test|ci|perf|style|build|revert)(\(.+\))?: .+'
+        if ! echo "$msg" | grep -qE "$pattern"; then
+          echo "Invalid commit message: $msg"
+          echo "Must match: type(scope)?: description"
+          echo "Types: feat fix docs chore refactor test ci perf style build revert"
+          exit 1
+        fi
 
 pre-push:
   commands:
