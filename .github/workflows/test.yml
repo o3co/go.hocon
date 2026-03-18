@@ -46,5 +46,7 @@ jobs:
         if: matrix.go == '1.25' && matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: o3co/go.hocon
           files: coverage.out
           fail_ci_if_error: false
