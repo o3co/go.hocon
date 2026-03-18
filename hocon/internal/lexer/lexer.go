@@ -42,18 +42,21 @@ const (
 
 // Token is a single lexed unit.
 type Token struct {
-	Type  TokenType
-	Value string
-	Line  int
-	Col   int
+	Type            TokenType
+	Value           string
+	Line            int
+	Col             int
+	IsQuoted        bool // true for quoted strings (single or triple-quoted)
+	PrecedingSpace  bool // true if whitespace preceded this token (for concatenation)
 }
 
 // Lexer tokenizes HOCON input.
 type Lexer struct {
-	src  []rune
-	pos  int
-	line int
-	col  int
+	src           []rune
+	pos           int
+	line          int
+	col           int
+	skippedSpace  bool // set by skipWhitespaceAndComments
 }
 
 // New returns a Lexer for the given input.
@@ -83,7 +86,14 @@ func (l *Lexer) advance() rune {
 // Next returns the next token.
 func (l *Lexer) Next() Token {
 	l.skipWhitespaceAndComments()
+	hadSpace := l.skippedSpace
 
+	tok := l.nextToken()
+	tok.PrecedingSpace = hadSpace
+	return tok
+}
+
+func (l *Lexer) nextToken() Token {
 	line, col := l.line, l.col
 
 	ch, ok := l.peek()
@@ -147,6 +157,7 @@ func (l *Lexer) Next() Token {
 }
 
 func (l *Lexer) skipWhitespaceAndComments() {
+	l.skippedSpace = false
 	for {
 		ch, ok := l.peek()
 		if !ok {
@@ -156,6 +167,7 @@ func (l *Lexer) skipWhitespaceAndComments() {
 			return // newlines are significant tokens
 		}
 		if ch == ' ' || ch == '\t' || ch == '\r' {
+			l.skippedSpace = true
 			l.advance()
 			continue
 		}
@@ -229,7 +241,7 @@ func (l *Lexer) readString(line, col int) Token {
 		}
 		sb.WriteRune(ch)
 	}
-	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col}
+	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
 }
 
 func (l *Lexer) readTripleQuoted(line, col int) Token {
@@ -239,9 +251,32 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 		if !ok {
 			break
 		}
-		if ch == '"' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '"' && l.src[l.pos+2] == '"' {
-			l.advance(); l.advance(); l.advance() // consume """
-			break
+		if ch == '"' {
+			// Count consecutive quotes
+			quoteCount := 0
+			startPos := l.pos
+			for l.pos < len(l.src) && l.src[l.pos] == '"' {
+				quoteCount++
+				l.pos++
+			}
+			// Update line/col tracking
+			l.col += quoteCount
+
+			if quoteCount >= 3 {
+				// The last 3 quotes are the closing delimiter;
+				// any extras are content.
+				extra := quoteCount - 3
+				for i := 0; i < extra; i++ {
+					sb.WriteByte('"')
+				}
+				break
+			}
+			// Fewer than 3 quotes — they are content
+			_ = startPos
+			for i := 0; i < quoteCount; i++ {
+				sb.WriteByte('"')
+			}
+			continue
 		}
 		// handle newline tracking
 		if ch == '\n' {
@@ -252,7 +287,7 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 		l.advance()
 		sb.WriteRune(ch)
 	}
-	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col}
+	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
 }
 
 func (l *Lexer) readSubstitution(line, col int) Token {

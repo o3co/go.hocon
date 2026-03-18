@@ -452,7 +452,19 @@ func (r *resolver) lookupPath(obj *ObjectVal, segments []string) (Val, bool) {
 
 func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 	if len(segments) == 1 {
-		obj.set(segments[0], val)
+		key := segments[0]
+		// Deep merge if both existing and new values are objects
+		if existing, ok := obj.Get(key); ok {
+			if eo, eok := existing.(*ObjectVal); eok {
+				if nv, nok := val.(*ObjectVal); nok {
+					val = deepMerge(nv, eo) // new over existing: nv=dst wins
+				}
+			} else {
+				// non-object overwrite: save prior value for self-referential substitution support
+				r.priorValues[strings.Join(segments, ".")] = existing
+			}
+		}
+		obj.set(key, val)
 		return
 	}
 	child, ok := obj.Get(segments[0])

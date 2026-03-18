@@ -151,11 +151,13 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 
 func (p *parser) parseField() (*FieldNode, error) {
 	line, col := p.current.Line, p.current.Col
-	// parse key (dot-separated path)
+	// parse key (dot-separated path, possibly multi-segment with quoted parts)
 	key, err := p.parseKey()
 	if err != nil {
 		return nil, err
 	}
+	// HOCON allows newlines between key and separator
+	p.skipNewlines()
 	// parse separator: : = or {
 	append_ := false
 	switch p.current.Type {
@@ -177,13 +179,49 @@ func (p *parser) parseField() (*FieldNode, error) {
 }
 
 func (p *parser) parseKey() ([]string, error) {
-	if p.current.Type != lexer.TokenString {
+	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt {
 		return nil, fmt.Errorf("parse error at line %d, col %d: expected key, got %v", p.current.Line, p.current.Col, p.current.Type)
 	}
-	raw := p.current.Value
-	p.advance()
-	// split on dots for path notation
-	parts := strings.Split(raw, ".")
+
+	var parts []string
+
+	for {
+		raw := p.current.Value
+		isQuoted := p.current.IsQuoted
+		p.advance()
+
+		if isQuoted {
+			// Quoted key segment — no dot splitting
+			parts = append(parts, raw)
+		} else {
+			// Unquoted key — split on dots for path notation.
+			// A trailing dot (e.g., "arrays.") means the next token continues the path.
+			segments := strings.Split(raw, ".")
+			for i, s := range segments {
+				if s == "" {
+					continue // skip empty segments from leading/trailing dots
+				}
+				parts = append(parts, s)
+				_ = i
+			}
+			// If the raw value ends with '.', the next token is a continuation
+			if strings.HasSuffix(raw, ".") {
+				continue // read the next segment
+			}
+		}
+
+		// Check if the next token is an unquoted string starting with '.'
+		// or a quoted string preceded by a dot (like in "a"."b" patterns).
+		// After a quoted segment, look if the next unquoted starts with '.'
+		if p.current.Type == lexer.TokenString && !p.current.IsQuoted && strings.HasPrefix(p.current.Value, ".") {
+			continue
+		}
+		break
+	}
+
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("parse error: empty key")
+	}
 	return parts, nil
 }
 
@@ -204,9 +242,15 @@ func (p *parser) parseValue() (Node, error) {
 			p.current.Type == lexer.TokenRBracket {
 			break
 		}
+		// If there was whitespace between the previous value and this token,
+		// insert a space node for proper concatenation.
+		hadSpace := p.current.PrecedingSpace
 		next, err2 := p.parseSingleValue()
 		if err2 != nil {
 			break
+		}
+		if hadSpace {
+			nodes = append(nodes, &ScalarNode{Value: " "})
 		}
 		nodes = append(nodes, next)
 	}
