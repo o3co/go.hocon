@@ -326,4 +326,3 @@ func (p *parser) parseArray() (*ArrayNode, error) {
 	}
 	return arr, nil
 }
-
