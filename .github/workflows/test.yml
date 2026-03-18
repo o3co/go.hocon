@@ -36,6 +36,10 @@ jobs:
         run: go vet ./...
 
       - name: Test (with race detector)
+        run: go test -race -count=1 ./...
+
+      - name: Test with coverage
+        if: matrix.go == '1.25' && matrix.os == 'ubuntu-latest'
         run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage to Codecov
