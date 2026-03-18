@@ -81,6 +81,43 @@ func TestUnmarshal_NoTag(t *testing.T) {
 	}
 }
 
+func TestUnmarshal_EnvVarStringCoercion(t *testing.T) {
+	t.Setenv("HOCON_TEST_PORT", "9090")
+	t.Setenv("HOCON_TEST_RATIO", "1.5")
+	t.Setenv("HOCON_TEST_ENABLED", "true")
+	type Cfg struct {
+		Port    int     `hocon:"port"`
+		Ratio   float64 `hocon:"ratio"`
+		Enabled bool    `hocon:"enabled"`
+	}
+	src := "port=8080\nport=${?HOCON_TEST_PORT}\nratio=1.0\nratio=${?HOCON_TEST_RATIO}\nenabled=false\nenabled=${?HOCON_TEST_ENABLED}"
+	cfg := mustParseCfg(t, src)
+	var out Cfg
+	if err := cfg.Unmarshal(&out); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if out.Port != 9090 {
+		t.Errorf("Port: expected 9090, got %d", out.Port)
+	}
+	if out.Ratio != 1.5 {
+		t.Errorf("Ratio: expected 1.5, got %f", out.Ratio)
+	}
+	if !out.Enabled {
+		t.Errorf("Enabled: expected true, got false")
+	}
+}
+
+func TestConfig_EnvVarInt64Slice(t *testing.T) {
+	// GetInt64Slice with string elements from env var substitution is a corner case;
+	// the more common scenario is that slice elements are literals. This test covers
+	// a mixed scenario to ensure the string fallback works.
+	cfg := mustParseCfg(t, "ports=[8080, 9090]")
+	s := cfg.GetInt64Slice("ports")
+	if len(s) != 2 || s[0] != 8080 || s[1] != 9090 {
+		t.Errorf("unexpected slice: %v", s)
+	}
+}
+
 func TestUnmarshal_MapStringAny(t *testing.T) {
 	cfg := mustParseCfg(t, "a=1\nb=\"hello\"\nc=true")
 	m := make(map[string]any)

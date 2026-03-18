@@ -414,11 +414,18 @@ func (c *Config) GetInt64Slice(path string) []int64 {
 		if !ok || sv.V == nil {
 			panicConfig(path, fmt.Sprintf("element %d is not an int", i))
 		}
-		n, ok := sv.V.(int64)
-		if !ok {
+		switch n := sv.V.(type) {
+		case int64:
+			result[i] = n
+		case string:
+			parsed, err := strconv.ParseInt(n, 10, 64)
+			if err != nil {
+				panicConfig(path, fmt.Sprintf("element %d: expected int64, got string %q", i, n))
+			}
+			result[i] = parsed
+		default:
 			panicConfig(path, fmt.Sprintf("element %d: expected int64, got %T", i, sv.V))
 		}
-		result[i] = n
 	}
 	return result
 }

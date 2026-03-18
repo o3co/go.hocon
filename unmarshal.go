@@ -11,6 +11,7 @@ package hocon
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -219,6 +220,12 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 			target.SetInt(n)
 		case float64:
 			target.SetInt(int64(n))
+		case string:
+			parsed, err := strconv.ParseInt(n, 10, 64)
+			if err != nil {
+				return fmt.Errorf("hocon: expected int, got string %q", n)
+			}
+			target.SetInt(parsed)
 		default:
 			return fmt.Errorf("hocon: expected int, got %T", sv.V)
 		}
@@ -228,15 +235,28 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 			target.SetFloat(f)
 		case int64:
 			target.SetFloat(float64(f))
+		case string:
+			parsed, err := strconv.ParseFloat(f, 64)
+			if err != nil {
+				return fmt.Errorf("hocon: expected float, got string %q", f)
+			}
+			target.SetFloat(parsed)
 		default:
 			return fmt.Errorf("hocon: expected float, got %T", sv.V)
 		}
 	case reflect.Bool:
-		b, ok2 := sv.V.(bool)
-		if !ok2 {
+		switch b := sv.V.(type) {
+		case bool:
+			target.SetBool(b)
+		case string:
+			parsed, err := strconv.ParseBool(b)
+			if err != nil {
+				return fmt.Errorf("hocon: expected bool, got string %q", b)
+			}
+			target.SetBool(parsed)
+		default:
 			return fmt.Errorf("hocon: expected bool, got %T", sv.V)
 		}
-		target.SetBool(b)
 	default:
 		return fmt.Errorf("hocon: unsupported target type %v", target.Type())
 	}
