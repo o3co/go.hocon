@@ -61,7 +61,7 @@ func TestLightbendEquiv(t *testing.T) {
 			confPath := filepath.Join(dir, e.Name())
 
 			t.Run(relPath, func(t *testing.T) {
-				if reason, ok := skipFiles[relPath]; ok {
+				if reason, ok := skipFiles[filepath.ToSlash(relPath)]; ok {
 					t.Skipf("skipped: %s", reason)
 				}
 

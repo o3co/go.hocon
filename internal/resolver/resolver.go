@@ -530,8 +530,10 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 		return nil, err
 	}
 	childResolver := &resolver{
-		opts:      Options{BaseDir: filepath.Dir(path)},
-		resolving: make(map[string]bool),
+		opts:          Options{BaseDir: filepath.Dir(path)},
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
 	}
 	obj, err := childResolver.resolveObject(ast, nil)
 	if err != nil {
