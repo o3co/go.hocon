@@ -138,7 +138,7 @@ type Token struct {
 A `TokenNewline` is emitted for each line break. The parser uses newlines as value terminators within a concatenation context: a value continues onto the next line only when the current line ends mid-expression (e.g., after a `+` in a `+=` or inside an array). Otherwise a newline ends the current value.
 
 **Unquoted string termination:**
-An unquoted string token ends at any of: `:`, `=`, `{`, `}`, `[`, `]`, `,`, `+`, `#`, `\`, `^`, `?`, `!`, `@`, `&`, newline, or EOF. This follows the Lightbend HOCON spec definition of forbidden characters in unquoted strings.
+An unquoted string token ends at any of: `$`, `"`, `:`, `=`, `{`, `}`, `[`, `]`, `,`, `+`, `#`, `\`, `^`, `?`, `!`, `@`, `&`, whitespace, newline, or EOF. This follows the Lightbend HOCON spec definition of forbidden characters in unquoted strings. (`$` terminates because it begins a substitution; `"` begins a quoted string.)
 
 **Triple-quoted strings:**
 Content between `"""` delimiters is taken verbatim — no escape processing occurs (backslash is a literal character, `\n` is two characters `\` and `n`, not a newline). Leading and trailing whitespace on each line is preserved as-is. The only way to end a triple-quoted string is `"""`.
@@ -177,7 +177,9 @@ Supported syntactic forms:
 - `include "file.conf"` — bare quoted path (canonical Lightbend form)
 - `include file("file.conf")` — explicit `file()` form
 
-Both forms behave identically. `url(...)` and `classpath(...)` forms are out of scope for v1.0.
+Both forms behave identically. When the parser encounters an unsupported form (`url(...)`, `classpath(...)`) at parse time, it returns a `ParseError` immediately — it does not attempt resolution.
+
+`url(...)` and `classpath(...)` forms are out of scope for v1.0.
 
 Resolution:
 
@@ -219,7 +221,10 @@ The resolver maintains an in-progress resolution stack. If resolving path `A` tr
 
 - `cfg.Has("key")` returns `true` for a key explicitly set to `null`
 - `cfg.GetString("key")` on a `null` value panics with `ConfigError` — reason: type mismatch (value exists but is `null`, which is not a string)
-- `GetXxxOption` methods return `None` for `null` values (null is treated as "no typed value")
+- All `GetXxxOption` methods (scalars, `GetConfigOption`, `GetConfigSliceOption`, slice variants) return `None` for `null` values. The rule is uniform: null has no typed representation in any Option variant.
+
+**Duration and byte-size values in the AST:**
+HOCON has no dedicated token type for durations or byte sizes. Values like `10s` or `100KB` are stored as plain `string` in `ScalarNode`. `GetDuration` and `GetBytes` parse the string on demand. When unmarshaling into `map[string]any`, these values appear as `string` — the same as any other unquoted string value.
 
 **`WithFallback` semantics:**
 Returns a new `*Config` whose root object is the deep merge of receiver over fallback. Neither the receiver nor the fallback is mutated. If `fallback` is `nil`, the receiver is returned unchanged (no new instance is created). The resolved value tree is immutable; `WithFallback` produces a new tree via deep merge.
@@ -263,6 +268,8 @@ type ConfigError struct {
 func ParseString(input string) (*Config, error)
 func ParseFile(path string) (*Config, error)
 ```
+
+`ParseFile` wraps I/O errors (file not found, permission denied) as `*ParseError` with `Line: 0, Col: 0` and the file path in `FilePath`. The same wrapping applies to include file I/O errors during resolution, which are returned as `*ResolveError` with `FilePath` set.
 
 ### Config — Scalar Values
 
@@ -337,8 +344,9 @@ func (c *Config) Has(path string) bool
 // Keys returns the direct child key names of the current object as single
 // path segments (not dotted). For { a.b = 1 }, Keys() returns ["a"].
 // On a *Config obtained via GetConfig("a"), Keys() returns ["b"].
-// Order: receiver's keys first (insertion order), then fallback-only keys
-// (insertion order) when the config was produced by WithFallback.
+// Order: for duplicate keys in the source, the first occurrence determines
+// position. For WithFallback configs: receiver's keys first (by first
+// occurrence), then fallback-only keys (by first occurrence in fallback).
 func (c *Config) Keys() []string
 ```
 
@@ -372,7 +380,7 @@ err := cfg.Unmarshal(&s)
 
 **Tag semantics:**
 
-- `hocon:"key"` — maps the HOCON key to this field; panics if absent (same as `GetXxx`)
+- `hocon:"key"` — maps the HOCON key to this field; returns an `error` if absent (unlike `GetXxx` which panics, `Unmarshal` returns errors through its `error` return value — it never panics on missing fields)
 - `hocon:"key,omitempty"` — if the HOCON path is absent **or null**, the struct field is left **unchanged** (its pre-populated value is preserved, not overwritten with zero). `Has()` returns true for null, but `omitempty` treats null as "no value" for struct population purposes.
 - No tag → field name lowercased is used as the key
 
