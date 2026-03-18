@@ -60,8 +60,13 @@ type Lexer struct {
 }
 
 // New returns a Lexer for the given input.
+// A leading UTF-8 BOM (U+FEFF) is silently stripped.
 func New(src string) *Lexer {
-	return &Lexer{src: []rune(src), pos: 0, line: 1, col: 1}
+	runes := []rune(src)
+	if len(runes) > 0 && runes[0] == '\uFEFF' {
+		runes = runes[1:]
+	}
+	return &Lexer{src: runes, pos: 0, line: 1, col: 1}
 }
 
 func (l *Lexer) peek() (rune, bool) {

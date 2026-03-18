@@ -127,3 +127,80 @@ func TestResolver_DuplicateScalarLastWins(t *testing.T) {
 		t.Errorf("expected last value 2, got %v", v)
 	}
 }
+
+// --- Object assignment modes ---
+
+func TestResolver_ObjectBracesMerge(t *testing.T) {
+	// `key { ... }` syntax merges into existing object.
+	res := resolve(t, "a { x=1 }\na { y=2 }")
+	obj, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	o := obj.(*resolver.ObjectVal)
+	if _, ok := o.Get("x"); !ok {
+		t.Error("x should be preserved after brace-merge")
+	}
+	if _, ok := o.Get("y"); !ok {
+		t.Error("y should be added by brace-merge")
+	}
+}
+
+func TestResolver_ObjectEqualsObjectMerges(t *testing.T) {
+	// Per HOCON spec: if both old and new values are objects, they are merged
+	// even when the `=` operator is used.
+	res := resolve(t, "a = { x=1 }\na = { y=2 }")
+	obj, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	o := obj.(*resolver.ObjectVal)
+	if _, ok := o.Get("x"); !ok {
+		t.Error("x should be preserved: object = object merges per HOCON spec")
+	}
+	if _, ok := o.Get("y"); !ok {
+		t.Error("y should be present after = assignment")
+	}
+}
+
+func TestResolver_ObjectEqualsScalarReplaces(t *testing.T) {
+	// When the previous value is a non-object, `=` replaces it.
+	res := resolve(t, "a = \"hello\"\na = { y=2 }")
+	obj, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	o, ok := obj.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatal("a should be an object")
+	}
+	if _, ok := o.Get("y"); !ok {
+		t.Error("y should be present after replacing scalar with object")
+	}
+}
+
+func TestResolver_ObjectEqualsReplacesWithScalar(t *testing.T) {
+	// Object replaced by a scalar via `=`.
+	res := resolve(t, "a = { x=1 }\na = 42")
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	sv, ok := v.(*resolver.ScalarVal)
+	if !ok || sv.V != int64(42) {
+		t.Errorf("expected scalar 42, got %v", v)
+	}
+}
+
+func TestResolver_ObjectPlusEqualsAppendsArray(t *testing.T) {
+	// `key += [...]` appends elements to the existing array.
+	res := resolve(t, "a=[1,2]\na+=[3]")
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	arr := v.(*resolver.ArrayVal)
+	if len(arr.Elements) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(arr.Elements))
+	}
+}

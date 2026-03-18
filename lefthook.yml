@@ -10,9 +10,12 @@ pre-commit:
     gomodtidy:
       run: |
         go mod tidy
-        if ! git diff --quiet go.mod go.sum; then
-          echo "go mod tidy changed go.mod/go.sum — changes have been staged"
-          git add go.mod go.sum
+        files=""
+        { [ -f go.mod ] && ! git diff --quiet go.mod; } && files="$files go.mod"
+        { [ -f go.sum ] && ! git diff --quiet go.sum; } && files="$files go.sum"
+        if [ -n "$files" ]; then
+          echo "go mod tidy changed:$files — staging"
+          git add $files
         fi
       glob: "{go.mod,go.sum,**/*.go}"
 

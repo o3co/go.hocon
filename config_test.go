@@ -1,6 +1,8 @@
 package hocon_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -267,5 +269,84 @@ func TestConfig_WithFallback(t *testing.T) {
 	}
 	if merged.GetInt64("c") != 3 {
 		t.Error("c should be from receiver")
+	}
+}
+
+// --- String concatenation ---
+
+func TestConfig_StringConcat_AdjacentStringsPreservesSpace(t *testing.T) {
+	// Whitespace between adjacent values is preserved in concatenation.
+	cfg := mustParseCfg(t, `url = "http://" "example.com"`)
+	if got := cfg.GetString("url"); got != "http:// example.com" {
+		t.Errorf("got %q, want %q", got, "http:// example.com")
+	}
+}
+
+func TestConfig_StringConcat_NoSpace(t *testing.T) {
+	// Substitution immediately followed by quoted string (no space) concatenates without space.
+	cfg := mustParseCfg(t, `
+base = "http://example.com"
+url  = ${base}"/path"
+`)
+	if got := cfg.GetString("url"); got != "http://example.com/path" {
+		t.Errorf("got %q, want %q", got, "http://example.com/path")
+	}
+}
+
+func TestConfig_StringConcat_UnquotedWords(t *testing.T) {
+	// Adjacent unquoted words separated by space produce a string with that space.
+	cfg := mustParseCfg(t, `msg = hello world`)
+	if got := cfg.GetString("msg"); got != "hello world" {
+		t.Errorf("got %q, want %q", got, "hello world")
+	}
+}
+
+func TestConfig_StringConcat_SubstitutionAndLiteral(t *testing.T) {
+	cfg := mustParseCfg(t, `
+base = "https://api.example.com"
+url  = ${base}"/users"
+`)
+	if got := cfg.GetString("url"); got != "https://api.example.com/users" {
+		t.Errorf("got %q, want %q", got, "https://api.example.com/users")
+	}
+}
+
+func TestConfig_StringConcat_ArraySelfRef(t *testing.T) {
+	// Self-referential array concatenation: a = ${a}[extra] (no space — space inserts string node)
+	cfg := mustParseCfg(t, `
+a = [1, 2]
+a = ${a}[3, 4]
+`)
+	got := cfg.GetInt64Slice("a")
+	if len(got) != 4 || got[0] != 1 || got[3] != 4 {
+		t.Errorf("got %v, want [1 2 3 4]", got)
+	}
+}
+
+// --- BOM handling ---
+
+func TestConfig_BOM_ParseFile(t *testing.T) {
+	path := filepath.Join("testdata", "hocon", "bom.conf")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Skip("bom.conf not found")
+	}
+	cfg, err := hocon.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if got := cfg.GetString("foo"); got != "bar" {
+		t.Errorf("got %q, want %q", got, "bar")
+	}
+}
+
+func TestConfig_BOM_ParseString(t *testing.T) {
+	// UTF-8 BOM followed by HOCON content
+	src := "\xEF\xBB\xBFfoo = bar"
+	cfg, err := hocon.ParseString(src)
+	if err != nil {
+		t.Fatalf("ParseString with BOM: %v", err)
+	}
+	if got := cfg.GetString("foo"); got != "bar" {
+		t.Errorf("got %q, want %q", got, "bar")
 	}
 }
