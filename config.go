@@ -122,11 +122,19 @@ func (c *Config) GetStringOption(path string) Option[string] {
 
 func (c *Config) GetInt64(path string) int64 {
 	v := c.getScalar(path)
-	n, ok := v.(int64)
-	if !ok {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case string:
+		parsed, err := strconv.ParseInt(n, 10, 64)
+		if err != nil {
+			panicConfig(path, fmt.Sprintf("expected int64, got string %q", n))
+		}
+		return parsed
+	default:
 		panicConfig(path, fmt.Sprintf("expected int64, got %T", v))
 	}
-	return n
+	panic("unreachable")
 }
 
 func (c *Config) GetInt64Option(path string) Option[int64] {
@@ -138,11 +146,15 @@ func (c *Config) GetInt64Option(path string) Option[int64] {
 	if !ok2 || sv.V == nil {
 		return None[int64]()
 	}
-	n, ok3 := sv.V.(int64)
-	if !ok3 {
-		return None[int64]()
+	switch n := sv.V.(type) {
+	case int64:
+		return Some(n)
+	case string:
+		if parsed, err := strconv.ParseInt(n, 10, 64); err == nil {
+			return Some(parsed)
+		}
 	}
-	return Some(n)
+	return None[int64]()
 }
 
 func (c *Config) GetInt(path string) int { return int(c.GetInt64(path)) }
@@ -162,6 +174,12 @@ func (c *Config) GetFloat64(path string) float64 {
 		return f
 	case int64:
 		return float64(f)
+	case string:
+		parsed, err := strconv.ParseFloat(f, 64)
+		if err != nil {
+			panicConfig(path, fmt.Sprintf("expected float64, got string %q", f))
+		}
+		return parsed
 	}
 	panicConfig(path, fmt.Sprintf("expected float64, got %T", v))
 	return 0
@@ -181,6 +199,10 @@ func (c *Config) GetFloat64Option(path string) Option[float64] {
 		return Some(f)
 	case int64:
 		return Some(float64(f))
+	case string:
+		if parsed, err := strconv.ParseFloat(f, 64); err == nil {
+			return Some(parsed)
+		}
 	}
 	return None[float64]()
 }
@@ -197,11 +219,18 @@ func (c *Config) GetFloat32Option(path string) Option[float32] {
 
 func (c *Config) GetBool(path string) bool {
 	v := c.getScalar(path)
-	b, ok := v.(bool)
-	if !ok {
-		panicConfig(path, fmt.Sprintf("expected bool, got %T", v))
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		parsed, err := strconv.ParseBool(b)
+		if err != nil {
+			panicConfig(path, fmt.Sprintf("expected bool, got string %q", b))
+		}
+		return parsed
 	}
-	return b
+	panicConfig(path, fmt.Sprintf("expected bool, got %T", v))
+	return false
 }
 
 func (c *Config) GetBoolOption(path string) Option[bool] {
@@ -213,11 +242,15 @@ func (c *Config) GetBoolOption(path string) Option[bool] {
 	if !ok2 || sv.V == nil {
 		return None[bool]()
 	}
-	b, ok3 := sv.V.(bool)
-	if !ok3 {
-		return None[bool]()
+	switch b := sv.V.(type) {
+	case bool:
+		return Some(b)
+	case string:
+		if parsed, err := strconv.ParseBool(b); err == nil {
+			return Some(parsed)
+		}
 	}
-	return Some(b)
+	return None[bool]()
 }
 
 // ── duration ──────────────────────────────────────────────────────

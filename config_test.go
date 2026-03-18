@@ -197,6 +197,30 @@ func TestConfig_GetConfigSlice(t *testing.T) {
 	}
 }
 
+func TestConfig_EnvVarInt(t *testing.T) {
+	t.Setenv("HOCON_TEST_PORT", "50052")
+	cfg := mustParseCfg(t, "server {\n  port = 50051\n  port = ${?HOCON_TEST_PORT}\n}")
+	if got := cfg.GetInt("server.port"); got != 50052 {
+		t.Errorf("expected 50052, got %d", got)
+	}
+}
+
+func TestConfig_EnvVarFloat(t *testing.T) {
+	t.Setenv("HOCON_TEST_RATIO", "3.14")
+	cfg := mustParseCfg(t, "ratio = 1.0\nratio = ${?HOCON_TEST_RATIO}")
+	if got := cfg.GetFloat64("ratio"); got != 3.14 {
+		t.Errorf("expected 3.14, got %f", got)
+	}
+}
+
+func TestConfig_EnvVarBool(t *testing.T) {
+	t.Setenv("HOCON_TEST_ENABLED", "true")
+	cfg := mustParseCfg(t, "enabled = false\nenabled = ${?HOCON_TEST_ENABLED}")
+	if got := cfg.GetBool("enabled"); !got {
+		t.Errorf("expected true, got %v", got)
+	}
+}
+
 func TestConfig_OptionalSubstitutionFallback(t *testing.T) {
 	// Regression test: when ${?VAR} is unset, the prior value of the key must be kept.
 	cfg := mustParseCfg(t, "server {\n  host = \"0.0.0.0\"\n  host = ${?HOST_UNSET_XYZ}\n}")
