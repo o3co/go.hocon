@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-18
+
+### Fixed
+- Normalize `\r\n` → `\n` in triple-quoted strings (Windows CRLF compatibility)
+- Strip UTF-8 BOM (`\uFEFF`) from input in lexer
+- Remove trailing blank line in `parser.go` (gofmt compliance)
+
+### Added
+- **lefthook** pre-commit / pre-push / commit-msg hooks
+  - pre-commit: gofmt autofix, go vet, go mod tidy
+  - pre-push: go test -race, golangci-lint
+  - commit-msg: Conventional Commits validation
+- **Codecov** coverage reporting in CI
+- **GitHub templates**: bug report, feature request, pull request
+- **SECURITY.md**: vulnerability reporting policy
+- **doc.go**: expanded package documentation with full API sections and spec link
+- **.gitignore**: standard Go project ignore rules
+- **Test coverage improvements**:
+  - String concatenation: whitespace preservation, no-space subst concat, self-referential array concat
+  - BOM handling: ParseFile and ParseString with UTF-8 BOM
+  - Object assignment modes: brace-merge vs `=` vs `+=` per HOCON spec
+
+### Changed
+- golangci-lint: `gosimple` removed (merged into `staticcheck` in v2), `gofmt` moved to formatters section
+- CI: coverage step runs only on ubuntu-latest/go1.25 to avoid Windows PowerShell flag parsing issue
+
 ## [0.1.8] - 2026-03-18
 
 ### Fixed
