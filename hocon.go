@@ -11,8 +11,8 @@ package hocon
 import (
 	"os"
 
-	"github.com/o3co/go.hocon/hocon/internal/parser"
-	"github.com/o3co/go.hocon/hocon/internal/resolver"
+	"github.com/o3co/go.hocon/internal/parser"
+	"github.com/o3co/go.hocon/internal/resolver"
 )
 
 // ParseString parses a HOCON string and returns a Config.

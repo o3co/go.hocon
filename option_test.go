@@ -3,7 +3,7 @@ package hocon_test
 import (
 	"testing"
 
-	"github.com/o3co/go.hocon/hocon"
+	"github.com/o3co/go.hocon"
 )
 
 func TestSome(t *testing.T) {

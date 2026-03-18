@@ -3,7 +3,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/o3co/go.hocon/hocon/internal/parser"
+	"github.com/o3co/go.hocon/internal/parser"
 )
 
 func mustParse(t *testing.T, src string) *parser.ObjectNode {

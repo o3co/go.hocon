@@ -3,7 +3,7 @@ package lexer_test
 import (
 	"testing"
 
-	"github.com/o3co/go.hocon/hocon/internal/lexer"
+	"github.com/o3co/go.hocon/internal/lexer"
 )
 
 func tokenTypes(src string) []lexer.TokenType {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/o3co/go.hocon/hocon"
+	"github.com/o3co/go.hocon"
 )
 
 func TestParseError_Error(t *testing.T) {

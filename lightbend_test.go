@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/o3co/go.hocon/hocon"
+	"github.com/o3co/go.hocon"
 )
 
 // TestLightbendEquiv tests the equiv01-05 directories from the Lightbend test suite.

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/o3co/go.hocon/hocon"
+	"github.com/o3co/go.hocon"
 )
 
 func mustParseCfg(t *testing.T, src string) *hocon.Config {

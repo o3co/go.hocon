@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/o3co/go.hocon/hocon/internal/lexer"
+	"github.com/o3co/go.hocon/internal/lexer"
 )
 
 // Parse parses a HOCON string and returns the root ObjectNode.
