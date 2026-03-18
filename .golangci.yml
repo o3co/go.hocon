@@ -8,12 +8,15 @@ linters:
     - unused
     - gosimple
     - ineffassign
-    - gofmt
     - misspell
 
-linters-settings:
-  gofmt:
-    simplify: true
+formatters:
+  enable:
+    - gofmt
+
+  settings:
+    gofmt:
+      simplify: true
 
 issues:
   exclude-rules:
