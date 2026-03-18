@@ -1,0 +1,26 @@
+pre-commit:
+  parallel: true
+  commands:
+    gofmt:
+      run: |
+        unformatted=$(gofmt -l {staged_files})
+        if [ -n "$unformatted" ]; then
+          echo "gofmt: unformatted files:"
+          echo "$unformatted"
+          exit 1
+        fi
+      glob: "*.go"
+    govet:
+      run: go vet ./...
+
+pre-push:
+  commands:
+    test:
+      run: go test -race -count=1 ./...
+    lint:
+      run: |
+        if command -v golangci-lint > /dev/null 2>&1; then
+          golangci-lint run --timeout=5m
+        else
+          echo "golangci-lint not found, skipping"
+        fi
