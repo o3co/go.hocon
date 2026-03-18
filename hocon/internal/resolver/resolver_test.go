@@ -3,8 +3,8 @@ package resolver_test
 import (
 	"testing"
 
-	"github.com/o3co/go.lib/hocon/internal/parser"
-	"github.com/o3co/go.lib/hocon/internal/resolver"
+	"github.com/o3co/go.hocon/hocon/internal/parser"
+	"github.com/o3co/go.hocon/hocon/internal/resolver"
 )
 
 func resolve(t *testing.T, src string) *resolver.Result {

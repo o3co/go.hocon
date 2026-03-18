@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3co/go.lib/hocon/internal/resolver"
+	"github.com/o3co/go.hocon/hocon/internal/resolver"
 )
 
 // Unmarshal maps the config into v using `hocon` struct tags.

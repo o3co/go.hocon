@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/o3co/go.lib/hocon/internal/resolver"
+	"github.com/o3co/go.hocon/hocon/internal/resolver"
 )
 
 // Config wraps a resolved HOCON value tree.

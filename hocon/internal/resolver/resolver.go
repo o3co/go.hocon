@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/o3co/go.lib/hocon/internal/parser"
+	"github.com/o3co/go.hocon/hocon/internal/parser"
 )
 
 // Val is a resolved value.
