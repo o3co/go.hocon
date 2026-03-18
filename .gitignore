@@ -1,0 +1,22 @@
+# Build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/dist/
+
+# Test artifacts
+*.test
+*.out
+coverage.out
+
+# Go workspace
+/vendor/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
