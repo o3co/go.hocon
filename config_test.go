@@ -197,6 +197,15 @@ func TestConfig_GetConfigSlice(t *testing.T) {
 	}
 }
 
+func TestConfig_OptionalSubstitutionFallback(t *testing.T) {
+	// Regression test: when ${?VAR} is unset, the prior value of the key must be kept.
+	cfg := mustParseCfg(t, "server {\n  host = \"0.0.0.0\"\n  host = ${?HOST_UNSET_XYZ}\n}")
+	got := cfg.GetString("server.host")
+	if got != "0.0.0.0" {
+		t.Errorf("expected \"0.0.0.0\", got %q", got)
+	}
+}
+
 func TestConfig_WithFallback(t *testing.T) {
 	base := mustParseCfg(t, "a=1\nb=2")
 	over := mustParseCfg(t, "b=99\nc=3")

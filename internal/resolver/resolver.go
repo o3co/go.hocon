@@ -292,6 +292,18 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			if obj == root {
 				r.resolvedCache[k] = resolved
 			}
+		} else if prior, ok := r.priorValues[k]; ok {
+			// optional substitution resolved to nothing — fall back to prior value
+			fallback, ferr := r.resolveVal(prior, root, k)
+			if ferr != nil {
+				return nil, ferr
+			}
+			if fallback != nil {
+				result.set(k, fallback)
+				if obj == root {
+					r.resolvedCache[k] = fallback
+				}
+			}
 		}
 		// nil means the field was dropped (optional substitution resolved to nothing)
 	}

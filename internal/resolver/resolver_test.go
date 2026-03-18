@@ -62,6 +62,20 @@ func TestResolver_OptionalSubstitutionMissing(t *testing.T) {
 	}
 }
 
+func TestResolver_OptionalSubstitutionFallback(t *testing.T) {
+	// When an optional substitution references an undefined variable,
+	// the prior value of that key must be preserved (not dropped).
+	res := resolve(t, "host=\"0.0.0.0\"\nhost=${?HOST_UNSET_XYZ}")
+	v, ok := res.Root.Get("host")
+	if !ok {
+		t.Fatal("prior value should be preserved when optional substitution is unset")
+	}
+	sv, ok := v.(*resolver.ScalarVal)
+	if !ok || sv.V != "0.0.0.0" {
+		t.Errorf("expected prior value \"0.0.0.0\", got %v", v)
+	}
+}
+
 func TestResolver_CircularRef(t *testing.T) {
 	ast, _ := parser.Parse("a=${b}\nb=${a}")
 	_, err := resolver.Resolve(ast, resolver.Options{})
