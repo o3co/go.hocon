@@ -308,6 +308,57 @@ func TestResolver_IncludeWithExtensionNoProbe(t *testing.T) {
 	}
 }
 
+func TestResolver_IncludePropertiesValuesAreStrings(t *testing.T) {
+	dir := t.TempDir()
+	// .properties values should remain strings even if they look like bool/int/float/null.
+	writeFile(t, filepath.Join(dir, "sub.properties"), `
+a = true
+b = 42
+c = 3.14
+d = null
+`)
+	res := resolveWithDir(t, `x { include "sub" }`, dir)
+	obj, _ := res.Root.Get("x")
+	o := obj.(*resolver.ObjectVal)
+
+	cases := []struct{ key, want string }{
+		{"a", "true"},
+		{"b", "42"},
+		{"c", "3.14"},
+		{"d", "null"},
+	}
+	for _, tc := range cases {
+		v, ok := o.Get(tc.key)
+		if !ok {
+			t.Errorf("key %q not found", tc.key)
+			continue
+		}
+		sv := v.(*resolver.ScalarVal)
+		s, ok := sv.V.(string)
+		if !ok {
+			t.Errorf("key %q: expected string type, got %T (%v)", tc.key, sv.V, sv.V)
+			continue
+		}
+		if s != tc.want {
+			t.Errorf("key %q: expected %q, got %q", tc.key, tc.want, s)
+		}
+	}
+}
+
+func TestResolver_IncludePropertiesExplicitExtension(t *testing.T) {
+	// Even with explicit .properties extension, values should be strings.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sub.properties"), `val = true`)
+
+	res := resolveWithDir(t, `x { include "sub.properties" }`, dir)
+	obj, _ := res.Root.Get("x")
+	v, _ := obj.(*resolver.ObjectVal).Get("val")
+	sv := v.(*resolver.ScalarVal)
+	if _, ok := sv.V.(string); !ok {
+		t.Errorf("expected string, got %T (%v)", sv.V, sv.V)
+	}
+}
+
 func TestResolver_IncludeProbeNotFound(t *testing.T) {
 	dir := t.TempDir()
 	ast, err := parser.Parse(`a { include "nonexistent" }`)
