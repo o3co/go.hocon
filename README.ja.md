@@ -192,7 +192,9 @@ max-size  = "512MiB"
 
 ## 仕様準拠
 
-[Lightbend 公式テストスイート](https://github.com/lightbend/config/tree/main/config/src/test/resources) で検証済み：**13 グループ中 12 グループが PASS**。スキップした 1 グループ（`equiv03/includes.conf`）は `.properties` ファイルのパースが必要で、v1.0 のスコープ外。
+[Lightbend 公式テストスイート](https://github.com/lightbend/config/tree/main/config/src/test/resources) で検証済み：**13/13 グループ PASS**（equiv01–equiv05 + test01–test13）。
+
+[hocon2](https://github.com/o3co/hocon2) の準拠テスト（JSON, YAML, TOML, Properties 出力で 77/77 PASS）でも検証済み。
 
 ## ライセンス
 

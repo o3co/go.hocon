@@ -192,7 +192,9 @@ max-size  = "512MiB"
 
 ## Spec Compliance
 
-Tested against the [Lightbend official test suite](https://github.com/lightbend/config/tree/main/config/src/test/resources): **12/13 test groups pass**. The one skipped group (`equiv03/includes.conf`) requires `.properties` file parsing, which is out of scope for v1.0.
+Tested against the [Lightbend official test suite](https://github.com/lightbend/config/tree/main/config/src/test/resources): **13/13 test groups pass** (equiv01–equiv05 + test01–test13).
+
+Also verified via [hocon2](https://github.com/o3co/hocon2) conformance tests (77/77 pass across JSON, YAML, TOML, and Properties output).
 
 ## License
 
