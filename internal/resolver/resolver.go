@@ -556,12 +556,27 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 		}
 	}
 
+	obj, err := r.parseAndResolve(data, resolvedPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// .properties files: all values must remain strings per HOCON spec.
+	if filepath.Ext(resolvedPath) == ".properties" {
+		coerceToStrings(obj)
+	}
+
+	return obj, nil
+}
+
+// parseAndResolve parses raw HOCON/JSON data and resolves it into an ObjectVal.
+func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, error) {
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
 		return nil, err
 	}
 	childResolver := &resolver{
-		opts:          Options{BaseDir: filepath.Dir(resolvedPath)},
+		opts:          Options{BaseDir: filepath.Dir(filePath)},
 		resolving:     make(map[string]bool),
 		resolvedCache: make(map[string]Val),
 		priorValues:   make(map[string]Val),
@@ -570,9 +585,42 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 	if err != nil {
 		return nil, err
 	}
-	obj2, err := childResolver.resolveSubstitutions(obj, obj)
-	if err != nil {
-		return nil, err
+	return childResolver.resolveSubstitutions(obj, obj)
+}
+
+// coerceToStrings converts all scalar values in obj to strings, recursively.
+// Used for .properties files where all values are strings per spec.
+func coerceToStrings(obj *ObjectVal) {
+	for _, k := range obj.Keys() {
+		v, _ := obj.Get(k)
+		switch vv := v.(type) {
+		case *ScalarVal:
+			if vv.V == nil {
+				vv.V = "null"
+			} else if _, ok := vv.V.(string); !ok {
+				vv.V = fmt.Sprintf("%v", vv.V)
+			}
+		case *ObjectVal:
+			coerceToStrings(vv)
+		case *ArrayVal:
+			coerceArrayToStrings(vv)
+		}
 	}
-	return obj2, nil
+}
+
+func coerceArrayToStrings(arr *ArrayVal) {
+	for i, elem := range arr.Elements {
+		switch vv := elem.(type) {
+		case *ScalarVal:
+			if vv.V == nil {
+				arr.Elements[i] = &ScalarVal{V: "null"}
+			} else if _, ok := vv.V.(string); !ok {
+				arr.Elements[i] = &ScalarVal{V: fmt.Sprintf("%v", vv.V)}
+			}
+		case *ObjectVal:
+			coerceToStrings(vv)
+		case *ArrayVal:
+			coerceArrayToStrings(vv)
+		}
+	}
 }
