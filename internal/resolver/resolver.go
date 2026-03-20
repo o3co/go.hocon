@@ -523,46 +523,52 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 		path = filepath.Join(r.opts.BaseDir, path)
 	}
 
-	paths := []string{path}
-	if filepath.Ext(path) == "" {
-		// No extension: probe known extensions per HOCON spec.
-		paths = nil
-		for _, ext := range includeExtensions {
-			paths = append(paths, path+ext)
-		}
+	// Single file with explicit extension.
+	if filepath.Ext(path) != "" {
+		return r.loadIncludeFile(path)
 	}
 
-	var data []byte
-	var resolvedPath string
-	var lastErr error
-	for _, p := range paths {
-		d, err := os.ReadFile(p)
+	// No extension: probe all known extensions and merge all found files.
+	// Per HOCON spec, .properties first, then .json, then .conf (HOCON last).
+	merged := newObjectVal()
+	found := false
+	for _, ext := range includeExtensions {
+		p := path + ext
+		obj, err := r.loadIncludeFile(p)
 		if err != nil {
-			lastErr = err
-			continue
+			continue // file not found — skip
 		}
-		data = d
-		resolvedPath = p
-		break
+		found = true
+		// Later files override earlier ones: pass new obj as dst (winner).
+		merged = deepMerge(obj, merged)
 	}
-	if data == nil {
-		msg := "cannot read include file: " + lastErr.Error()
-		if filepath.Ext(inc.Path) == "" {
-			msg = fmt.Sprintf("cannot read include file: no file found for %q (tried %v)", inc.Path, includeExtensions)
-		}
+	if !found {
 		return nil, &ResolveError{
-			Message:  msg,
+			Message:  fmt.Sprintf("cannot read include file: no file found for %q (tried %v)", inc.Path, includeExtensions),
+			FilePath: path,
+		}
+	}
+	return merged, nil
+}
+
+// loadIncludeFile reads, parses, and resolves a single include file.
+// Returns an error if the file does not exist or cannot be parsed.
+func (r *resolver) loadIncludeFile(path string) (*ObjectVal, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, &ResolveError{
+			Message:  "cannot read include file: " + err.Error(),
 			FilePath: path,
 		}
 	}
 
-	obj, err := r.parseAndResolve(data, resolvedPath)
+	obj, err := r.parseAndResolve(data, path)
 	if err != nil {
 		return nil, err
 	}
 
 	// .properties files: all values must remain strings per HOCON spec.
-	if filepath.Ext(resolvedPath) == ".properties" {
+	if filepath.Ext(path) == ".properties" {
 		coerceToStrings(obj)
 	}
 
