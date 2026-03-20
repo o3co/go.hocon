@@ -26,11 +26,7 @@ func TestLightbendEquiv(t *testing.T) {
 	baseDir := "testdata/hocon"
 
 	// Known skip reasons for specific test files
-	skipFiles := map[string]string{
-		// equiv03/includes.conf uses include with .properties files and
-		// relative include paths that require classpath-like resolution
-		"equiv03/includes.conf": "uses include of .properties and relative sub-includes",
-	}
+	skipFiles := map[string]string{}
 
 	for i := 1; i <= 5; i++ {
 		dir := filepath.Join(baseDir, fmt.Sprintf("equiv%02d", i))
