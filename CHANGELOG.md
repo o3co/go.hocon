@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-20
+
+### Fixed
+- Extensionless `include` now loads **all** matching files (`.properties`, `.json`, `.conf`) and deep-merges them, instead of stopping at the first match. Later formats override earlier ones for conflicting keys. (Closes #4)
+- `.properties` file values included via `include` are now treated as strings per the HOCON spec, instead of being type-inferred as bool/int/float. (Closes #5)
+
+### Changed
+- Lightbend conformance test suite: **13/13** groups pass (previously 12/13 — `equiv03` was skipped)
+
 ## [0.2.1] - 2026-03-20
 
 ### Fixed
@@ -88,7 +97,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README in English and Japanese.
 - Apache 2.0 LICENSE.
 
-[Unreleased]: https://github.com/o3co/go.hocon/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/o3co/go.hocon/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/o3co/go.hocon/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/o3co/go.hocon/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/o3co/go.hocon/compare/v0.1.8...v0.2.0
 [0.1.8]: https://github.com/o3co/go.hocon/compare/v0.1.7...v0.1.8
