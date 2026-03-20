@@ -399,6 +399,83 @@ func TestResolver_IncludePropertiesExplicitExtension(t *testing.T) {
 	}
 }
 
+func TestResolver_IncludePropertiesNestedObject(t *testing.T) {
+	// Nested objects in .properties files should also have string values.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sub.properties"), `
+inner {
+  a = 42
+  b = true
+}
+`)
+	res := resolveWithDir(t, `x { include "sub" }`, dir)
+	obj, _ := res.Root.Get("x")
+	inner, _ := obj.(*resolver.ObjectVal).Get("inner")
+	o := inner.(*resolver.ObjectVal)
+
+	v1, _ := o.Get("a")
+	if sv := v1.(*resolver.ScalarVal); sv.V != "42" {
+		t.Errorf("nested a: expected string \"42\", got %T %v", sv.V, sv.V)
+	}
+	v2, _ := o.Get("b")
+	if sv := v2.(*resolver.ScalarVal); sv.V != "true" {
+		t.Errorf("nested b: expected string \"true\", got %T %v", sv.V, sv.V)
+	}
+}
+
+func TestResolver_IncludePropertiesArray(t *testing.T) {
+	// Arrays in .properties files should have string elements,
+	// including nested objects and arrays.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sub.properties"), `
+arr = [1, true, 3.14, null]
+nested = [{a = 42}, [false]]
+`)
+
+	res := resolveWithDir(t, `x { include "sub" }`, dir)
+	obj, _ := res.Root.Get("x")
+
+	// Simple array
+	v, _ := obj.(*resolver.ObjectVal).Get("arr")
+	arr := v.(*resolver.ArrayVal)
+	expected := []string{"1", "true", "3.14", "null"}
+	for i, want := range expected {
+		sv := arr.Elements[i].(*resolver.ScalarVal)
+		if s, ok := sv.V.(string); !ok || s != want {
+			t.Errorf("arr[%d]: expected string %q, got %T %v", i, want, sv.V, sv.V)
+		}
+	}
+
+	// Nested array with object and sub-array
+	v2, _ := obj.(*resolver.ObjectVal).Get("nested")
+	nested := v2.(*resolver.ArrayVal)
+	// First element: object {a = 42} → a should be string "42"
+	innerObj := nested.Elements[0].(*resolver.ObjectVal)
+	va, _ := innerObj.Get("a")
+	if sv := va.(*resolver.ScalarVal); sv.V != "42" {
+		t.Errorf("nested[0].a: expected string \"42\", got %T %v", sv.V, sv.V)
+	}
+	// Second element: array [false] → should be string "false"
+	innerArr := nested.Elements[1].(*resolver.ArrayVal)
+	sv := innerArr.Elements[0].(*resolver.ScalarVal)
+	if s, ok := sv.V.(string); !ok || s != "false" {
+		t.Errorf("nested[1][0]: expected string \"false\", got %T %v", sv.V, sv.V)
+	}
+}
+
+func TestResolver_IncludeExplicitExtensionNotFound(t *testing.T) {
+	// Explicit extension that doesn't exist should error.
+	dir := t.TempDir()
+	ast, err := parser.Parse(`a { include "missing.conf" }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected error for missing include file")
+	}
+}
+
 func TestResolver_IncludeProbeNotFound(t *testing.T) {
 	dir := t.TempDir()
 	ast, err := parser.Parse(`a { include "nonexistent" }`)
