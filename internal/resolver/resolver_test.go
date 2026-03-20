@@ -281,17 +281,57 @@ func TestResolver_IncludeProbeProperties(t *testing.T) {
 	}
 }
 
-func TestResolver_IncludeProbeOrder(t *testing.T) {
-	// When both .properties and .conf exist, .properties is found first.
+func TestResolver_IncludeMergeAll(t *testing.T) {
+	// When multiple extensions exist, all are loaded and merged.
+	// Later formats (.conf) override earlier ones (.properties).
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "sub.properties"), `x = "props"`)
-	writeFile(t, filepath.Join(dir, "sub.conf"), `x = "conf"`)
+	writeFile(t, filepath.Join(dir, "sub.conf"), `x = "conf"
+y = "only-conf"`)
 
 	res := resolveWithDir(t, `a { include "sub" }`, dir)
 	obj, _ := res.Root.Get("a")
-	v, _ := obj.(*resolver.ObjectVal).Get("x")
-	if sv := v.(*resolver.ScalarVal); sv.V != "props" {
-		t.Errorf("expected props (first probe), got %v", sv.V)
+	o := obj.(*resolver.ObjectVal)
+
+	// x exists in both: .conf wins (parsed last per spec).
+	v, _ := o.Get("x")
+	if sv := v.(*resolver.ScalarVal); sv.V != "conf" {
+		t.Errorf("expected conf (later override), got %v", sv.V)
+	}
+	// y exists only in .conf: should be present.
+	v2, ok := o.Get("y")
+	if !ok {
+		t.Fatal("y not found — merge missed .conf-only key")
+	}
+	if sv := v2.(*resolver.ScalarVal); sv.V != "only-conf" {
+		t.Errorf("expected only-conf, got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeMergeAllWithProperties(t *testing.T) {
+	// Keys unique to .properties are preserved after merge.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sub.properties"), `p = "from-props"`)
+	writeFile(t, filepath.Join(dir, "sub.conf"), `c = "from-conf"`)
+
+	res := resolveWithDir(t, `a { include "sub" }`, dir)
+	obj, _ := res.Root.Get("a")
+	o := obj.(*resolver.ObjectVal)
+
+	v1, ok1 := o.Get("p")
+	if !ok1 {
+		t.Fatal("p not found")
+	}
+	if sv := v1.(*resolver.ScalarVal); sv.V != "from-props" {
+		t.Errorf("expected from-props, got %v", sv.V)
+	}
+
+	v2, ok2 := o.Get("c")
+	if !ok2 {
+		t.Fatal("c not found")
+	}
+	if sv := v2.(*resolver.ScalarVal); sv.V != "from-conf" {
+		t.Errorf("expected from-conf, got %v", sv.V)
 	}
 }
 
