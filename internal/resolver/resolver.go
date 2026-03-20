@@ -513,24 +513,55 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 	obj.set(segments[0], childObj)
 }
 
+// includeExtensions is the list of extensions to probe when an include path
+// has no extension, per the HOCON spec (properties first, then JSON, then HOCON).
+var includeExtensions = []string{".properties", ".json", ".conf"}
+
 func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 	path := inc.Path
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(r.opts.BaseDir, path)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
+
+	paths := []string{path}
+	if filepath.Ext(path) == "" {
+		// No extension: probe known extensions per HOCON spec.
+		paths = nil
+		for _, ext := range includeExtensions {
+			paths = append(paths, path+ext)
+		}
+	}
+
+	var data []byte
+	var resolvedPath string
+	var lastErr error
+	for _, p := range paths {
+		d, err := os.ReadFile(p)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		data = d
+		resolvedPath = p
+		break
+	}
+	if data == nil {
+		msg := "cannot read include file: " + lastErr.Error()
+		if filepath.Ext(inc.Path) == "" {
+			msg = fmt.Sprintf("cannot read include file: no file found for %q (tried %v)", inc.Path, includeExtensions)
+		}
 		return nil, &ResolveError{
-			Message:  "cannot read include file: " + err.Error(),
+			Message:  msg,
 			FilePath: path,
 		}
 	}
+
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
 		return nil, err
 	}
 	childResolver := &resolver{
-		opts:          Options{BaseDir: filepath.Dir(path)},
+		opts:          Options{BaseDir: filepath.Dir(resolvedPath)},
 		resolving:     make(map[string]bool),
 		resolvedCache: make(map[string]Val),
 		priorValues:   make(map[string]Val),
