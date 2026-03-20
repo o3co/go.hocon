@@ -1,6 +1,8 @@
 package resolver_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -202,5 +204,111 @@ func TestResolver_ObjectPlusEqualsAppendsArray(t *testing.T) {
 	arr := v.(*resolver.ArrayVal)
 	if len(arr.Elements) != 3 {
 		t.Errorf("expected 3 elements, got %d", len(arr.Elements))
+	}
+}
+
+func resolveWithDir(t *testing.T, src, baseDir string) *resolver.Result {
+	t.Helper()
+	ast, err := parser.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	res, err := resolver.Resolve(ast, resolver.Options{BaseDir: baseDir})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	return res
+}
+
+func TestResolver_IncludeProbeConf(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "sub.conf"), []byte(`x = "from-conf"`), 0o644)
+
+	res := resolveWithDir(t, `a { include "sub" }`, dir)
+	obj, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	v, ok := obj.(*resolver.ObjectVal).Get("x")
+	if !ok {
+		t.Fatal("x not found")
+	}
+	if sv := v.(*resolver.ScalarVal); sv.V != "from-conf" {
+		t.Errorf("expected from-conf, got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeProbeJSON(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "sub.json"), []byte(`{"y": "from-json"}`), 0o644)
+
+	res := resolveWithDir(t, `a { include "sub" }`, dir)
+	obj, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	v, ok := obj.(*resolver.ObjectVal).Get("y")
+	if !ok {
+		t.Fatal("y not found")
+	}
+	if sv := v.(*resolver.ScalarVal); sv.V != "from-json" {
+		t.Errorf("expected from-json, got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeProbeProperties(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "sub.properties"), []byte(`z = "from-props"`), 0o644)
+
+	res := resolveWithDir(t, `a { include "sub" }`, dir)
+	obj, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	v, ok := obj.(*resolver.ObjectVal).Get("z")
+	if !ok {
+		t.Fatal("z not found")
+	}
+	if sv := v.(*resolver.ScalarVal); sv.V != "from-props" {
+		t.Errorf("expected from-props, got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeProbeOrder(t *testing.T) {
+	// When both .properties and .conf exist, .properties is found first.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "sub.properties"), []byte(`x = "props"`), 0o644)
+	os.WriteFile(filepath.Join(dir, "sub.conf"), []byte(`x = "conf"`), 0o644)
+
+	res := resolveWithDir(t, `a { include "sub" }`, dir)
+	obj, _ := res.Root.Get("a")
+	v, _ := obj.(*resolver.ObjectVal).Get("x")
+	if sv := v.(*resolver.ScalarVal); sv.V != "props" {
+		t.Errorf("expected props (first probe), got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeWithExtensionNoProbe(t *testing.T) {
+	// When an explicit extension is given, no probing should occur.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "sub.conf"), []byte(`x = "direct"`), 0o644)
+
+	res := resolveWithDir(t, `a { include "sub.conf" }`, dir)
+	obj, _ := res.Root.Get("a")
+	v, _ := obj.(*resolver.ObjectVal).Get("x")
+	if sv := v.(*resolver.ScalarVal); sv.V != "direct" {
+		t.Errorf("expected direct, got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeProbeNotFound(t *testing.T) {
+	dir := t.TempDir()
+	ast, err := parser.Parse(`a { include "nonexistent" }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected error for missing include, got nil")
 	}
 }
