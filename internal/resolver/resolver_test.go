@@ -220,9 +220,16 @@ func resolveWithDir(t *testing.T, src, baseDir string) *resolver.Result {
 	return res
 }
 
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResolver_IncludeProbeConf(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "sub.conf"), []byte(`x = "from-conf"`), 0o644)
+	writeFile(t, filepath.Join(dir, "sub.conf"), `x = "from-conf"`)
 
 	res := resolveWithDir(t, `a { include "sub" }`, dir)
 	obj, ok := res.Root.Get("a")
@@ -240,7 +247,7 @@ func TestResolver_IncludeProbeConf(t *testing.T) {
 
 func TestResolver_IncludeProbeJSON(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "sub.json"), []byte(`{"y": "from-json"}`), 0o644)
+	writeFile(t, filepath.Join(dir, "sub.json"), `{"y": "from-json"}`)
 
 	res := resolveWithDir(t, `a { include "sub" }`, dir)
 	obj, ok := res.Root.Get("a")
@@ -258,7 +265,7 @@ func TestResolver_IncludeProbeJSON(t *testing.T) {
 
 func TestResolver_IncludeProbeProperties(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "sub.properties"), []byte(`z = "from-props"`), 0o644)
+	writeFile(t, filepath.Join(dir, "sub.properties"), `z = "from-props"`)
 
 	res := resolveWithDir(t, `a { include "sub" }`, dir)
 	obj, ok := res.Root.Get("a")
@@ -277,8 +284,8 @@ func TestResolver_IncludeProbeProperties(t *testing.T) {
 func TestResolver_IncludeProbeOrder(t *testing.T) {
 	// When both .properties and .conf exist, .properties is found first.
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "sub.properties"), []byte(`x = "props"`), 0o644)
-	os.WriteFile(filepath.Join(dir, "sub.conf"), []byte(`x = "conf"`), 0o644)
+	writeFile(t, filepath.Join(dir, "sub.properties"), `x = "props"`)
+	writeFile(t, filepath.Join(dir, "sub.conf"), `x = "conf"`)
 
 	res := resolveWithDir(t, `a { include "sub" }`, dir)
 	obj, _ := res.Root.Get("a")
@@ -291,7 +298,7 @@ func TestResolver_IncludeProbeOrder(t *testing.T) {
 func TestResolver_IncludeWithExtensionNoProbe(t *testing.T) {
 	// When an explicit extension is given, no probing should occur.
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "sub.conf"), []byte(`x = "direct"`), 0o644)
+	writeFile(t, filepath.Join(dir, "sub.conf"), `x = "direct"`)
 
 	res := resolveWithDir(t, `a { include "sub.conf" }`, dir)
 	obj, _ := res.Root.Get("a")
