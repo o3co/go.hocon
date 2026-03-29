@@ -23,3 +23,6 @@ coverage.out
 
 # Claude Code (local-only settings)
 .claude/settings.local.json
+
+# Superpowers (development process artifacts)
+docs/superpowers/
