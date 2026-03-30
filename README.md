@@ -196,8 +196,18 @@ Tested against the [Lightbend official test suite](https://github.com/lightbend/
 
 Also verified via [hocon2](https://github.com/o3co/hocon2) conformance tests (77/77 pass across JSON, YAML, TOML, and Properties output).
 
+## Related Projects
+
+| Project | Language | Description |
+|---------|----------|-------------|
+| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | HOCON parser for Rust |
+| [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | HOCON parser for TypeScript/Node.js |
+| [hocon2](https://github.com/o3co/hocon2) | Go | CLI tools to convert HOCON → JSON/YAML/TOML/Properties |
+
+All implementations are full Lightbend HOCON spec compliant.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
 
-Copyright 2026 o3co Inc.
+Copyright 2026 1o1 Co. Ltd.
