@@ -55,6 +55,18 @@ go test -v -run TestLightbend ./...
 3. Ensure `go test ./...` passes
 4. Open a PR against `develop` with a clear description of what and why
 
+## Releasing
+
+Go modules are versioned by git tags — there is no version file to bump.
+CI triggers Go module proxy indexing automatically when a `v*` tag is pushed.
+
+```bash
+git tag v0.4.0
+git push origin v0.4.0
+```
+
+That's it. The Go module proxy picks up the new version within minutes.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
