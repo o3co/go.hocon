@@ -232,7 +232,7 @@ config/
 ### Validation
 
 - Always validate config at application startup, not at point-of-use
-- Use schema validation (Zod for TypeScript, struct unmarshaling for Go, Serde for Rust) to catch errors early
+- Use schema validation (Zod for TypeScript, struct unmarshalling for Go, Serde for Rust) to catch errors early
 
 ```go
 conf, err := hocon.ParseString(`

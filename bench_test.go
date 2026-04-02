@@ -25,6 +25,9 @@ var benchSink string
 // generateConfig builds a HOCON string with totalKeys spread across maxDepth
 // groups, returning the HOCON text and a sample lookup path.
 func generateConfig(totalKeys, maxDepth int) (hocon string, samplePath string) {
+	if maxDepth > totalKeys {
+		maxDepth = totalKeys
+	}
 	var b strings.Builder
 	keysPerGroup := totalKeys / maxDepth
 	if keysPerGroup < 1 {
@@ -49,6 +52,9 @@ func generateConfig(totalKeys, maxDepth int) (hocon string, samplePath string) {
 // generateWithSubstitutions builds a HOCON string containing base keys and
 // count substitution references, returning the text and a sample lookup path.
 func generateWithSubstitutions(count int) (hocon string, samplePath string) {
+	if count <= 0 {
+		return "", ""
+	}
 	total := count * 2
 	var b strings.Builder
 
