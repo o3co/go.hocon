@@ -1,4 +1,4 @@
-# go.hocon
+# go.hocon — HOCON Parser for Go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/o3co/go.hocon.svg)](https://pkg.go.dev/github.com/o3co/go.hocon)
 [![Go Report Card](https://goreportcard.com/badge/github.com/o3co/go.hocon)](https://goreportcard.com/report/github.com/o3co/go.hocon)
@@ -208,11 +208,11 @@ Also verified via [hocon2](https://github.com/o3co/hocon2) conformance tests (77
 
 ## Related Projects
 
-| Project | Language | Description |
-|---------|----------|-------------|
-| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | HOCON parser for Rust |
-| [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | HOCON parser for TypeScript/Node.js |
-| [hocon2](https://github.com/o3co/hocon2) | Go | CLI tools to convert HOCON → JSON/YAML/TOML/Properties |
+| Project | Language | Registry | Description |
+|---------|----------|----------|-------------|
+| [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | [npm](https://www.npmjs.com/package/@o3co/ts.hocon) | HOCON parser for TypeScript/Node.js |
+| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/o3co-hocon) | HOCON parser for Rust |
+| [hocon2](https://github.com/o3co/hocon2) | Go | [pkg.go.dev](https://pkg.go.dev/github.com/o3co/hocon2) | HOCON → JSON/YAML/TOML/Properties CLI |
 
 All implementations are full Lightbend HOCON spec compliant.
 

@@ -1,4 +1,4 @@
-# go.hocon
+# go.hocon — Go 向け HOCON パーサー
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/o3co/go.hocon.svg)](https://pkg.go.dev/github.com/o3co/go.hocon)
 [![Go Report Card](https://goreportcard.com/badge/github.com/o3co/go.hocon)](https://goreportcard.com/report/github.com/o3co/go.hocon)
@@ -208,11 +208,11 @@ max-size  = "512MiB"
 
 ## 関連プロジェクト
 
-| プロジェクト | 言語 | 説明 |
-|---------|----------|-------------|
-| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | Rust 向け HOCON パーサー |
-| [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | TypeScript/Node.js 向け HOCON パーサー |
-| [hocon2](https://github.com/o3co/hocon2) | Go | HOCON → JSON/YAML/TOML/Properties 変換 CLI ツール |
+| プロジェクト | 言語 | レジストリ | 説明 |
+|---------|----------|----------|-------------|
+| [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | [npm](https://www.npmjs.com/package/@o3co/ts.hocon) | TypeScript/Node.js 向け HOCON パーサー |
+| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/o3co-hocon) | Rust 向け HOCON パーサー |
+| [hocon2](https://github.com/o3co/hocon2) | Go | [pkg.go.dev](https://pkg.go.dev/github.com/o3co/hocon2) | HOCON → JSON/YAML/TOML/Properties 変換 CLI |
 
 すべての実装が Lightbend HOCON 仕様に完全準拠しています。
 
