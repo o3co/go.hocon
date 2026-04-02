@@ -206,6 +206,44 @@ Also verified via [hocon2](https://github.com/o3co/hocon2) conformance tests (77
 
 All implementations are full Lightbend HOCON spec compliant.
 
+## Best Practices
+
+### Config Structure
+
+- **Split by domain**: Separate configuration into logical units (`database.conf`, `server.conf`, `logging.conf`)
+- **Use `include` for composition**: Compose a full config from domain-specific files
+- **Avoid logic in config**: HOCON is for declarative data, not conditionals or computation
+
+### Environment Variables
+
+- **Minimize `${ENV}` usage**: Prefer `${?ENV}` (optional) with sensible defaults defined in the config itself
+- **Never require env vars for local development**: Defaults should work out of the box
+- **Document required env vars**: List them in your project's README or a `.env.example`
+
+### Dev / Prod Separation
+
+```text
+config/
+├── application.conf    # shared defaults
+├── dev.conf            # include "application.conf" + dev overrides
+└── prod.conf           # include "application.conf" + prod overrides
+```
+
+### Validation
+
+- Always validate config at application startup, not at point-of-use
+- Use schema validation (Zod for TypeScript, struct unmarshaling for Go, Serde for Rust) to catch errors early
+
+```go
+var cfg struct {
+    Server struct { Host string; Port int } `hocon:"server"`
+    Debug  bool                             `hocon:"debug"`
+}
+if err := config.Unmarshal(&cfg); err != nil {
+    log.Fatal(err) // fails fast on startup
+}
+```
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
