@@ -235,11 +235,22 @@ config/
 - Use schema validation (Zod for TypeScript, struct unmarshaling for Go, Serde for Rust) to catch errors early
 
 ```go
-var cfg struct {
+conf, err := hocon.ParseString(`
+server {
+  host = "localhost"
+  port = 8080
+}
+debug = true
+`)
+if err != nil {
+    log.Fatal(err)
+}
+
+var app struct {
     Server struct { Host string; Port int } `hocon:"server"`
     Debug  bool                             `hocon:"debug"`
 }
-if err := config.Unmarshal(&cfg); err != nil {
+if err := conf.Unmarshal(&app); err != nil {
     log.Fatal(err) // fails fast on startup
 }
 ```

@@ -16,6 +16,8 @@ import (
 	"github.com/o3co/go.hocon"
 )
 
+var benchSink string
+
 // ---------------------------------------------------------------------------
 // Fixture generators (mirrors ts.hocon/tests/bench/fixtures.ts)
 // ---------------------------------------------------------------------------
@@ -165,7 +167,10 @@ func benchParse(b *testing.B, input, path string) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cfg, _ = hocon.ParseString(input)
-		_ = cfg.GetString(path)
+		cfg, err = hocon.ParseString(input)
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchSink = cfg.GetString(path)
 	}
 }
