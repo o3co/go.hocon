@@ -10,10 +10,55 @@
 A full [Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) spec-compliant Go library.
 
 > **Implemented by [Claude](https://claude.ai/) (Anthropic)** — designed and built end-to-end with Claude Code.
+> Reviewed by [GitHub Copilot](https://github.com/features/copilot) and [OpenAI Codex](https://openai.com/index/openai-codex/).
 
 [日本語](README.ja.md)
 
 ---
+
+## Quick Start
+
+### 1. Install
+
+```bash
+go get github.com/o3co/go.hocon
+```
+
+Requires Go 1.21+.
+
+### 2. Use
+
+```go
+import "github.com/o3co/go.hocon"
+
+cfg, err := hocon.ParseString(`
+  server {
+    host = "localhost"
+    port = 8080
+  }
+`)
+if err != nil {
+    log.Fatal(err)
+}
+
+host := cfg.GetString("server.host")  // "localhost"
+port := cfg.GetInt("server.port")     // 8080
+```
+
+## Why HOCON?
+
+| | `.env` | JSON | YAML | HOCON |
+|---|---|---|---|---|
+| Comments | No | No | Yes | Yes |
+| Nesting | No | Yes | Yes | Yes |
+| References / Substitution | No | No | No | Yes (`${var}`) |
+| File inclusion | No | No | No | Yes (`include`) |
+| Object merging | No | No | Anchors (fragile) | Yes (deep merge) |
+| Optional values | No | No | No | Yes (`${?var}`) |
+| Trailing commas | N/A | No | N/A | Yes |
+| Unquoted strings | Yes | No | Yes | Yes |
+
+HOCON gives you the readability of YAML, the structure of JSON, and features that neither has — substitutions, includes, and deep merge. If your config is more than a few flat key-value pairs, HOCON is worth considering.
 
 ## Features
 
@@ -28,41 +73,6 @@ A full [Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md)
 - Generic `Option[T]` for safe optional access
 - Struct unmarshalling with `hocon` struct tags
 - No external dependencies — standard library only
-
-## Installation
-
-```bash
-go get github.com/o3co/go.hocon
-```
-
-Requires Go 1.21+.
-
-## Quick Start
-
-```go
-import "github.com/o3co/go.hocon"
-
-// Parse from string
-cfg, err := hocon.ParseString(`
-  server {
-    host = "localhost"
-    port = 8080
-    timeout = "30s"
-  }
-`)
-
-// Parse from file
-cfg, err = hocon.ParseFile("application.conf")
-
-// Scalar getters (panic on missing/wrong type)
-host := cfg.GetString("server.host")       // "localhost"
-port := cfg.GetInt("server.port")          // 8080
-timeout := cfg.GetDuration("server.timeout") // 30 * time.Second
-
-// Option variants (safe, never panic)
-host := cfg.GetStringOption("server.host").OrElse("localhost")
-port := cfg.GetInt64Option("server.port").OrElse(8080)
-```
 
 ## API
 
