@@ -429,3 +429,20 @@ func TestConfig_BOM_ParseString(t *testing.T) {
 		t.Errorf("got %q, want %q", got, "bar")
 	}
 }
+
+func TestRequiredIncludeMissingFile(t *testing.T) {
+	_, err := hocon.ParseString(`include required("nonexistent.conf")`)
+	if err == nil {
+		t.Error("expected error for missing required include")
+	}
+}
+
+func TestOptionalIncludeMissingFile(t *testing.T) {
+	cfg, err := hocon.ParseString("include \"nonexistent.conf\"\na = 1")
+	if err != nil {
+		t.Fatalf("non-required missing include should not error: %v", err)
+	}
+	if got := cfg.GetInt64("a"); got != 1 {
+		t.Errorf("got %d, want 1", got)
+	}
+}

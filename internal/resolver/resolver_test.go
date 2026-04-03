@@ -464,26 +464,53 @@ nested = [{a = 42}, [false]]
 }
 
 func TestResolver_IncludeExplicitExtensionNotFound(t *testing.T) {
-	// Explicit extension that doesn't exist should error.
+	// Non-required include with explicit extension: missing file is silently ignored per HOCON spec.
 	dir := t.TempDir()
 	ast, err := parser.Parse(`a { include "missing.conf" }`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err != nil {
+		t.Fatalf("non-required missing include should not error: %v", err)
+	}
+}
+
+func TestResolver_IncludeRequiredExplicitExtensionNotFound(t *testing.T) {
+	// required() include with explicit extension: missing file must error.
+	dir := t.TempDir()
+	ast, err := parser.Parse(`a { include required("missing.conf") }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
 	if err == nil {
-		t.Fatal("expected error for missing include file")
+		t.Fatal("expected error for missing required include file")
 	}
 }
 
 func TestResolver_IncludeProbeNotFound(t *testing.T) {
+	// Non-required extensionless include: no files found should silently return empty per HOCON spec.
 	dir := t.TempDir()
 	ast, err := parser.Parse(`a { include "nonexistent" }`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err != nil {
+		t.Fatalf("non-required missing include should not error: %v", err)
+	}
+}
+
+func TestResolver_IncludeRequiredProbeNotFound(t *testing.T) {
+	// required() extensionless include: no files found must error.
+	dir := t.TempDir()
+	ast, err := parser.Parse(`a { include required("nonexistent") }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
 	if err == nil {
-		t.Fatal("expected error for missing include, got nil")
+		t.Fatal("expected error for missing required extensionless include")
 	}
 }
