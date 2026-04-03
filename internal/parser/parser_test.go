@@ -193,7 +193,7 @@ func TestBracedRootParseError(t *testing.T) {
 	// Braced root with a syntax error inside — exercises the error return
 	// in parseRoot when parseObject fails (e.g., unclosed brace, bad field).
 	tests := []string{
-		`{ a = 1`,         // missing closing brace
+		`{ a = 1`,        // missing closing brace
 		`{ a = 1; = bad`, // invalid field inside braced root
 	}
 	for _, input := range tests {
