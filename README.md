@@ -229,7 +229,7 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 | Substitutions (`${path}`) | ✅ | ✅ |
 | Optional substitutions (`${?path}`) | ✅ | ✅ |
 | Include | ✅ | ✅ |
-| `include required()` | ✅ | ❌ |
+| `include required(file(...))` | ✅ | ❌ |
 | Object/Array concatenation | ✅ | ⚠️ |
 | Type coercion | ✅ | ⚠️ |
 | Duration parsing (`30s`, `5m`) | ✅ | ✅ |

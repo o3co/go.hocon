@@ -1,4 +1,4 @@
-// Copyright 2026 o3co Inc.
+// Copyright 2026 1o1 Co. Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -10,7 +10,6 @@ package hocon
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -577,4 +576,3 @@ func mergeObjectVals(over, base *resolver.ObjectVal) *resolver.ObjectVal {
 	return result
 }
 
-var _ = math.IsInf // ensure math is used (for float32 overflow docs)
