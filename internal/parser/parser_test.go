@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -129,6 +130,109 @@ func TestParser_NullBoolNumbers(t *testing.T) {
 		if sc.Value != tc.want {
 			t.Errorf("[%d] got %v (%T), want %v", tc.idx, sc.Value, sc.Value, tc.want)
 		}
+	}
+}
+
+func TestBracedRootObjectConcat(t *testing.T) {
+	obj := mustParse(t, "{ a = 1 } { b = 2 }")
+	hasA, hasB := false, false
+	for _, f := range obj.Fields {
+		if len(f.Key) > 0 && f.Key[0] == "a" {
+			hasA = true
+		}
+		if len(f.Key) > 0 && f.Key[0] == "b" {
+			hasB = true
+		}
+	}
+	if !hasA || !hasB {
+		t.Errorf("expected both a and b in merged root, got fields: %v", obj.Fields)
+	}
+}
+
+func TestBracedRootWithTrailingFields(t *testing.T) {
+	obj := mustParse(t, "{ a = 1 }\nb = 2")
+	hasA, hasB := false, false
+	for _, f := range obj.Fields {
+		if len(f.Key) > 0 && f.Key[0] == "a" {
+			hasA = true
+		}
+		if len(f.Key) > 0 && f.Key[0] == "b" {
+			hasB = true
+		}
+	}
+	if !hasA || !hasB {
+		t.Errorf("expected both a and b, got fields: %v", obj.Fields)
+	}
+}
+
+func TestBracedRootMultipleObjects(t *testing.T) {
+	obj := mustParse(t, "{ a = 1 }\n{ b = 2 }\n{ c = 3 }")
+	if len(obj.Fields) != 3 {
+		t.Errorf("expected 3 fields, got %d", len(obj.Fields))
+	}
+}
+
+func TestBracedRootWithTrailingCommentsOK(t *testing.T) {
+	// Trailing comments after a braced root should be fine
+	inputs := []string{
+		"{ a = 1 }\n# comment",
+		"{ a = 1 }\n// comment",
+		"{ a = 1 }\n",
+	}
+	for _, input := range inputs {
+		t.Run(input, func(t *testing.T) {
+			_, err := parser.Parse(input)
+			if err != nil {
+				t.Errorf("unexpected error for valid input %q: %v", input, err)
+			}
+		})
+	}
+}
+
+func TestBracedRootParseError(t *testing.T) {
+	// Braced root with a syntax error inside — exercises the error return
+	// in parseRoot when parseObject fails (e.g., unclosed brace, bad field).
+	tests := []string{
+		`{ a = 1`,        // missing closing brace
+		`{ a = 1; = bad`, // invalid field inside braced root
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			_, err := parser.Parse(input)
+			if err == nil {
+				t.Errorf("expected error for malformed braced root: %s", input)
+			}
+		})
+	}
+}
+
+func TestParserUnterminatedString(t *testing.T) {
+	_, err := parser.Parse(`a = "unterminated`)
+	if err == nil {
+		t.Fatal("expected error for unterminated string")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("expected error to mention 'unterminated', got: %v", err)
+	}
+}
+
+func TestParserUnterminatedSubstitution(t *testing.T) {
+	_, err := parser.Parse(`a = ${unclosed`)
+	if err == nil {
+		t.Fatal("expected error for unterminated substitution")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("expected error to mention 'unterminated', got: %v", err)
+	}
+}
+
+func TestParserUnterminatedTripleQuote(t *testing.T) {
+	_, err := parser.Parse(`a = """unterminated`)
+	if err == nil {
+		t.Fatal("expected error for unterminated triple-quoted string")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("expected error to mention 'unterminated', got: %v", err)
 	}
 }
 

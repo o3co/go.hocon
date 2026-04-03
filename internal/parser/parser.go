@@ -47,10 +47,41 @@ func (p *parser) skipNewlines() {
 func (p *parser) parseRoot() (*ObjectNode, error) {
 	p.skipNewlines()
 	// root may be a bare object (no braces) or an explicit { ... }
-	if p.current.Type == lexer.TokenLBrace {
-		return p.parseObject()
+	if p.current.Type != lexer.TokenLBrace {
+		return p.parseObjectFields(false)
 	}
-	return p.parseObjectFields(false)
+
+	// Parse the first braced object, then continue merging any
+	// additional content (braced objects or unbraced fields).
+	// In HOCON, `{ a = 1 } { b = 2 }` and `{ a = 1 }\nb = 2`
+	// are both valid — trailing content merges into the root.
+	root, err := p.parseObject()
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		p.skipNewlines()
+		if p.current.Type == lexer.TokenEOF {
+			break
+		}
+		if p.current.Type == lexer.TokenLBrace {
+			// Another braced object — merge its fields
+			obj, err := p.parseObject()
+			if err != nil {
+				return nil, err
+			}
+			root.Fields = append(root.Fields, obj.Fields...)
+		} else {
+			// Unbraced trailing fields — parse and merge
+			obj, err := p.parseObjectFields(false)
+			if err != nil {
+				return nil, err
+			}
+			root.Fields = append(root.Fields, obj.Fields...)
+		}
+	}
+	return root, nil
 }
 
 func (p *parser) parseObject() (*ObjectNode, error) {
@@ -68,6 +99,9 @@ func (p *parser) parseObjectFields(braced bool) (*ObjectNode, error) {
 	obj := &ObjectNode{}
 	for {
 		p.skipNewlines()
+		if p.current.Type == lexer.TokenError {
+			return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+		}
 		if braced && p.current.Type == lexer.TokenRBrace {
 			p.advance()
 			break
@@ -179,6 +213,9 @@ func (p *parser) parseField() (*FieldNode, error) {
 }
 
 func (p *parser) parseKey() ([]string, error) {
+	if p.current.Type == lexer.TokenError {
+		return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+	}
 	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt {
 		return nil, fmt.Errorf("parse error at line %d, col %d: expected key, got %v", p.current.Line, p.current.Col, p.current.Type)
 	}
@@ -258,6 +295,9 @@ func (p *parser) parseValue() (Node, error) {
 }
 
 func (p *parser) parseSingleValue() (Node, error) {
+	if p.current.Type == lexer.TokenError {
+		return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+	}
 	line, col := p.current.Line, p.current.Col
 	switch p.current.Type {
 	case lexer.TokenLBrace:

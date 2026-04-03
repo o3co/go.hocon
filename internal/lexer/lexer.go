@@ -38,6 +38,7 @@ const (
 	TokenInclude                          // include keyword
 	TokenNewline                          // \n
 	TokenEOF
+	TokenError // lexer error (e.g. unterminated string)
 )
 
 // Token is a single lexed unit.
@@ -212,6 +213,7 @@ func (l *Lexer) readString(line, col int) Token {
 	}
 	// regular quoted string
 	var sb strings.Builder
+	closed := false
 	for {
 		ch, ok := l.peek()
 		if !ok || ch == '\n' {
@@ -219,6 +221,7 @@ func (l *Lexer) readString(line, col int) Token {
 		}
 		l.advance()
 		if ch == '"' {
+			closed = true
 			break
 		}
 		if ch == '\\' {
@@ -246,11 +249,15 @@ func (l *Lexer) readString(line, col int) Token {
 		}
 		sb.WriteRune(ch)
 	}
+	if !closed {
+		return Token{Type: TokenError, Value: "unterminated quoted string", Line: line, Col: col}
+	}
 	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
 }
 
 func (l *Lexer) readTripleQuoted(line, col int) Token {
 	var sb strings.Builder
+	closed := false
 	for {
 		ch, ok := l.peek()
 		if !ok {
@@ -274,6 +281,7 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 				for i := 0; i < extra; i++ {
 					sb.WriteByte('"')
 				}
+				closed = true
 				break
 			}
 			// Fewer than 3 quotes — they are content
@@ -302,6 +310,9 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 		l.advance()
 		sb.WriteRune(ch)
 	}
+	if !closed {
+		return Token{Type: TokenError, Value: "unterminated triple-quoted string", Line: line, Col: col}
+	}
 	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
 }
 
@@ -318,16 +329,22 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 		l.advance()
 	}
 	var sb strings.Builder
+	closed := false
 	for {
 		ch2, ok2 := l.peek()
-		if !ok2 || ch2 == '}' {
-			if ok2 {
-				l.advance()
-			}
+		if !ok2 {
+			break
+		}
+		if ch2 == '}' {
+			l.advance()
+			closed = true
 			break
 		}
 		l.advance()
 		sb.WriteRune(ch2)
+	}
+	if !closed {
+		return Token{Type: TokenError, Value: "unterminated substitution", Line: line, Col: col}
 	}
 	tt := TokenSubstitution
 	if optional {
@@ -338,7 +355,8 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 
 func (l *Lexer) readNumber(line, col int) Token {
 	var sb strings.Builder
-	isFloat := false
+	hasDot := false
+	hasExp := false
 	if ch, _ := l.peek(); ch == '-' {
 		sb.WriteRune(l.advance())
 	}
@@ -349,8 +367,11 @@ func (l *Lexer) readNumber(line, col int) Token {
 		}
 		if ch >= '0' && ch <= '9' {
 			sb.WriteRune(l.advance())
-		} else if (ch == '.' || ch == 'e' || ch == 'E') && !isFloat {
-			isFloat = true
+		} else if ch == '.' && !hasDot && !hasExp {
+			hasDot = true
+			sb.WriteRune(l.advance())
+		} else if (ch == 'e' || ch == 'E') && !hasExp {
+			hasExp = true
 			sb.WriteRune(l.advance())
 		} else if (ch == '+' || ch == '-') && sb.Len() > 0 {
 			// exponent sign
@@ -365,7 +386,7 @@ func (l *Lexer) readNumber(line, col int) Token {
 		}
 	}
 	tt := TokenInt
-	if isFloat {
+	if hasDot || hasExp {
 		tt = TokenFloat
 	}
 	return Token{Type: tt, Value: sb.String(), Line: line, Col: col}

@@ -80,6 +80,33 @@ func TestLexer_Numbers(t *testing.T) {
 	}
 }
 
+func TestReadNumberScientific(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		tt    lexer.TokenType
+	}{
+		{"1.5e3", "1.5e3", lexer.TokenFloat},
+		{"1.5E3", "1.5E3", lexer.TokenFloat},
+		{"1.5e+3", "1.5e+3", lexer.TokenFloat},
+		{"1.5e-3", "1.5e-3", lexer.TokenFloat},
+		{"2.0E10", "2.0E10", lexer.TokenFloat},
+		{"3e5", "3e5", lexer.TokenFloat},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			l := lexer.New(tc.input)
+			tok := l.Next()
+			if tok.Value != tc.want {
+				t.Errorf("got value %q, want %q", tok.Value, tc.want)
+			}
+			if tok.Type != tc.tt {
+				t.Errorf("got type %v, want %v", tok.Type, tc.tt)
+			}
+		})
+	}
+}
+
 func TestLexer_PlusEquals(t *testing.T) {
 	types := tokenTypes("+=")
 	if types[0] != lexer.TokenPlusEquals {
@@ -97,6 +124,75 @@ func TestLexer_TripleQuoted(t *testing.T) {
 	// backslash not processed — literal content
 	if tok.Value != `hello\nworld` {
 		t.Errorf("expected raw content, got %q", tok.Value)
+	}
+}
+
+// tokenize collects all tokens (including EOF) from the input.
+func tokenize(src string) []lexer.Token {
+	l := lexer.New(src)
+	var tokens []lexer.Token
+	for {
+		tok := l.Next()
+		tokens = append(tokens, tok)
+		if tok.Type == lexer.TokenEOF {
+			break
+		}
+	}
+	return tokens
+}
+
+func TestUnterminatedString(t *testing.T) {
+	tests := []string{
+		`a = "unterminated`,
+		`a = "no close`,
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			tokens := tokenize(input)
+			hasError := false
+			for _, tok := range tokens {
+				if tok.Type == lexer.TokenError {
+					hasError = true
+				}
+			}
+			if !hasError {
+				t.Errorf("expected error token for unterminated string in: %s", input)
+			}
+		})
+	}
+}
+
+func TestUnterminatedSubstitution(t *testing.T) {
+	tokens := tokenize(`a = ${unclosed`)
+	hasError := false
+	for _, tok := range tokens {
+		if tok.Type == lexer.TokenError {
+			hasError = true
+		}
+	}
+	if !hasError {
+		t.Error("expected error token for unterminated substitution")
+	}
+}
+
+func TestUnterminatedTripleQuotedString(t *testing.T) {
+	tests := []string{
+		`a = """unterminated`,
+		"a = \"\"\"line1\nline2",
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			tokens := tokenize(input)
+			hasError := false
+			for _, tok := range tokens {
+				if tok.Type == lexer.TokenError {
+					hasError = true
+				}
+			}
+			if !hasError {
+				t.Errorf("expected error token for unterminated triple-quoted string in: %s", input)
+			}
+		})
 	}
 }
 
