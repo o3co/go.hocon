@@ -610,6 +610,14 @@ func TestConfig_GetStringSliceOption_None(t *testing.T) {
 	}
 }
 
+func TestConfig_GetStringSliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetStringSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
+	}
+}
+
 func TestConfig_GetInt64SliceOption_Some(t *testing.T) {
 	cfg := mustParseCfg(t, `ns = [1, 2, 3]`)
 	opt := cfg.GetInt64SliceOption("ns")
@@ -626,6 +634,14 @@ func TestConfig_GetInt64SliceOption_None(t *testing.T) {
 	cfg := mustParseCfg(t, `ns = [1]`)
 	if cfg.GetInt64SliceOption("missing").IsSome() {
 		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetInt64SliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetInt64SliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
 	}
 }
 
@@ -653,6 +669,14 @@ func TestConfig_GetIntSliceOption_None(t *testing.T) {
 	cfg := mustParseCfg(t, `ns = [7]`)
 	if cfg.GetIntSliceOption("missing").IsSome() {
 		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetIntSliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetIntSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
 	}
 }
 
@@ -694,6 +718,14 @@ func TestConfig_GetConfigSliceOption_None(t *testing.T) {
 	cfg := mustParseCfg(t, `items = [{n=1}]`)
 	if cfg.GetConfigSliceOption("missing").IsSome() {
 		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetConfigSliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetConfigSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
 	}
 }
 

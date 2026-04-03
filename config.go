@@ -437,10 +437,27 @@ func (c *Config) GetStringSlice(path string) []string {
 }
 
 func (c *Config) GetStringSliceOption(path string) Option[[]string] {
-	if !c.Has(path) {
+	v, ok := c.lookup(path)
+	if !ok {
 		return None[[]string]()
 	}
-	return Some(c.GetStringSlice(path))
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		return None[[]string]()
+	}
+	result := make([]string, len(arr.Elements))
+	for i, elem := range arr.Elements {
+		sv, ok := elem.(*resolver.ScalarVal)
+		if !ok || sv.V == nil {
+			return None[[]string]()
+		}
+		s, ok := sv.V.(string)
+		if !ok {
+			return None[[]string]()
+		}
+		result[i] = s
+	}
+	return Some(result)
 }
 
 func (c *Config) GetInt64Slice(path string) []int64 {
@@ -468,10 +485,34 @@ func (c *Config) GetInt64Slice(path string) []int64 {
 }
 
 func (c *Config) GetInt64SliceOption(path string) Option[[]int64] {
-	if !c.Has(path) {
+	v, ok := c.lookup(path)
+	if !ok {
 		return None[[]int64]()
 	}
-	return Some(c.GetInt64Slice(path))
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		return None[[]int64]()
+	}
+	result := make([]int64, len(arr.Elements))
+	for i, elem := range arr.Elements {
+		sv, ok := elem.(*resolver.ScalarVal)
+		if !ok || sv.V == nil {
+			return None[[]int64]()
+		}
+		switch n := sv.V.(type) {
+		case int64:
+			result[i] = n
+		case string:
+			parsed, err := strconv.ParseInt(n, 10, 64)
+			if err != nil {
+				return None[[]int64]()
+			}
+			result[i] = parsed
+		default:
+			return None[[]int64]()
+		}
+	}
+	return Some(result)
 }
 
 func (c *Config) GetIntSlice(path string) []int {
@@ -484,10 +525,34 @@ func (c *Config) GetIntSlice(path string) []int {
 }
 
 func (c *Config) GetIntSliceOption(path string) Option[[]int] {
-	if !c.Has(path) {
+	v, ok := c.lookup(path)
+	if !ok {
 		return None[[]int]()
 	}
-	return Some(c.GetIntSlice(path))
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		return None[[]int]()
+	}
+	result := make([]int, len(arr.Elements))
+	for i, elem := range arr.Elements {
+		sv, ok := elem.(*resolver.ScalarVal)
+		if !ok || sv.V == nil {
+			return None[[]int]()
+		}
+		switch n := sv.V.(type) {
+		case int64:
+			result[i] = int(n)
+		case string:
+			parsed, err := strconv.ParseInt(n, 10, 64)
+			if err != nil {
+				return None[[]int]()
+			}
+			result[i] = int(parsed)
+		default:
+			return None[[]int]()
+		}
+	}
+	return Some(result)
 }
 
 // ── object getters ────────────────────────────────────────────────
@@ -534,10 +599,23 @@ func (c *Config) GetConfigSlice(path string) []*Config {
 }
 
 func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
-	if !c.Has(path) {
+	v, ok := c.lookup(path)
+	if !ok {
 		return None[[]*Config]()
 	}
-	return Some(c.GetConfigSlice(path))
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		return None[[]*Config]()
+	}
+	result := make([]*Config, len(arr.Elements))
+	for i, elem := range arr.Elements {
+		obj, ok := elem.(*resolver.ObjectVal)
+		if !ok {
+			return None[[]*Config]()
+		}
+		result[i] = newConfig(obj)
+	}
+	return Some(result)
 }
 
 // ── merge ─────────────────────────────────────────────────────────
