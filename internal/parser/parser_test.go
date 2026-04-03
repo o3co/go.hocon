@@ -132,6 +132,38 @@ func TestParser_NullBoolNumbers(t *testing.T) {
 	}
 }
 
+func TestTrailingGarbageAfterBracedRoot(t *testing.T) {
+	tests := []string{
+		`{ a = 1 } garbage`,
+		`{ a = 1 } extra tokens here`,
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			_, err := parser.Parse(input)
+			if err == nil {
+				t.Errorf("expected error for trailing garbage: %s", input)
+			}
+		})
+	}
+}
+
+func TestBracedRootWithTrailingCommentsOK(t *testing.T) {
+	// Trailing comments after a braced root should be fine
+	inputs := []string{
+		"{ a = 1 }\n# comment",
+		"{ a = 1 }\n// comment",
+		"{ a = 1 }\n",
+	}
+	for _, input := range inputs {
+		t.Run(input, func(t *testing.T) {
+			_, err := parser.Parse(input)
+			if err != nil {
+				t.Errorf("unexpected error for valid input %q: %v", input, err)
+			}
+		})
+	}
+}
+
 func TestParser_UnsupportedIncludeURL(t *testing.T) {
 	_, err := parser.Parse(`include url("http://example.com/foo.conf")`)
 	if err == nil {

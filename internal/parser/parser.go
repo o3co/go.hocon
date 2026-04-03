@@ -48,7 +48,16 @@ func (p *parser) parseRoot() (*ObjectNode, error) {
 	p.skipNewlines()
 	// root may be a bare object (no braces) or an explicit { ... }
 	if p.current.Type == lexer.TokenLBrace {
-		return p.parseObject()
+		obj, err := p.parseObject()
+		if err != nil {
+			return nil, err
+		}
+		p.skipNewlines()
+		if p.current.Type != lexer.TokenEOF {
+			return nil, fmt.Errorf("parse error at line %d, col %d: unexpected token after root object: %s",
+				p.current.Line, p.current.Col, p.current.Value)
+		}
+		return obj, nil
 	}
 	return p.parseObjectFields(false)
 }
