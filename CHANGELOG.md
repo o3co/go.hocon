@@ -5,7 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-04-04
+
+### Added
+
+- Object concatenation via deep merge (was previously an error)
+- Circular include detection with path normalization
+- Permissive array concatenation (non-array elements pushed as items)
+- `include required()` and `include required(file())` directives
+- Performance benchmarks in README
+- Library comparison tables in README (vs gurkankaymak/hocon, vs viper)
+- Security Considerations section in README
+- Known Limitations section in README
+
+### Fixed
+
+- Include probe order: `.properties → .json → .conf` (`.conf` wins)
+- `\uXXXX` unicode escape implementation in lexer
+- Error on unknown escape sequences
+- Dedicated `.properties` parser for includes
+- Slice Option variants (`GetStringSliceOption`, etc.) now return `None` on type mismatch instead of panic
+- Copyright standardized to "1o1 Co. Ltd." across all source files
+- Removed dead `math.IsInf` import
+
+### Changed
+
+- `go.mod` minimum version lowered from Go 1.25 to Go 1.23
+- Cross-language spec alignment with ts.hocon and rs.hocon
 
 ## [0.3.0] - 2026-03-20
 
@@ -97,7 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README in English and Japanese.
 - Apache 2.0 LICENSE.
 
-[Unreleased]: https://github.com/o3co/go.hocon/compare/v0.3.0...HEAD
+[1.0.0]: https://github.com/o3co/go.hocon/compare/v0.3.2...v1.0.0
 [0.3.0]: https://github.com/o3co/go.hocon/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/o3co/go.hocon/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/o3co/go.hocon/compare/v0.1.8...v0.2.0
