@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -618,33 +619,20 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 	return childResolver.resolveSubstitutions(obj, obj)
 }
 
-// coerceToStrings converts all scalar values in obj to strings, recursively.
-// Used for .properties files where all values are strings per spec.
-func coerceToStrings(obj *ObjectVal) {
-	for _, k := range obj.Keys() {
-		v, _ := obj.Get(k)
-		switch vv := v.(type) {
-		case *ScalarVal:
-			if vv.V == nil {
-				vv.V = "null"
-			} else if _, ok := vv.V.(string); !ok {
-				vv.V = fmt.Sprintf("%v", vv.V)
-			}
-		case *ObjectVal:
-			coerceToStrings(vv)
-		case *ArrayVal:
-			coerceArrayToStrings(vv)
-		}
-	}
-}
-
 // propsToObjectVal converts a flat map[string]string (from a .properties file)
 // into a nested ObjectVal. Dotted keys are expanded into nested objects:
 // "server.host" = "x" becomes {server: {host: "x"}}.
 // All leaf values are ScalarVal with string type, per .properties spec.
 func propsToObjectVal(props map[string]string) *ObjectVal {
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	root := newObjectVal()
-	for key, value := range props {
+	for _, key := range keys {
+		value := props[key]
 		parts := strings.Split(key, ".")
 		cur := root
 		for i, part := range parts {
@@ -666,21 +654,4 @@ func propsToObjectVal(props map[string]string) *ObjectVal {
 		}
 	}
 	return root
-}
-
-func coerceArrayToStrings(arr *ArrayVal) {
-	for i, elem := range arr.Elements {
-		switch vv := elem.(type) {
-		case *ScalarVal:
-			if vv.V == nil {
-				arr.Elements[i] = &ScalarVal{V: "null"}
-			} else if _, ok := vv.V.(string); !ok {
-				arr.Elements[i] = &ScalarVal{V: fmt.Sprintf("%v", vv.V)}
-			}
-		case *ObjectVal:
-			coerceToStrings(vv)
-		case *ArrayVal:
-			coerceArrayToStrings(vv)
-		}
-	}
 }
