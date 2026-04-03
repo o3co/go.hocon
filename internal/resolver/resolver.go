@@ -394,6 +394,15 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 	return nil, &ResolveError{Message: "unresolved substitution", Path: pathStr, Line: n.Line(), Col: n.Col()}
 }
 
+func isSeparator(v Val) bool {
+	if s, ok := v.(*ScalarVal); ok {
+		if str, ok := s.V.(string); ok && str == " " {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val, error) {
 	// resolve each val
 	var resolved []Val
@@ -404,21 +413,59 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 		}
 		resolved = append(resolved, rv)
 	}
-	// determine mode from first non-nil element
+
+	// Classify non-nil, non-separator elements to determine concatenation mode.
+	hasArray := false
+	hasObject := false
+	hasScalar := false
 	for _, rv := range resolved {
-		if rv == nil {
+		if rv == nil || isSeparator(rv) {
 			continue
 		}
 		switch rv.(type) {
 		case *ArrayVal:
-			return r.concatArrays(resolved)
+			hasArray = true
 		case *ObjectVal:
-			return nil, &ResolveError{Message: "objects cannot appear in concatenation", Path: path}
+			hasObject = true
 		default:
-			return r.concatStrings(resolved), nil
+			hasScalar = true
 		}
 	}
-	return &ScalarVal{V: ""}, nil
+
+	switch {
+	case hasObject && !hasArray && !hasScalar:
+		// All meaningful elements are objects → deep merge (left to right, later wins)
+		return r.concatObjects(resolved), nil
+	case hasArray:
+		// Array concatenation (permissive: non-array elements become single items)
+		return r.concatArraysPermissive(resolved), nil
+	default:
+		// String concatenation (fallback)
+		return r.concatStrings(resolved), nil
+	}
+}
+
+func (r *resolver) concatObjects(vals []Val) Val {
+	var result *ObjectVal
+	for _, v := range vals {
+		if v == nil || isSeparator(v) {
+			continue
+		}
+		obj, ok := v.(*ObjectVal)
+		if !ok {
+			continue
+		}
+		if result == nil {
+			result = obj
+		} else {
+			// deepMerge: dst wins for non-objects, so pass later object as dst
+			result = deepMerge(obj, result)
+		}
+	}
+	if result == nil {
+		return newObjectVal()
+	}
+	return result
 }
 
 func (r *resolver) concatArrays(vals []Val) (Val, error) {
@@ -434,6 +481,21 @@ func (r *resolver) concatArrays(vals []Val) (Val, error) {
 		result.Elements = append(result.Elements, arr.Elements...)
 	}
 	return result, nil
+}
+
+func (r *resolver) concatArraysPermissive(vals []Val) Val {
+	result := &ArrayVal{}
+	for _, v := range vals {
+		if v == nil || isSeparator(v) {
+			continue
+		}
+		if arr, ok := v.(*ArrayVal); ok {
+			result.Elements = append(result.Elements, arr.Elements...)
+		} else {
+			result.Elements = append(result.Elements, v)
+		}
+	}
+	return result
 }
 
 func (r *resolver) concatStrings(vals []Val) Val {

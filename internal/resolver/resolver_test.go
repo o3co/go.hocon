@@ -537,3 +537,59 @@ func TestResolver_IncludeProbingPropagatesParseError(t *testing.T) {
 		t.Error("expected parse error from broken include file to propagate, got nil")
 	}
 }
+
+func TestResolveObjectConcatenation(t *testing.T) {
+	// HOCON spec: `a = {x: 1} {y: 2}` should deep-merge into {x:1, y:2}
+	res := resolve(t, `a = {x: 1} {y: 2}`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	o, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("expected ObjectVal, got %T", v)
+	}
+	xv, ok := o.Get("x")
+	if !ok {
+		t.Error("x missing after object concatenation")
+	} else if sv, ok := xv.(*resolver.ScalarVal); !ok || sv.V != int64(1) {
+		t.Errorf("expected x=1, got %v", xv)
+	}
+	yv, ok := o.Get("y")
+	if !ok {
+		t.Error("y missing after object concatenation")
+	} else if sv, ok := yv.(*resolver.ScalarVal); !ok || sv.V != int64(2) {
+		t.Errorf("expected y=2, got %v", yv)
+	}
+}
+
+func TestResolveObjectConcatenationDeepMerge(t *testing.T) {
+	// HOCON spec: nested object concatenation should deep-merge
+	res := resolve(t, `a = {x: {nested: 1}} {x: {other: 2}}`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	o, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("expected ObjectVal, got %T", v)
+	}
+	xv, ok := o.Get("x")
+	if !ok {
+		t.Fatal("x missing after deep merge")
+	}
+	xo, ok := xv.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("expected x to be ObjectVal, got %T", xv)
+	}
+	if nv, ok := xo.Get("nested"); !ok {
+		t.Error("nested missing after deep merge")
+	} else if sv, ok := nv.(*resolver.ScalarVal); !ok || sv.V != int64(1) {
+		t.Errorf("expected nested=1, got %v", nv)
+	}
+	if ov, ok := xo.Get("other"); !ok {
+		t.Error("other missing after deep merge")
+	} else if sv, ok := ov.(*resolver.ScalarVal); !ok || sv.V != int64(2) {
+		t.Errorf("expected other=2, got %v", ov)
+	}
+}
