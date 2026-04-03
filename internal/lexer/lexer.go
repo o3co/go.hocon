@@ -408,8 +408,10 @@ func (l *Lexer) readNumber(line, col int) Token {
 }
 
 // unquotedForbidden are characters that terminate an unquoted string.
-// Parentheses are included so that `include file(...)` can be parsed correctly.
-const unquotedForbidden = `$"{}[]:=,+#\^?!@&()`
+// Per spec: $"{}[]:=,+#\^?!@*& plus all whitespace.
+// Parentheses are not in the spec but are included so that
+// `include file(...)` / `include required(...)` can be parsed correctly.
+const unquotedForbidden = `$"{}[]:=,+#\^?!@*&()`
 
 func isUnquotedForbidden(ch rune) bool {
 	return unicode.IsSpace(ch) || strings.ContainsRune(unquotedForbidden, ch)
@@ -434,6 +436,13 @@ func (l *Lexer) readUnquoted(prefix string, line, col int) Token {
 
 func (l *Lexer) readUnquotedOrKeyword(line, col int) Token {
 	tok := l.readUnquoted("", line, col)
+	if tok.Value == "" {
+		// The character is forbidden in unquoted strings and has no
+		// dedicated token type (e.g. *, !, @, ^, ?).  Consume it and
+		// emit an error so the lexer makes progress.
+		ch := l.advance()
+		return Token{Type: TokenError, Value: fmt.Sprintf("unexpected character: %c", ch), Line: line, Col: col}
+	}
 	switch tok.Value {
 	case "true", "false":
 		return Token{Type: TokenBool, Value: tok.Value, Line: line, Col: col}
