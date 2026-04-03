@@ -610,6 +610,14 @@ func TestConfig_GetStringSliceOption_None(t *testing.T) {
 	}
 }
 
+func TestConfig_GetStringSliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetStringSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
+	}
+}
+
 func TestConfig_GetInt64SliceOption_Some(t *testing.T) {
 	cfg := mustParseCfg(t, `ns = [1, 2, 3]`)
 	opt := cfg.GetInt64SliceOption("ns")
@@ -626,6 +634,14 @@ func TestConfig_GetInt64SliceOption_None(t *testing.T) {
 	cfg := mustParseCfg(t, `ns = [1]`)
 	if cfg.GetInt64SliceOption("missing").IsSome() {
 		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetInt64SliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetInt64SliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
 	}
 }
 
@@ -653,6 +669,14 @@ func TestConfig_GetIntSliceOption_None(t *testing.T) {
 	cfg := mustParseCfg(t, `ns = [7]`)
 	if cfg.GetIntSliceOption("missing").IsSome() {
 		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetIntSliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetIntSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
 	}
 }
 
@@ -697,6 +721,14 @@ func TestConfig_GetConfigSliceOption_None(t *testing.T) {
 	}
 }
 
+func TestConfig_GetConfigSliceOption_WrongType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = "not an array"`)
+	opt := cfg.GetConfigSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None for non-array value")
+	}
+}
+
 func TestIncludePropertiesFile(t *testing.T) {
 	dir := t.TempDir()
 	propsFile := filepath.Join(dir, "app.properties")
@@ -735,5 +767,37 @@ func TestIncludePropertiesFile(t *testing.T) {
 	}
 	if got := cfg.GetInt64("app"); got != 1 {
 		t.Errorf("app=%d, want 1", got)
+	}
+}
+
+func TestConfig_GetStringSliceOption_WrongElementType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = [1, 2, 3]`)
+	opt := cfg.GetStringSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None when array elements are not strings")
+	}
+}
+
+func TestConfig_GetInt64SliceOption_WrongElementType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = ["hello", "world"]`)
+	opt := cfg.GetInt64SliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None when array elements are not parseable as int64")
+	}
+}
+
+func TestConfig_GetIntSliceOption_WrongElementType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = ["hello", "world"]`)
+	opt := cfg.GetIntSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None when array elements are not parseable as int")
+	}
+}
+
+func TestConfig_GetConfigSliceOption_WrongElementType(t *testing.T) {
+	cfg := mustParseCfg(t, `key = ["a", "b", "c"]`)
+	opt := cfg.GetConfigSliceOption("key")
+	if opt.IsSome() {
+		t.Error("expected None when array elements are not objects")
 	}
 }

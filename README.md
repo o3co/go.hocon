@@ -229,7 +229,7 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 | Substitutions (`${path}`) | ✅ | ✅ |
 | Optional substitutions (`${?path}`) | ✅ | ✅ |
 | Include | ✅ | ✅ |
-| `include required()` | ✅ | ❌ |
+| `include required(...)` | ✅ | ❌ |
 | Object/Array concatenation | ✅ | ⚠️ |
 | Type coercion | ✅ | ⚠️ |
 | Duration parsing (`30s`, `5m`) | ✅ | ✅ |
@@ -322,6 +322,13 @@ if err := conf.Unmarshal(&app); err != nil {
     log.Fatal(err) // fails fast on startup
 }
 ```
+
+## Security Considerations
+
+When parsing untrusted HOCON input, be aware of:
+
+- **Path traversal in includes:** `include "../../../etc/passwd.conf"` will resolve relative to `BaseDir`. Validate include paths if parsing untrusted input.
+- **Input size:** The parser has no built-in input size limit. For untrusted input, validate size before calling `ParseString()`.
 
 ## License
 
