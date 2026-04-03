@@ -150,7 +150,8 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 	p.advance() // consume "include"
 	p.skipNewlines()
 	// check for unsupported forms: url(...) classpath(...)
-	if p.current.Type == lexer.TokenString {
+	// Only match unquoted tokens — a quoted "url" is a valid filename.
+	if p.current.Type == lexer.TokenString && !p.current.IsQuoted {
 		switch p.current.Value {
 		case "url", "classpath":
 			return nil, fmt.Errorf("parse error at line %d, col %d: include %s(...) is not supported in v1.0", line, col, p.current.Value)
@@ -168,7 +169,8 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		p.advance() // consume '('
 
 		// re-check for unsupported forms inside required(...): url(...) classpath(...)
-		if p.current.Type == lexer.TokenString {
+		// Only match unquoted tokens — include required("url") is a valid file path.
+		if p.current.Type == lexer.TokenString && !p.current.IsQuoted {
 			switch p.current.Value {
 			case "url", "classpath":
 				return nil, fmt.Errorf("parse error at line %d, col %d: include required(%s(...)) is not supported in v1.0", line, col, p.current.Value)

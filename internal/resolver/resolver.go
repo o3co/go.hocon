@@ -535,8 +535,15 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 	for _, ext := range includeExtensions {
 		p := path + ext
 		if _, err := os.Stat(p); err != nil {
-			// File does not exist (or is not accessible): skip to next extension.
-			continue
+			if os.IsNotExist(err) {
+				// File does not exist: skip to next extension.
+				continue
+			}
+			// Permission error or other I/O failure — propagate.
+			return nil, &ResolveError{
+				Message:  "cannot stat include file: " + err.Error(),
+				FilePath: p,
+			}
 		}
 		// File exists — load it; any error here is a real parse/resolve error.
 		obj, err := r.loadIncludeFile(p, true)
@@ -565,10 +572,12 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if !required {
+		if !required && os.IsNotExist(err) {
 			// Non-required include: silently ignore missing file per HOCON spec.
 			return newObjectVal(), nil
 		}
+		// For required includes, or non-ENOENT errors on optional includes,
+		// always propagate (permission errors etc. should not be silently swallowed).
 		return nil, &ResolveError{
 			Message:  "cannot read include file: " + err.Error(),
 			FilePath: path,

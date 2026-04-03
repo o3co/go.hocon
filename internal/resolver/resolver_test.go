@@ -515,6 +515,27 @@ func TestResolver_IncludeRequiredProbeNotFound(t *testing.T) {
 	}
 }
 
+// TestResolver_IncludeOptionalNonEnoentErrorPropagates verifies that a non-required
+// include whose ReadFile fails with a non-ENOENT error (e.g. "is a directory")
+// propagates the error instead of silently returning an empty object.
+func TestResolver_IncludeOptionalNonEnoentErrorPropagates(t *testing.T) {
+	dir := t.TempDir()
+	// Create a subdirectory with the target name + ".conf" — reading a directory is not ENOENT.
+	subDir := filepath.Join(dir, "subdir.conf")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ast, err := parser.Parse(`include "subdir.conf"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Error("expected error when ReadFile fails with non-ENOENT, got nil")
+	}
+}
+
 func TestResolver_IncludeProbingPropagatesParseError(t *testing.T) {
 	// A parse error in a file that EXISTS (during extension probing) must propagate,
 	// not be silently swallowed as if the file were missing.
