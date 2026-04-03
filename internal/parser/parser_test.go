@@ -243,6 +243,13 @@ func TestParser_UnsupportedIncludeURL(t *testing.T) {
 	}
 }
 
+func TestParser_UnsupportedIncludeClasspath(t *testing.T) {
+	_, err := parser.Parse(`include classpath("reference.conf")`)
+	if err == nil {
+		t.Fatal("expected error for unsupported include classpath() form")
+	}
+}
+
 func TestParser_IncludeRequired(t *testing.T) {
 	obj := mustParse(t, `include required("base.conf")`)
 	if len(obj.Fields) != 1 {
