@@ -534,9 +534,14 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 	found := false
 	for _, ext := range includeExtensions {
 		p := path + ext
-		obj, err := r.loadIncludeFile(p, true) // always required per-file; missing handled below
+		if _, err := os.Stat(p); err != nil {
+			// File does not exist (or is not accessible): skip to next extension.
+			continue
+		}
+		// File exists — load it; any error here is a real parse/resolve error.
+		obj, err := r.loadIncludeFile(p, true)
 		if err != nil {
-			continue // file not found — skip
+			return nil, err
 		}
 		found = true
 		// Later files override earlier ones: pass new obj as dst (winner).

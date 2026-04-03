@@ -514,3 +514,19 @@ func TestResolver_IncludeRequiredProbeNotFound(t *testing.T) {
 		t.Fatal("expected error for missing required extensionless include")
 	}
 }
+
+func TestResolver_IncludeProbingPropagatesParseError(t *testing.T) {
+	// A parse error in a file that EXISTS (during extension probing) must propagate,
+	// not be silently swallowed as if the file were missing.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "broken.conf"), `{ invalid = }`)
+
+	ast, err := parser.Parse(`include "broken"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Error("expected parse error from broken include file to propagate, got nil")
+	}
+}
