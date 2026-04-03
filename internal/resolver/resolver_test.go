@@ -643,3 +643,40 @@ func TestResolver_CircularIncludeDetection(t *testing.T) {
 		t.Errorf("expected message containing \"circular include\", got %q", re.Message)
 	}
 }
+
+func TestResolver_CircularIncludeDetected(t *testing.T) {
+	// Two files that include each other must produce a circular include error,
+	// not an infinite loop. Use relative paths so Clean+Abs normalization is exercised.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.conf"), `include "b.conf"`)
+	writeFile(t, filepath.Join(dir, "b.conf"), `include "a.conf"`)
+
+	ast, err := parser.Parse(`include "a.conf"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected circular include error, got nil")
+	}
+	if re, ok := err.(*resolver.ResolveError); ok {
+		if re.Message == "" {
+			t.Error("expected non-empty error message")
+		}
+	}
+}
+
+func TestResolver_CircularIncludeSelfDetected(t *testing.T) {
+	// A file that includes itself must be detected as circular.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "self.conf"), `include "self.conf"`)
+
+	ast, err := parser.Parse(`include "self.conf"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected circular include error for self-include, got nil")
+	}
+}

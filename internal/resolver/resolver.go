@@ -137,7 +137,7 @@ func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
 		}
 		opts.BaseDir = wd
 	}
-	stack := make([]string, 0)
+	stack := make([]string, 0, 8)
 	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val), includeStack: &stack}
 	obj, err := r.resolveObject(root, opts.Fallback)
 	if err != nil {
@@ -156,7 +156,7 @@ type resolver struct {
 	resolving     map[string]bool // cycle detection
 	resolvedCache map[string]Val  // previously resolved values for self-reference
 	priorValues   map[string]Val  // previous value before self-referential overwrite (first pass)
-	includeStack  *[]string       // shared across child resolvers for circular include detection
+	includeStack  *[]string       // shared stack for circular include detection (normalized paths)
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (*ObjectVal, error) {
@@ -621,16 +621,23 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 // loadIncludeFile reads, parses, and resolves a single include file.
 // When required=false a missing file is silently ignored (returns empty object).
 func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, error) {
-	// Circular include detection: check if this path is already on the include stack.
+	// Normalize path for reliable circular detection.
+	// Clean removes ".." / "." segments; Abs makes relative paths absolute.
+	canonicalPath := filepath.Clean(path)
+	if abs, err := filepath.Abs(canonicalPath); err == nil {
+		canonicalPath = abs
+	}
+
+	// Circular include detection using shared stack.
 	for _, p := range *r.includeStack {
-		if p == path {
+		if p == canonicalPath {
 			return nil, &ResolveError{
 				Message:  fmt.Sprintf("circular include: %s", path),
 				FilePath: path,
 			}
 		}
 	}
-	*r.includeStack = append(*r.includeStack, path)
+	*r.includeStack = append(*r.includeStack, canonicalPath)
 	defer func() {
 		*r.includeStack = (*r.includeStack)[:len(*r.includeStack)-1]
 	}()
