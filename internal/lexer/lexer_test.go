@@ -80,6 +80,33 @@ func TestLexer_Numbers(t *testing.T) {
 	}
 }
 
+func TestReadNumberScientific(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		tt    lexer.TokenType
+	}{
+		{"1.5e3", "1.5e3", lexer.TokenFloat},
+		{"1.5E3", "1.5E3", lexer.TokenFloat},
+		{"1.5e+3", "1.5e+3", lexer.TokenFloat},
+		{"1.5e-3", "1.5e-3", lexer.TokenFloat},
+		{"2.0E10", "2.0E10", lexer.TokenFloat},
+		{"3e5", "3e5", lexer.TokenFloat},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			l := lexer.New(tc.input)
+			tok := l.Next()
+			if tok.Value != tc.want {
+				t.Errorf("got value %q, want %q", tok.Value, tc.want)
+			}
+			if tok.Type != tc.tt {
+				t.Errorf("got type %v, want %v", tok.Type, tc.tt)
+			}
+		})
+	}
+}
+
 func TestLexer_PlusEquals(t *testing.T) {
 	types := tokenTypes("+=")
 	if types[0] != lexer.TokenPlusEquals {

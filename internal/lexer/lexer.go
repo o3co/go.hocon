@@ -338,7 +338,8 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 
 func (l *Lexer) readNumber(line, col int) Token {
 	var sb strings.Builder
-	isFloat := false
+	hasDot := false
+	hasExp := false
 	if ch, _ := l.peek(); ch == '-' {
 		sb.WriteRune(l.advance())
 	}
@@ -349,8 +350,11 @@ func (l *Lexer) readNumber(line, col int) Token {
 		}
 		if ch >= '0' && ch <= '9' {
 			sb.WriteRune(l.advance())
-		} else if (ch == '.' || ch == 'e' || ch == 'E') && !isFloat {
-			isFloat = true
+		} else if ch == '.' && !hasDot && !hasExp {
+			hasDot = true
+			sb.WriteRune(l.advance())
+		} else if (ch == 'e' || ch == 'E') && !hasExp {
+			hasExp = true
 			sb.WriteRune(l.advance())
 		} else if (ch == '+' || ch == '-') && sb.Len() > 0 {
 			// exponent sign
@@ -365,7 +369,7 @@ func (l *Lexer) readNumber(line, col int) Token {
 		}
 	}
 	tt := TokenInt
-	if isFloat {
+	if hasDot || hasExp {
 		tt = TokenFloat
 	}
 	return Token{Type: tt, Value: sb.String(), Line: line, Col: col}
