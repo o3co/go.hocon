@@ -200,6 +200,64 @@ cache-ttl = "5m"
 max-size  = "512MiB"
 ```
 
+## Performance
+
+Measured on Apple M4 Pro with `go test -bench` (built-in Go benchmark framework). Each iteration includes parsing and a `GetString` lookup. Run `go test -bench=. -benchmem ./...` to reproduce.
+
+| Scenario | ops/sec | Time per op |
+| --- | --- | --- |
+| Small config (10 keys) | ~173,000 | ~5.8 µs |
+| Medium config (100 keys) | ~27,000 | ~38 µs |
+| Large config (1,000 keys) | ~2,000 | ~422 µs |
+| 10 substitutions | ~70,000 | ~14 µs |
+| 50 substitutions | ~16,000 | ~61 µs |
+| 100 substitutions | ~8,000 | ~121 µs |
+| Depth 5 nesting | ~168,000 | ~6.0 µs |
+| Depth 10 nesting | ~108,000 | ~9.3 µs |
+| Depth 20 nesting | ~64,000 | ~15.6 µs |
+
+For typical application configs (loaded once at startup), the parsing cost is negligible — even a 1,000-key config parses in under 1 ms.
+
+## Comparison
+
+✅ Full support / ⚠️ Partial / ❌ Not supported
+
+### HOCON Implementation
+
+| Feature | go.hocon | [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) |
+| --- | :---: | :---: |
+| Substitutions (`${path}`) | ✅ | ✅ |
+| Optional substitutions (`${?path}`) | ✅ | ✅ |
+| Include | ✅ | ✅ |
+| `include required()` | ✅ | ❌ |
+| Object/Array concatenation | ✅ | ⚠️ |
+| Type coercion | ✅ | ⚠️ |
+| Duration parsing (`30s`, `5m`) | ✅ | ✅ |
+| Byte size parsing (`512MB`) | ✅ | ❌ |
+| `+=` append | ✅ | ✅ |
+| Struct unmarshal | ✅ | ❌ |
+| `Option[T]` safe access | ✅ | ❌ |
+| Env variable fallback | ✅ | ✅ |
+
+### Config Framework
+
+| | go.hocon | [viper](https://github.com/spf13/viper) |
+| --- | :---: | :---: |
+| **Formats** | | |
+| HOCON | ✅ | ❌ |
+| JSON | ✅ | ✅ |
+| YAML | ❌ | ✅ |
+| TOML | ❌ | ✅ |
+| Env vars | ✅ (fallback) | ✅ |
+| .properties | ✅ (via include) | ✅ |
+| **Features** | | |
+| Substitutions | ✅ | ❌ |
+| File includes | ✅ | ❌ |
+| Type coercion | ✅ | ✅ |
+| Struct unmarshal | ✅ | ✅ |
+| Watch/reload | ❌ | ✅ |
+| Remote config | ❌ | ✅ |
+
 ## Spec Compliance
 
 Tested against the [Lightbend official test suite](https://github.com/lightbend/config/tree/main/config/src/test/resources): **13/13 test groups pass** (equiv01–equiv05 + test01–test13).
