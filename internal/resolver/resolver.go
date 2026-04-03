@@ -137,7 +137,8 @@ func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
 		}
 		opts.BaseDir = wd
 	}
-	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val)}
+	stack := make([]string, 0)
+	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val), includeStack: &stack}
 	obj, err := r.resolveObject(root, opts.Fallback)
 	if err != nil {
 		return nil, err
@@ -155,6 +156,7 @@ type resolver struct {
 	resolving     map[string]bool // cycle detection
 	resolvedCache map[string]Val  // previously resolved values for self-reference
 	priorValues   map[string]Val  // previous value before self-referential overwrite (first pass)
+	includeStack  *[]string       // shared across child resolvers for circular include detection
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (*ObjectVal, error) {
@@ -619,6 +621,20 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 // loadIncludeFile reads, parses, and resolves a single include file.
 // When required=false a missing file is silently ignored (returns empty object).
 func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, error) {
+	// Circular include detection: check if this path is already on the include stack.
+	for _, p := range *r.includeStack {
+		if p == path {
+			return nil, &ResolveError{
+				Message:  fmt.Sprintf("circular include: %s", path),
+				FilePath: path,
+			}
+		}
+	}
+	*r.includeStack = append(*r.includeStack, path)
+	defer func() {
+		*r.includeStack = (*r.includeStack)[:len(*r.includeStack)-1]
+	}()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !required && os.IsNotExist(err) {
@@ -658,6 +674,7 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 		resolving:     make(map[string]bool),
 		resolvedCache: make(map[string]Val),
 		priorValues:   make(map[string]Val),
+		includeStack:  r.includeStack,
 	}
 	obj, err := childResolver.resolveObject(ast, nil)
 	if err != nil {

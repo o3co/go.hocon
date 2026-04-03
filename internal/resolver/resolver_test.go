@@ -3,6 +3,7 @@ package resolver_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -618,5 +619,27 @@ func TestResolver_ObjectConcatenationDeepMerge(t *testing.T) {
 		t.Error("other missing after deep merge")
 	} else if sv, ok := ov.(*resolver.ScalarVal); !ok || sv.V != int64(2) {
 		t.Errorf("expected other=2, got %v", ov)
+	}
+}
+
+func TestResolver_CircularIncludeDetection(t *testing.T) {
+	// circular_a.conf includes circular_b.conf which includes circular_a.conf.
+	// This must produce a ResolveError with "circular include" rather than
+	// hanging forever or stack-overflowing.
+	baseDir := filepath.Join("..", "..", "testdata", "hocon")
+	ast, err := parser.Parse(`include "circular_a.conf"`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: baseDir})
+	if err == nil {
+		t.Fatal("expected circular include error, got nil")
+	}
+	re, ok := err.(*resolver.ResolveError)
+	if !ok {
+		t.Fatalf("expected *ResolveError, got %T: %v", err, err)
+	}
+	if !strings.Contains(re.Message, "circular include") {
+		t.Errorf("expected message containing \"circular include\", got %q", re.Message)
 	}
 }
