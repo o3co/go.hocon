@@ -45,13 +45,27 @@ func splitPath(path string) []string {
 	i := 0
 	for i < len(path) {
 		if path[i] == '"' {
-			end := strings.IndexByte(path[i+1:], '"')
-			if end == -1 {
-				segments = append(segments, path[i+1:])
+			i++ // skip opening quote
+			var seg []byte
+			closed := false
+			for i < len(path) {
+				if path[i] == '\\' && i+1 < len(path) {
+					seg = append(seg, path[i+1])
+					i += 2
+					continue
+				}
+				if path[i] == '"' {
+					closed = true
+					i++
+					break
+				}
+				seg = append(seg, path[i])
+				i++
+			}
+			segments = append(segments, string(seg))
+			if !closed {
 				break
 			}
-			segments = append(segments, path[i+1:i+1+end])
-			i = i + 1 + end + 1
 			if i < len(path) && path[i] == '.' {
 				i++
 			}
