@@ -447,6 +447,35 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 	}
 }
 
+// mergeObjectConcat merges two objects for object concatenation.
+// Key order follows left (earlier), new keys from right are appended.
+// For duplicate keys, right (later) values win.
+func mergeObjectConcat(left, right *ObjectVal) *ObjectVal {
+	result := newObjectVal()
+	// seed with left keys in order
+	for _, k := range left.keys {
+		result.set(k, left.values[k])
+	}
+	// merge right keys: override existing values, append new keys
+	for _, k := range right.keys {
+		rv := right.values[k]
+		if lv, ok := result.values[k]; ok {
+			// both object → recursive merge preserving order
+			if lo, lok := lv.(*ObjectVal); lok {
+				if ro, rok := rv.(*ObjectVal); rok {
+					result.values[k] = mergeObjectConcat(lo, ro)
+					continue
+				}
+			}
+			// right wins for value
+			result.values[k] = rv
+		} else {
+			result.set(k, rv)
+		}
+	}
+	return result
+}
+
 func concatObjects(vals []Val) Val {
 	var result *ObjectVal
 	for _, v := range vals {
@@ -460,8 +489,7 @@ func concatObjects(vals []Val) Val {
 		if result == nil {
 			result = obj
 		} else {
-			// obj is the new value; it becomes dst so its keys win over the accumulated result.
-			result = deepMerge(obj, result)
+			result = mergeObjectConcat(result, obj)
 		}
 	}
 	if result == nil {

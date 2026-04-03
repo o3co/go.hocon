@@ -680,3 +680,17 @@ func TestResolver_CircularIncludeSelfDetected(t *testing.T) {
 		t.Fatal("expected circular include error for self-include, got nil")
 	}
 }
+
+func TestResolver_ObjectConcatenationKeyOrder(t *testing.T) {
+	src := `a = {x: 1} {y: 2}`
+	res := resolve(t, src)
+	aVal, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	aObj := aVal.(*resolver.ObjectVal)
+	keys := aObj.Keys()
+	if len(keys) != 2 || keys[0] != "x" || keys[1] != "y" {
+		t.Errorf("expected keys [x, y], got %v", keys)
+	}
+}
