@@ -575,4 +575,3 @@ func mergeObjectVals(over, base *resolver.ObjectVal) *resolver.ObjectVal {
 	}
 	return result
 }
-
