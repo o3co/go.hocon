@@ -383,7 +383,7 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 		return r.resolveVal(val, root, pathStr)
 	}
 	// env var fallback
-	if ev := os.Getenv(pathStr); ev != "" {
+	if ev, ok := os.LookupEnv(pathStr); ok {
 		return &ScalarVal{V: ev}, nil
 	}
 	if n.Optional {

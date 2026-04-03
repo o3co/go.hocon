@@ -257,6 +257,51 @@ clients {
 	}
 }
 
+func TestEmptyEnvVar(t *testing.T) {
+	t.Setenv("HOCON_EMPTY", "")
+	cfg, err := hocon.ParseString(`val = ${HOCON_EMPTY}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := cfg.GetString("val")
+	if got != "" {
+		t.Errorf("got %q, want empty string", got)
+	}
+}
+
+func TestUnsetEnvVarOptional(t *testing.T) {
+	cfg, err := hocon.ParseString(`val = ${?HOCON_DEFINITELY_NOT_SET_XYZ}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Has("val") {
+		t.Error("expected val to not exist for unset optional env var")
+	}
+}
+
+func TestQuotedPathLookup(t *testing.T) {
+	cfg, err := hocon.ParseString(`"a.b" = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Has(`"a.b"`) {
+		t.Error("expected Has to return true for quoted key")
+	}
+	if got := cfg.GetInt64(`"a.b"`); got != 1 {
+		t.Errorf("got %d, want 1", got)
+	}
+}
+
+func TestNestedQuotedPathLookup(t *testing.T) {
+	cfg, err := hocon.ParseString(`server { "web.api" { port = 8080 } }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GetInt64(`server."web.api".port`); got != 8080 {
+		t.Errorf("got %d, want 8080", got)
+	}
+}
+
 func TestConfig_WithFallback(t *testing.T) {
 	base := mustParseCfg(t, "a=1\nb=2")
 	over := mustParseCfg(t, "b=99\nc=3")
