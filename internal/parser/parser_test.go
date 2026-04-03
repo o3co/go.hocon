@@ -164,6 +164,23 @@ func TestBracedRootWithTrailingCommentsOK(t *testing.T) {
 	}
 }
 
+func TestBracedRootParseError(t *testing.T) {
+	// Braced root with a syntax error inside — exercises the error return
+	// in parseRoot when parseObject fails (e.g., unclosed brace, bad field).
+	tests := []string{
+		`{ a = 1`,         // missing closing brace
+		`{ a = 1; = bad`, // invalid field inside braced root
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			_, err := parser.Parse(input)
+			if err == nil {
+				t.Errorf("expected error for malformed braced root: %s", input)
+			}
+		})
+	}
+}
+
 func TestParser_UnsupportedIncludeURL(t *testing.T) {
 	_, err := parser.Parse(`include url("http://example.com/foo.conf")`)
 	if err == nil {
