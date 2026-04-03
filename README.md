@@ -323,6 +323,13 @@ if err := conf.Unmarshal(&app); err != nil {
 }
 ```
 
+## Security Considerations
+
+When parsing untrusted HOCON input, be aware of:
+
+- **Path traversal in includes:** `include "../../../etc/passwd"` will resolve relative to `BaseDir`. Validate include paths if parsing untrusted input.
+- **Input size:** The parser has no built-in input size limit. For untrusted input, validate size before calling `ParseString()`.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
