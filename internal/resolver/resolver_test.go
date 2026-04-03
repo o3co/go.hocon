@@ -464,26 +464,90 @@ nested = [{a = 42}, [false]]
 }
 
 func TestResolver_IncludeExplicitExtensionNotFound(t *testing.T) {
-	// Explicit extension that doesn't exist should error.
+	// Non-required include with explicit extension: missing file is silently ignored per HOCON spec.
 	dir := t.TempDir()
 	ast, err := parser.Parse(`a { include "missing.conf" }`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err != nil {
+		t.Fatalf("non-required missing include should not error: %v", err)
+	}
+}
+
+func TestResolver_IncludeRequiredExplicitExtensionNotFound(t *testing.T) {
+	// required() include with explicit extension: missing file must error.
+	dir := t.TempDir()
+	ast, err := parser.Parse(`a { include required("missing.conf") }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
 	if err == nil {
-		t.Fatal("expected error for missing include file")
+		t.Fatal("expected error for missing required include file")
 	}
 }
 
 func TestResolver_IncludeProbeNotFound(t *testing.T) {
+	// Non-required extensionless include: no files found should silently return empty per HOCON spec.
 	dir := t.TempDir()
 	ast, err := parser.Parse(`a { include "nonexistent" }`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err != nil {
+		t.Fatalf("non-required missing include should not error: %v", err)
+	}
+}
+
+func TestResolver_IncludeRequiredProbeNotFound(t *testing.T) {
+	// required() extensionless include: no files found must error.
+	dir := t.TempDir()
+	ast, err := parser.Parse(`a { include required("nonexistent") }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
 	if err == nil {
-		t.Fatal("expected error for missing include, got nil")
+		t.Fatal("expected error for missing required extensionless include")
+	}
+}
+
+// TestResolver_IncludeOptionalNonEnoentErrorPropagates verifies that a non-required
+// include whose ReadFile fails with a non-ENOENT error (e.g. "is a directory")
+// propagates the error instead of silently returning an empty object.
+func TestResolver_IncludeOptionalNonEnoentErrorPropagates(t *testing.T) {
+	dir := t.TempDir()
+	// Create a subdirectory with the target name + ".conf" — reading a directory is not ENOENT.
+	subDir := filepath.Join(dir, "subdir.conf")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ast, err := parser.Parse(`include "subdir.conf"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Error("expected error when ReadFile fails with non-ENOENT, got nil")
+	}
+}
+
+func TestResolver_IncludeProbingPropagatesParseError(t *testing.T) {
+	// A parse error in a file that EXISTS (during extension probing) must propagate,
+	// not be silently swallowed as if the file were missing.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "broken.conf"), `{ invalid = }`)
+
+	ast, err := parser.Parse(`include "broken"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Error("expected parse error from broken include file to propagate, got nil")
 	}
 }

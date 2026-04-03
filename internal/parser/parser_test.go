@@ -243,6 +243,133 @@ func TestParser_UnsupportedIncludeURL(t *testing.T) {
 	}
 }
 
+func TestParser_UnsupportedIncludeClasspath(t *testing.T) {
+	_, err := parser.Parse(`include classpath("reference.conf")`)
+	if err == nil {
+		t.Fatal("expected error for unsupported include classpath() form")
+	}
+}
+
+func TestParser_IncludeRequired(t *testing.T) {
+	obj := mustParse(t, `include required("base.conf")`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field (include), got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "base.conf" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+	if !inc.Required {
+		t.Error("expected Required=true for include required(...)")
+	}
+}
+
+func TestParser_IncludeRequiredFile(t *testing.T) {
+	obj := mustParse(t, `include required(file("base.conf"))`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field (include), got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "base.conf" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+	if !inc.Required {
+		t.Error("expected Required=true for include required(file(...))")
+	}
+}
+
+func TestParser_IncludeNotRequired(t *testing.T) {
+	obj := mustParse(t, `include "base.conf"`)
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Required {
+		t.Error("expected Required=false for plain include")
+	}
+}
+
+func TestParser_IncludeRequiredUrlNotSupported(t *testing.T) {
+	_, err := parser.Parse(`include required(url("http://example.com"))`)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("expected 'not supported' in error, got: %s", err.Error())
+	}
+}
+
+func TestParser_IncludeRequiredClasspathNotSupported(t *testing.T) {
+	_, err := parser.Parse(`include required(classpath("reference.conf"))`)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("expected 'not supported' in error, got: %s", err.Error())
+	}
+}
+
+// TestParser_IncludeQuotedUrlNotError verifies that a quoted filename that
+// happens to be "url" is treated as a plain file path, not an unsupported form.
+func TestParser_IncludeQuotedUrlNotError(t *testing.T) {
+	// include "url" — "url" is a quoted string, so it must be accepted as a filename.
+	obj := mustParse(t, `include "url"`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "url" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+}
+
+// TestParser_IncludeRequiredQuotedUrlNotError verifies that include required("url")
+// is accepted as a valid file path include, not rejected as url(...) form.
+func TestParser_IncludeRequiredQuotedUrlNotError(t *testing.T) {
+	obj := mustParse(t, `include required("url")`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "url" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+	if !inc.Required {
+		t.Error("expected Required=true")
+	}
+}
+
+// TestParser_IncludeRequiredQuotedClasspathNotError verifies that include required("classpath")
+// is accepted as a valid file path include, not rejected as classpath(...) form.
+func TestParser_IncludeRequiredQuotedClasspathNotError(t *testing.T) {
+	obj := mustParse(t, `include required("classpath")`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "classpath" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+	if !inc.Required {
+		t.Error("expected Required=true")
+	}
+}
+
 func TestBracedRootTrailingGarbage(t *testing.T) {
 	tests := []string{
 		`{ a = 1 } }`,

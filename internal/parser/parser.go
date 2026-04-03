@@ -150,14 +150,37 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 	p.advance() // consume "include"
 	p.skipNewlines()
 	// check for unsupported forms: url(...) classpath(...)
-	if p.current.Type == lexer.TokenString {
+	// Only match unquoted tokens — a quoted "url" is a valid filename.
+	if p.current.Type == lexer.TokenString && !p.current.IsQuoted {
 		switch p.current.Value {
 		case "url", "classpath":
 			return nil, fmt.Errorf("parse error at line %d, col %d: include %s(...) is not supported in v1.0", line, col, p.current.Value)
 		}
 	}
+
+	// detect include required(...) form
+	required := false
+	if p.current.Type == lexer.TokenString && !p.current.IsQuoted && p.current.Value == "required" {
+		required = true
+		p.advance() // consume "required"
+		if p.current.Type != lexer.TokenLParen {
+			return nil, fmt.Errorf("parse error at line %d, col %d: expected '(' after 'required' in include directive", line, col)
+		}
+		p.advance() // consume '('
+
+		// re-check for unsupported forms inside required(...): url(...) classpath(...)
+		// Only match unquoted tokens — include required("url") is a valid file path.
+		if p.current.Type == lexer.TokenString && !p.current.IsQuoted {
+			switch p.current.Value {
+			case "url", "classpath":
+				return nil, fmt.Errorf("parse error at line %d, col %d: include required(%s(...)) is not supported in v1.0", line, col, p.current.Value)
+			}
+		}
+	}
+
 	// support: include "file.conf" and include file("file.conf")
-	if p.current.Type == lexer.TokenString && p.current.Value == "file" {
+	var path string
+	if p.current.Type == lexer.TokenString && !p.current.IsQuoted && p.current.Value == "file" {
 		p.advance() // consume "file"
 		// expect '('
 		if p.current.Type != lexer.TokenLParen {
@@ -167,20 +190,29 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		if p.current.Type != lexer.TokenString {
 			return nil, fmt.Errorf("parse error at line %d, col %d: expected filename string in include file(...)", line, col)
 		}
-		path := p.current.Value
+		path = p.current.Value
 		p.advance() // consume path
 		if p.current.Type != lexer.TokenRParen {
 			return nil, fmt.Errorf("parse error at line %d, col %d: expected ')' after filename in include file(...)", line, col)
 		}
 		p.advance() // consume ')'
-		return &IncludeNode{pos: pos{line, col}, Path: path}, nil
+	} else {
+		if p.current.Type != lexer.TokenString {
+			return nil, fmt.Errorf("parse error at line %d, col %d: expected filename after include", line, col)
+		}
+		path = p.current.Value
+		p.advance()
 	}
-	if p.current.Type != lexer.TokenString {
-		return nil, fmt.Errorf("parse error at line %d, col %d: expected filename after include", line, col)
+
+	// if we consumed 'required(', close the outer paren
+	if required {
+		if p.current.Type != lexer.TokenRParen {
+			return nil, fmt.Errorf("parse error at line %d, col %d: expected ')' to close required(...) in include directive", line, col)
+		}
+		p.advance() // consume ')'
 	}
-	path := p.current.Value
-	p.advance()
-	return &IncludeNode{pos: pos{line, col}, Path: path}, nil
+
+	return &IncludeNode{pos: pos{line, col}, Path: path, Required: required}, nil
 }
 
 func (p *parser) parseField() (*FieldNode, error) {

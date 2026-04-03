@@ -525,7 +525,7 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 
 	// Single file with explicit extension.
 	if filepath.Ext(path) != "" {
-		return r.loadIncludeFile(path)
+		return r.loadIncludeFile(path, inc.Required)
 	}
 
 	// No extension: probe all known extensions and merge all found files.
@@ -534,28 +534,50 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 	found := false
 	for _, ext := range includeExtensions {
 		p := path + ext
-		obj, err := r.loadIncludeFile(p)
+		if _, err := os.Stat(p); err != nil {
+			if os.IsNotExist(err) {
+				// File does not exist: skip to next extension.
+				continue
+			}
+			// Permission error or other I/O failure — propagate.
+			return nil, &ResolveError{
+				Message:  "cannot stat include file: " + err.Error(),
+				FilePath: p,
+			}
+		}
+		// File exists — load it; any error here is a real parse/resolve error.
+		obj, err := r.loadIncludeFile(p, true)
 		if err != nil {
-			continue // file not found — skip
+			return nil, err
 		}
 		found = true
 		// Later files override earlier ones: pass new obj as dst (winner).
 		merged = deepMerge(obj, merged)
 	}
 	if !found {
-		return nil, &ResolveError{
-			Message:  fmt.Sprintf("cannot read include file: no file found for %q (tried %v)", inc.Path, includeExtensions),
-			FilePath: path,
+		if inc.Required {
+			return nil, &ResolveError{
+				Message:  fmt.Sprintf("cannot read include file: no file found for %q (tried %v)", inc.Path, includeExtensions),
+				FilePath: path,
+			}
 		}
+		// Non-required: silently return empty object per HOCON spec.
+		return newObjectVal(), nil
 	}
 	return merged, nil
 }
 
 // loadIncludeFile reads, parses, and resolves a single include file.
-// Returns an error if the file does not exist or cannot be parsed.
-func (r *resolver) loadIncludeFile(path string) (*ObjectVal, error) {
+// When required=false a missing file is silently ignored (returns empty object).
+func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if !required && os.IsNotExist(err) {
+			// Non-required include: silently ignore missing file per HOCON spec.
+			return newObjectVal(), nil
+		}
+		// For required includes, or non-ENOENT errors on optional includes,
+		// always propagate (permission errors etc. should not be silently swallowed).
 		return nil, &ResolveError{
 			Message:  "cannot read include file: " + err.Error(),
 			FilePath: path,
