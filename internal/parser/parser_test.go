@@ -242,3 +242,18 @@ func TestParser_UnsupportedIncludeURL(t *testing.T) {
 		t.Fatal("expected error for unsupported include form")
 	}
 }
+
+func TestBracedRootTrailingGarbage(t *testing.T) {
+	tests := []string{
+		`{ a = 1 } }`,
+		`{ a = 1 } garbage`,
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			_, err := parser.Parse(input)
+			if err == nil {
+				t.Errorf("expected error for trailing content: %s", input)
+			}
+		})
+	}
+}
