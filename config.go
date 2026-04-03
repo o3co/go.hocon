@@ -41,7 +41,45 @@ func (c *Config) lookup(path string) (resolver.Val, bool) {
 }
 
 func splitPath(path string) []string {
-	return strings.Split(path, ".")
+	var segments []string
+	i := 0
+	for i < len(path) {
+		if path[i] == '"' {
+			i++ // skip opening quote
+			var seg []byte
+			closed := false
+			for i < len(path) {
+				if path[i] == '\\' && i+1 < len(path) {
+					seg = append(seg, path[i+1])
+					i += 2
+					continue
+				}
+				if path[i] == '"' {
+					closed = true
+					i++
+					break
+				}
+				seg = append(seg, path[i])
+				i++
+			}
+			segments = append(segments, string(seg))
+			if !closed {
+				break
+			}
+			if i < len(path) && path[i] == '.' {
+				i++
+			}
+		} else {
+			dot := strings.IndexByte(path[i:], '.')
+			if dot == -1 {
+				segments = append(segments, path[i:])
+				break
+			}
+			segments = append(segments, path[i:i+dot])
+			i = i + dot + 1
+		}
+	}
+	return segments
 }
 
 func lookupSegments(obj *resolver.ObjectVal, segments []string) (resolver.Val, bool) {

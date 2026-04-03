@@ -1,6 +1,7 @@
 package hocon_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -254,6 +255,84 @@ clients {
 	got := cfg.GetDuration("clients.permissionVerifier.timeout")
 	if got.String() != "30s" {
 		t.Errorf("clients.permissionVerifier.timeout: expected 30s, got %s", got)
+	}
+}
+
+func TestEmptyEnvVar(t *testing.T) {
+	t.Setenv("HOCON_EMPTY", "")
+	cfg, err := hocon.ParseString(`val = ${HOCON_EMPTY}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := cfg.GetString("val")
+	if got != "" {
+		t.Errorf("got %q, want empty string", got)
+	}
+}
+
+func TestUnsetEnvVarOptional(t *testing.T) {
+	const envKey = "HOCON_TEST_UNSET_VAR"
+	_ = os.Unsetenv(envKey)
+	t.Cleanup(func() { _ = os.Unsetenv(envKey) })
+	cfg, err := hocon.ParseString(fmt.Sprintf(`val = ${?%s}`, envKey))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Has("val") {
+		t.Error("expected val to not exist for unset optional env var")
+	}
+}
+
+func TestEmptyEnvVarOptional(t *testing.T) {
+	t.Setenv("HOCON_EMPTY_OPTIONAL", "")
+	cfg, err := hocon.ParseString(`val = ${?HOCON_EMPTY_OPTIONAL}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Has("val") {
+		t.Fatal("expected val to exist for empty-but-set optional env var")
+	}
+	got := cfg.GetString("val")
+	if got != "" {
+		t.Errorf("got %q, want empty string", got)
+	}
+}
+
+func TestQuotedPathLookup(t *testing.T) {
+	cfg, err := hocon.ParseString(`"a.b" = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Has(`"a.b"`) {
+		t.Error("expected Has to return true for quoted key")
+	}
+	if got := cfg.GetInt64(`"a.b"`); got != 1 {
+		t.Errorf("got %d, want 1", got)
+	}
+}
+
+func TestNestedQuotedPathLookup(t *testing.T) {
+	cfg, err := hocon.ParseString(`server { "web.api" { port = 8080 } }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GetInt64(`server."web.api".port`); got != 8080 {
+		t.Errorf("got %d, want 8080", got)
+	}
+}
+
+func TestEscapedQuoteInPath(t *testing.T) {
+	// The lexer unescapes \" → " when parsing quoted keys.
+	// splitPath must do the same when scanning quoted segments.
+	cfg, err := hocon.ParseString(`"a\"b" = 42`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Has(`"a\"b"`) {
+		t.Error(`expected Has to return true for key with escaped quote`)
+	}
+	if got := cfg.GetInt64(`"a\"b"`); got != 42 {
+		t.Errorf("got %d, want 42", got)
 	}
 }
 
