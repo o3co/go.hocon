@@ -435,17 +435,17 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 	switch {
 	case hasObject && !hasArray && !hasScalar:
 		// All meaningful elements are objects → deep merge (left to right, later wins)
-		return r.concatObjects(resolved), nil
+		return concatObjects(resolved), nil
 	case hasArray:
 		// Array concatenation (permissive: non-array elements become single items)
-		return r.concatArraysPermissive(resolved), nil
+		return concatArraysPermissive(resolved), nil
 	default:
 		// String concatenation (fallback)
 		return r.concatStrings(resolved), nil
 	}
 }
 
-func (r *resolver) concatObjects(vals []Val) Val {
+func concatObjects(vals []Val) Val {
 	var result *ObjectVal
 	for _, v := range vals {
 		if v == nil || isSeparator(v) {
@@ -458,7 +458,7 @@ func (r *resolver) concatObjects(vals []Val) Val {
 		if result == nil {
 			result = obj
 		} else {
-			// deepMerge: dst wins for non-objects, so pass later object as dst
+			// obj is the new value; it becomes dst so its keys win over the accumulated result.
 			result = deepMerge(obj, result)
 		}
 	}
@@ -468,7 +468,7 @@ func (r *resolver) concatObjects(vals []Val) Val {
 	return result
 }
 
-func (r *resolver) concatArraysPermissive(vals []Val) Val {
+func concatArraysPermissive(vals []Val) Val {
 	result := &ArrayVal{}
 	for _, v := range vals {
 		if v == nil || isSeparator(v) {
