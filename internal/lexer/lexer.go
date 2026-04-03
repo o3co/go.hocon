@@ -38,6 +38,7 @@ const (
 	TokenInclude                          // include keyword
 	TokenNewline                          // \n
 	TokenEOF
+	TokenError // lexer error (e.g. unterminated string)
 )
 
 // Token is a single lexed unit.
@@ -212,6 +213,7 @@ func (l *Lexer) readString(line, col int) Token {
 	}
 	// regular quoted string
 	var sb strings.Builder
+	closed := false
 	for {
 		ch, ok := l.peek()
 		if !ok || ch == '\n' {
@@ -219,6 +221,7 @@ func (l *Lexer) readString(line, col int) Token {
 		}
 		l.advance()
 		if ch == '"' {
+			closed = true
 			break
 		}
 		if ch == '\\' {
@@ -245,6 +248,9 @@ func (l *Lexer) readString(line, col int) Token {
 			continue
 		}
 		sb.WriteRune(ch)
+	}
+	if !closed {
+		return Token{Type: TokenError, Value: "unterminated quoted string", Line: line, Col: col}
 	}
 	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
 }
@@ -318,16 +324,22 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 		l.advance()
 	}
 	var sb strings.Builder
+	closed := false
 	for {
 		ch2, ok2 := l.peek()
-		if !ok2 || ch2 == '}' {
-			if ok2 {
-				l.advance()
-			}
+		if !ok2 {
+			break
+		}
+		if ch2 == '}' {
+			l.advance()
+			closed = true
 			break
 		}
 		l.advance()
 		sb.WriteRune(ch2)
+	}
+	if !closed {
+		return Token{Type: TokenError, Value: "unterminated substitution", Line: line, Col: col}
 	}
 	tt := TokenSubstitution
 	if optional {

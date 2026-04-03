@@ -127,6 +127,54 @@ func TestLexer_TripleQuoted(t *testing.T) {
 	}
 }
 
+// tokenize collects all tokens (including EOF) from the input.
+func tokenize(src string) []lexer.Token {
+	l := lexer.New(src)
+	var tokens []lexer.Token
+	for {
+		tok := l.Next()
+		tokens = append(tokens, tok)
+		if tok.Type == lexer.TokenEOF {
+			break
+		}
+	}
+	return tokens
+}
+
+func TestUnterminatedString(t *testing.T) {
+	tests := []string{
+		`a = "unterminated`,
+		`a = "no close`,
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			tokens := tokenize(input)
+			hasError := false
+			for _, tok := range tokens {
+				if tok.Type == lexer.TokenError {
+					hasError = true
+				}
+			}
+			if !hasError {
+				t.Errorf("expected error token for unterminated string in: %s", input)
+			}
+		})
+	}
+}
+
+func TestUnterminatedSubstitution(t *testing.T) {
+	tokens := tokenize(`a = ${unclosed`)
+	hasError := false
+	for _, tok := range tokens {
+		if tok.Type == lexer.TokenError {
+			hasError = true
+		}
+	}
+	if !hasError {
+		t.Error("expected error token for unterminated substitution")
+	}
+}
+
 func TestLexer_LineCol(t *testing.T) {
 	l := lexer.New("a\nb")
 	tok := l.Next() // 'a' unquoted string
