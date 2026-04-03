@@ -468,21 +468,6 @@ func (r *resolver) concatObjects(vals []Val) Val {
 	return result
 }
 
-func (r *resolver) concatArrays(vals []Val) (Val, error) {
-	result := &ArrayVal{}
-	for _, v := range vals {
-		if v == nil {
-			continue
-		}
-		arr, ok := v.(*ArrayVal)
-		if !ok {
-			return nil, &ResolveError{Message: "cannot concatenate non-array with array"}
-		}
-		result.Elements = append(result.Elements, arr.Elements...)
-	}
-	return result, nil
-}
-
 func (r *resolver) concatArraysPermissive(vals []Val) Val {
 	result := &ArrayVal{}
 	for _, v := range vals {

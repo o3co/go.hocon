@@ -538,7 +538,7 @@ func TestResolver_IncludeProbingPropagatesParseError(t *testing.T) {
 	}
 }
 
-func TestResolveObjectConcatenation(t *testing.T) {
+func TestResolver_ObjectConcatenation(t *testing.T) {
 	// HOCON spec: `a = {x: 1} {y: 2}` should deep-merge into {x:1, y:2}
 	res := resolve(t, `a = {x: 1} {y: 2}`)
 	v, ok := res.Root.Get("a")
@@ -563,7 +563,34 @@ func TestResolveObjectConcatenation(t *testing.T) {
 	}
 }
 
-func TestResolveObjectConcatenationDeepMerge(t *testing.T) {
+func TestResolver_ArrayConcatenationPermissive(t *testing.T) {
+	// HOCON spec: non-array elements concatenated with arrays are pushed as items.
+	// `a = [1, 2] 3` should produce [1, 2, 3].
+	res := resolve(t, `a = [1, 2] 3`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", v)
+	}
+	if len(arr.Elements) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(arr.Elements))
+	}
+	for i, want := range []int64{1, 2, 3} {
+		sv, ok := arr.Elements[i].(*resolver.ScalarVal)
+		if !ok {
+			t.Errorf("element %d: expected ScalarVal, got %T", i, arr.Elements[i])
+			continue
+		}
+		if sv.V != want {
+			t.Errorf("element %d: expected %d, got %v", i, want, sv.V)
+		}
+	}
+}
+
+func TestResolver_ObjectConcatenationDeepMerge(t *testing.T) {
 	// HOCON spec: nested object concatenation should deep-merge
 	res := resolve(t, `a = {x: {nested: 1}} {x: {other: 2}}`)
 	v, ok := res.Root.Get("a")
