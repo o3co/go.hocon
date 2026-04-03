@@ -272,8 +272,8 @@ func TestEmptyEnvVar(t *testing.T) {
 
 func TestUnsetEnvVarOptional(t *testing.T) {
 	const envKey = "HOCON_TEST_UNSET_VAR"
-	os.Unsetenv(envKey)
-	t.Cleanup(func() { os.Unsetenv(envKey) })
+	_ = os.Unsetenv(envKey)
+	t.Cleanup(func() { _ = os.Unsetenv(envKey) })
 	cfg, err := hocon.ParseString(fmt.Sprintf(`val = ${?%s}`, envKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
