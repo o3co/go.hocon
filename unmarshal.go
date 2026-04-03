@@ -136,10 +136,19 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 	if target.IsNil() {
 		target.Set(reflect.MakeMap(target.Type()))
 	}
+	elemType := target.Type().Elem()
+	anyType := elemType.Kind() == reflect.Interface
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
-		mval := valToAny(v)
-		target.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(mval))
+		if anyType {
+			target.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(valToAny(v)))
+		} else {
+			ev := reflect.New(elemType).Elem()
+			if err := unmarshalVal(v, ev); err != nil {
+				return fmt.Errorf("hocon: map key %q: %w", k, err)
+			}
+			target.SetMapIndex(reflect.ValueOf(k), ev)
+		}
 	}
 	return nil
 }
