@@ -446,3 +446,39 @@ func TestOptionalIncludeMissingFile(t *testing.T) {
 		t.Errorf("got %d, want 1", got)
 	}
 }
+
+func TestIncludePropertiesFile(t *testing.T) {
+	dir := t.TempDir()
+	propsFile := filepath.Join(dir, "app.properties")
+	// Use ! comment and a URL value — both are legal .properties but invalid HOCON.
+	os.WriteFile(propsFile, []byte(
+		"! bang comment\n"+
+			"server.host=localhost\n"+
+			"server.port=8080\n"+
+			"debug=true\n"+
+			"endpoint=http://example.com/api",
+	), 0644)
+	mainFile := filepath.Join(dir, "main.conf")
+	os.WriteFile(mainFile, []byte(fmt.Sprintf("include \"%s\"\napp = 1", propsFile)), 0644)
+
+	cfg, err := hocon.ParseFile(mainFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := cfg.GetString("server.host"); got != "localhost" {
+		t.Errorf("server.host=%q, want localhost", got)
+	}
+	if got := cfg.GetString("server.port"); got != "8080" {
+		t.Errorf("server.port=%q, want 8080 (string)", got)
+	}
+	if got := cfg.GetString("debug"); got != "true" {
+		t.Errorf("debug=%q, want true (string)", got)
+	}
+	if got := cfg.GetString("endpoint"); got != "http://example.com/api" {
+		t.Errorf("endpoint=%q, want http://example.com/api", got)
+	}
+	if got := cfg.GetInt64("app"); got != 1 {
+		t.Errorf("app=%d, want 1", got)
+	}
+}

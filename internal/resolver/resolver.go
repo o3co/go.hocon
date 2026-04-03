@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/o3co/go.hocon/internal/parser"
+	"github.com/o3co/go.hocon/internal/properties"
 )
 
 // Val is a resolved value.
@@ -584,14 +585,15 @@ func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, erro
 		}
 	}
 
+	// .properties files: use dedicated parser instead of HOCON lexer.
+	// Standard .properties syntax (e.g. ! comments, URL values) is not valid HOCON.
+	if filepath.Ext(path) == ".properties" {
+		return propsToObjectVal(properties.Parse(string(data))), nil
+	}
+
 	obj, err := r.parseAndResolve(data, path)
 	if err != nil {
 		return nil, err
-	}
-
-	// .properties files: all values must remain strings per HOCON spec.
-	if filepath.Ext(path) == ".properties" {
-		coerceToStrings(obj)
 	}
 
 	return obj, nil
@@ -634,6 +636,36 @@ func coerceToStrings(obj *ObjectVal) {
 			coerceArrayToStrings(vv)
 		}
 	}
+}
+
+// propsToObjectVal converts a flat map[string]string (from a .properties file)
+// into a nested ObjectVal. Dotted keys are expanded into nested objects:
+// "server.host" = "x" becomes {server: {host: "x"}}.
+// All leaf values are ScalarVal with string type, per .properties spec.
+func propsToObjectVal(props map[string]string) *ObjectVal {
+	root := newObjectVal()
+	for key, value := range props {
+		parts := strings.Split(key, ".")
+		cur := root
+		for i, part := range parts {
+			if i == len(parts)-1 {
+				cur.set(part, &ScalarVal{V: value})
+			} else {
+				existing, ok := cur.values[part]
+				if !ok {
+					child := newObjectVal()
+					cur.set(part, child)
+					cur = child
+				} else if child, ok := existing.(*ObjectVal); ok {
+					cur = child
+				} else {
+					// Conflict: scalar already set for this segment — leaf wins, skip.
+					break
+				}
+			}
+		}
+	}
+	return root
 }
 
 func coerceArrayToStrings(arr *ArrayVal) {
