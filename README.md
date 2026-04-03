@@ -323,6 +323,15 @@ if err := conf.Unmarshal(&app); err != nil {
 }
 ```
 
+## Known Limitations
+
+- **`include url(...)` and `include classpath(...)`** are not supported. These are JVM-specific include forms from the Lightbend spec. Only `include "file"`, `include file("file")`, and `include required(...)` are supported.
+- **No watch/reload** — the library parses config at load time. For live-reloading, re-call `ParseString()` or `ParseFile()` on change.
+- **No streaming parser** — the entire input is loaded into memory.
+- **`.properties` include** — supports basic `key=value` syntax. Does not support multiline values (backslash continuation), unicode escapes, or key escaping from the full Java .properties specification.
+
+For full API documentation, see [pkg.go.dev](https://pkg.go.dev/github.com/o3co/go.hocon).
+
 ## Security Considerations
 
 When parsing untrusted HOCON input, be aware of:
