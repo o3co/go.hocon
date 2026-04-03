@@ -79,9 +79,12 @@ func (n *SubstNode) Col() int { return n.col }
 
 // IncludeNode represents an include directive.
 // Only file-based includes are supported in v1.0.
+// Required=true means the file must exist (include required(...) form);
+// Required=false means missing files are silently ignored per HOCON spec.
 type IncludeNode struct {
 	pos
-	Path string
+	Path     string
+	Required bool
 }
 
 func (n *IncludeNode) node() {}

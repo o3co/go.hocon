@@ -243,6 +243,51 @@ func TestParser_UnsupportedIncludeURL(t *testing.T) {
 	}
 }
 
+func TestParser_IncludeRequired(t *testing.T) {
+	obj := mustParse(t, `include required("base.conf")`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field (include), got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "base.conf" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+	if !inc.Required {
+		t.Error("expected Required=true for include required(...)")
+	}
+}
+
+func TestParser_IncludeRequiredFile(t *testing.T) {
+	obj := mustParse(t, `include required(file("base.conf"))`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field (include), got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "base.conf" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+	if !inc.Required {
+		t.Error("expected Required=true for include required(file(...))")
+	}
+}
+
+func TestParser_IncludeNotRequired(t *testing.T) {
+	obj := mustParse(t, `include "base.conf"`)
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Required {
+		t.Error("expected Required=false for plain include")
+	}
+}
+
 func TestBracedRootTrailingGarbage(t *testing.T) {
 	tests := []string{
 		`{ a = 1 } }`,
