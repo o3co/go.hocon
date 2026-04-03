@@ -202,7 +202,7 @@ max-size  = "512MiB"
 
 ## Performance
 
-Measured on Apple M4 Pro with `go test -bench` (built-in Go benchmark framework). Run `go test -bench=. -benchmem ./...` to reproduce.
+Measured on Apple M4 Pro with `go test -bench` (built-in Go benchmark framework). Each iteration includes parsing and a `GetString` lookup. Run `go test -bench=. -benchmem ./...` to reproduce.
 
 | Scenario | ops/sec | Time per op |
 | --- | --- | --- |
@@ -245,7 +245,7 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 | --- | :---: | :---: |
 | **Formats** | | |
 | HOCON | ✅ | ❌ |
-| JSON | ✅ (via include) | ✅ |
+| JSON | ✅ | ✅ |
 | YAML | ❌ | ✅ |
 | TOML | ❌ | ✅ |
 | Env vars | ✅ (fallback) | ✅ |
