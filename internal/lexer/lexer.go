@@ -9,6 +9,8 @@
 package lexer
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -241,9 +243,22 @@ func (l *Lexer) readString(line, col int) Token {
 				sb.WriteByte('"')
 			case '\\':
 				sb.WriteByte('\\')
+			case 'u':
+				hex := make([]rune, 0, 4)
+				for i := 0; i < 4; i++ {
+					ch, ok := l.peek()
+					if !ok {
+						return Token{Type: TokenError, Value: "invalid unicode escape: unexpected end", Line: line, Col: col}
+					}
+					if !isHexDigit(ch) {
+						return Token{Type: TokenError, Value: fmt.Sprintf("invalid unicode escape: non-hex char '%c'", ch), Line: line, Col: col}
+					}
+					hex = append(hex, l.advance())
+				}
+				codePoint, _ := strconv.ParseInt(string(hex), 16, 32)
+				sb.WriteRune(rune(codePoint))
 			default:
-				sb.WriteRune('\\')
-				sb.WriteRune(next)
+				return Token{Type: TokenError, Value: fmt.Sprintf("unknown escape sequence: \\%c", next), Line: line, Col: col}
 			}
 			continue
 		}
@@ -398,6 +413,10 @@ const unquotedForbidden = `$"{}[]:=,+#\^?!@&()`
 
 func isUnquotedForbidden(ch rune) bool {
 	return unicode.IsSpace(ch) || strings.ContainsRune(unquotedForbidden, ch)
+}
+
+func isHexDigit(ch rune) bool {
+	return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
 }
 
 func (l *Lexer) readUnquoted(prefix string, line, col int) Token {

@@ -265,7 +265,8 @@ func TestResolver_IncludeProbeJSON(t *testing.T) {
 
 func TestResolver_IncludeProbeProperties(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "sub.properties"), `z = "from-props"`)
+	// .properties files do not use quote delimiters; value is the literal text.
+	writeFile(t, filepath.Join(dir, "sub.properties"), `z = from-props`)
 
 	res := resolveWithDir(t, `a { include "sub" }`, dir)
 	obj, ok := res.Root.Get("a")
@@ -311,7 +312,8 @@ y = "only-conf"`)
 func TestResolver_IncludeMergeAllWithProperties(t *testing.T) {
 	// Keys unique to .properties are preserved after merge.
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "sub.properties"), `p = "from-props"`)
+	// .properties files do not use quote delimiters; value is the literal text.
+	writeFile(t, filepath.Join(dir, "sub.properties"), `p = from-props`)
 	writeFile(t, filepath.Join(dir, "sub.conf"), `c = "from-conf"`)
 
 	res := resolveWithDir(t, `a { include "sub" }`, dir)
@@ -400,17 +402,19 @@ func TestResolver_IncludePropertiesExplicitExtension(t *testing.T) {
 }
 
 func TestResolver_IncludePropertiesNestedObject(t *testing.T) {
-	// Nested objects in .properties files should also have string values.
+	// Dotted keys in .properties files expand into nested ObjectVal hierarchy.
+	// All leaf values must be strings per .properties spec.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "sub.properties"), `
-inner {
-  a = 42
-  b = true
-}
+inner.a = 42
+inner.b = true
 `)
 	res := resolveWithDir(t, `x { include "sub" }`, dir)
 	obj, _ := res.Root.Get("x")
-	inner, _ := obj.(*resolver.ObjectVal).Get("inner")
+	inner, ok := obj.(*resolver.ObjectVal).Get("inner")
+	if !ok {
+		t.Fatal("inner not found")
+	}
 	o := inner.(*resolver.ObjectVal)
 
 	v1, _ := o.Get("a")
@@ -424,42 +428,24 @@ inner {
 }
 
 func TestResolver_IncludePropertiesArray(t *testing.T) {
-	// Arrays in .properties files should have string elements,
-	// including nested objects and arrays.
+	// Standard .properties files do not support array syntax.
+	// Values that look like arrays are treated as literal strings.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "sub.properties"), `
-arr = [1, true, 3.14, null]
-nested = [{a = 42}, [false]]
+list = one,two,three
 `)
 
 	res := resolveWithDir(t, `x { include "sub" }`, dir)
 	obj, _ := res.Root.Get("x")
 
-	// Simple array
-	v, _ := obj.(*resolver.ObjectVal).Get("arr")
-	arr := v.(*resolver.ArrayVal)
-	expected := []string{"1", "true", "3.14", "null"}
-	for i, want := range expected {
-		sv := arr.Elements[i].(*resolver.ScalarVal)
-		if s, ok := sv.V.(string); !ok || s != want {
-			t.Errorf("arr[%d]: expected string %q, got %T %v", i, want, sv.V, sv.V)
-		}
+	// Value is a literal string — comma-separated values are the caller's responsibility to split.
+	v, ok := obj.(*resolver.ObjectVal).Get("list")
+	if !ok {
+		t.Fatal("list not found")
 	}
-
-	// Nested array with object and sub-array
-	v2, _ := obj.(*resolver.ObjectVal).Get("nested")
-	nested := v2.(*resolver.ArrayVal)
-	// First element: object {a = 42} → a should be string "42"
-	innerObj := nested.Elements[0].(*resolver.ObjectVal)
-	va, _ := innerObj.Get("a")
-	if sv := va.(*resolver.ScalarVal); sv.V != "42" {
-		t.Errorf("nested[0].a: expected string \"42\", got %T %v", sv.V, sv.V)
-	}
-	// Second element: array [false] → should be string "false"
-	innerArr := nested.Elements[1].(*resolver.ArrayVal)
-	sv := innerArr.Elements[0].(*resolver.ScalarVal)
-	if s, ok := sv.V.(string); !ok || s != "false" {
-		t.Errorf("nested[1][0]: expected string \"false\", got %T %v", sv.V, sv.V)
+	sv := v.(*resolver.ScalarVal)
+	if s, ok := sv.V.(string); !ok || s != "one,two,three" {
+		t.Errorf("list: expected string \"one,two,three\", got %T %v", sv.V, sv.V)
 	}
 }
 

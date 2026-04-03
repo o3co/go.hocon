@@ -203,3 +203,48 @@ func TestLexer_LineCol(t *testing.T) {
 		t.Errorf("a: line=%d col=%d, want 1,1", tok.Line, tok.Col)
 	}
 }
+
+func TestUnicodeEscape(t *testing.T) {
+	tests := []struct{ input, want string }{
+		{`"\u0041"`, "A"},
+		{`"\u00e9"`, "é"},
+	}
+	for _, tc := range tests {
+		tokens := tokenize(tc.input)
+		if tokens[0].Value != tc.want {
+			t.Errorf("tokenize(%s) = %q, want %q", tc.input, tokens[0].Value, tc.want)
+		}
+	}
+}
+
+func TestUnicodeEscapeInvalid(t *testing.T) {
+	tests := []string{`"\uZZZZ"`, `"\u41"`, `"\u"`}
+	for _, input := range tests {
+		tokens := tokenize(input)
+		hasError := false
+		for _, tok := range tokens {
+			if tok.Type == lexer.TokenError {
+				hasError = true
+			}
+		}
+		if !hasError {
+			t.Errorf("expected error for %s", input)
+		}
+	}
+}
+
+func TestUnknownEscapeError(t *testing.T) {
+	tests := []string{`"hello\qworld"`, `"\a"`}
+	for _, input := range tests {
+		tokens := tokenize(input)
+		hasError := false
+		for _, tok := range tokens {
+			if tok.Type == lexer.TokenError {
+				hasError = true
+			}
+		}
+		if !hasError {
+			t.Errorf("expected error for unknown escape in %s", input)
+		}
+	}
+}
