@@ -131,3 +131,50 @@ func TestUnmarshal_MapStringAny(t *testing.T) {
 		t.Errorf("b=%v", m["b"])
 	}
 }
+
+func TestUnmarshal_MapStringInt(t *testing.T) {
+	cfg := mustParseCfg(t, "ports { http = 80, https = 443 }")
+	var result struct{ Ports map[string]int }
+	if err := cfg.Unmarshal(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Ports["http"] != 80 {
+		t.Errorf("http = %d, want 80", result.Ports["http"])
+	}
+	if result.Ports["https"] != 443 {
+		t.Errorf("https = %d, want 443", result.Ports["https"])
+	}
+}
+
+func TestUnmarshal_MapStringString(t *testing.T) {
+	cfg := mustParseCfg(t, `labels { env = "prod", region = "us-east" }`)
+	var result struct{ Labels map[string]string }
+	if err := cfg.Unmarshal(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Labels["env"] != "prod" {
+		t.Errorf("env = %q", result.Labels["env"])
+	}
+}
+
+func TestUnmarshal_MapStringBool(t *testing.T) {
+	cfg := mustParseCfg(t, "flags { debug = true, verbose = false }")
+	var result struct{ Flags map[string]bool }
+	if err := cfg.Unmarshal(&result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Flags["debug"] {
+		t.Error("debug should be true")
+	}
+}
+
+func TestUnmarshal_MapStringFloat64(t *testing.T) {
+	cfg := mustParseCfg(t, "rates { usd = 1.0, eur = 0.85 }")
+	var result struct{ Rates map[string]float64 }
+	if err := cfg.Unmarshal(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Rates["eur"] != 0.85 {
+		t.Errorf("eur = %f", result.Rates["eur"])
+	}
+}

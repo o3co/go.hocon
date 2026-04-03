@@ -136,10 +136,23 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 	if target.IsNil() {
 		target.Set(reflect.MakeMap(target.Type()))
 	}
+	elemType := target.Type().Elem()
+	// anyType is true for map[string]any (and any other map with an interface element type).
+	// In that case we bypass reflection-based unmarshalling and use valToAny, which preserves
+	// the native Go value (int64, float64, bool, string, slice, map) without needing a
+	// concrete reflect.Value to set into.
+	anyType := elemType.Kind() == reflect.Interface
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
-		mval := valToAny(v)
-		target.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(mval))
+		if anyType {
+			target.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(valToAny(v)))
+		} else {
+			ev := reflect.New(elemType).Elem()
+			if err := unmarshalVal(v, ev); err != nil {
+				return fmt.Errorf("hocon: map key %q: %w", k, err)
+			}
+			target.SetMapIndex(reflect.ValueOf(k), ev)
+		}
 	}
 	return nil
 }

@@ -448,6 +448,255 @@ func TestOptionalIncludeMissingFile(t *testing.T) {
 	}
 }
 
+// ── Option variant tests ──────────────────────────────────────────
+
+func TestConfig_GetInt64Option_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `n = 42`)
+	opt := cfg.GetInt64Option("n")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if v != 42 {
+		t.Errorf("got %d, want 42", v)
+	}
+}
+
+func TestConfig_GetInt64Option_None(t *testing.T) {
+	cfg := mustParseCfg(t, `n = 42`)
+	if cfg.GetInt64Option("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetIntOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `n = 99`)
+	opt := cfg.GetIntOption("n")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if v != 99 {
+		t.Errorf("got %d, want 99", v)
+	}
+}
+
+func TestConfig_GetIntOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `n = 99`)
+	if cfg.GetIntOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetFloat64Option_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `f = 2.71`)
+	opt := cfg.GetFloat64Option("f")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if v != 2.71 {
+		t.Errorf("got %v, want 2.71", v)
+	}
+}
+
+func TestConfig_GetFloat64Option_None(t *testing.T) {
+	cfg := mustParseCfg(t, `f = 2.71`)
+	if cfg.GetFloat64Option("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetFloat32(t *testing.T) {
+	cfg := mustParseCfg(t, `f = 1.5`)
+	got := cfg.GetFloat32("f")
+	if got != float32(1.5) {
+		t.Errorf("got %v, want 1.5", got)
+	}
+}
+
+func TestConfig_GetFloat32Option_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `f = 0.5`)
+	opt := cfg.GetFloat32Option("f")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if v != float32(0.5) {
+		t.Errorf("got %v, want 0.5", v)
+	}
+}
+
+func TestConfig_GetFloat32Option_None(t *testing.T) {
+	cfg := mustParseCfg(t, `f = 0.5`)
+	if cfg.GetFloat32Option("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetBoolOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `b = true`)
+	opt := cfg.GetBoolOption("b")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if !v {
+		t.Error("expected true")
+	}
+}
+
+func TestConfig_GetBoolOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `b = true`)
+	if cfg.GetBoolOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetDurationOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `d = "5s"`)
+	opt := cfg.GetDurationOption("d")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if v != 5*time.Second {
+		t.Errorf("got %v, want 5s", v)
+	}
+}
+
+func TestConfig_GetDurationOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `d = "5s"`)
+	if cfg.GetDurationOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetBytesOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `sz = "1KB"`)
+	opt := cfg.GetBytesOption("sz")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if v != 1000 {
+		t.Errorf("got %d, want 1000", v)
+	}
+}
+
+func TestConfig_GetBytesOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `sz = "1KB"`)
+	if cfg.GetBytesOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetStringSliceOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `arr = ["x","y"]`)
+	opt := cfg.GetStringSliceOption("arr")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if len(v) != 2 || v[0] != "x" {
+		t.Errorf("got %v", v)
+	}
+}
+
+func TestConfig_GetStringSliceOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `arr = ["x"]`)
+	if cfg.GetStringSliceOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetInt64SliceOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `ns = [1, 2, 3]`)
+	opt := cfg.GetInt64SliceOption("ns")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if len(v) != 3 || v[2] != 3 {
+		t.Errorf("got %v", v)
+	}
+}
+
+func TestConfig_GetInt64SliceOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `ns = [1]`)
+	if cfg.GetInt64SliceOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetIntSlice(t *testing.T) {
+	cfg := mustParseCfg(t, `ns = [10, 20, 30]`)
+	got := cfg.GetIntSlice("ns")
+	if len(got) != 3 || got[0] != 10 || got[2] != 30 {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestConfig_GetIntSliceOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `ns = [7, 8]`)
+	opt := cfg.GetIntSliceOption("ns")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if len(v) != 2 || v[0] != 7 {
+		t.Errorf("got %v", v)
+	}
+}
+
+func TestConfig_GetIntSliceOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `ns = [7]`)
+	if cfg.GetIntSliceOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetConfigOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `server { host = "localhost" }`)
+	opt := cfg.GetConfigOption("server")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	sub, _ := opt.Get()
+	if sub.GetString("host") != "localhost" {
+		t.Error("expected localhost")
+	}
+}
+
+func TestConfig_GetConfigOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `server { host = "localhost" }`)
+	if cfg.GetConfigOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
+func TestConfig_GetConfigSliceOption_Some(t *testing.T) {
+	cfg := mustParseCfg(t, `items = [{n=1},{n=2}]`)
+	opt := cfg.GetConfigSliceOption("items")
+	if !opt.IsSome() {
+		t.Fatal("expected Some")
+	}
+	v, _ := opt.Get()
+	if len(v) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(v))
+	}
+	if v[1].GetInt64("n") != 2 {
+		t.Error("expected n=2")
+	}
+}
+
+func TestConfig_GetConfigSliceOption_None(t *testing.T) {
+	cfg := mustParseCfg(t, `items = [{n=1}]`)
+	if cfg.GetConfigSliceOption("missing").IsSome() {
+		t.Error("expected None for missing key")
+	}
+}
+
 func TestIncludePropertiesFile(t *testing.T) {
 	dir := t.TempDir()
 	propsFile := filepath.Join(dir, "app.properties")
