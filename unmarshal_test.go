@@ -3,8 +3,6 @@ package hocon_test
 import (
 	"testing"
 	"time"
-
-	"github.com/o3co/go.hocon"
 )
 
 type ServerCfg struct {
@@ -135,7 +133,7 @@ func TestUnmarshal_MapStringAny(t *testing.T) {
 }
 
 func TestUnmarshal_MapStringInt(t *testing.T) {
-	cfg, _ := hocon.ParseString("ports { http = 80, https = 443 }")
+	cfg := mustParseCfg(t, "ports { http = 80, https = 443 }")
 	var result struct{ Ports map[string]int }
 	if err := cfg.Unmarshal(&result); err != nil {
 		t.Fatal(err)
@@ -149,7 +147,7 @@ func TestUnmarshal_MapStringInt(t *testing.T) {
 }
 
 func TestUnmarshal_MapStringString(t *testing.T) {
-	cfg, _ := hocon.ParseString(`labels { env = "prod", region = "us-east" }`)
+	cfg := mustParseCfg(t, `labels { env = "prod", region = "us-east" }`)
 	var result struct{ Labels map[string]string }
 	if err := cfg.Unmarshal(&result); err != nil {
 		t.Fatal(err)
@@ -160,7 +158,7 @@ func TestUnmarshal_MapStringString(t *testing.T) {
 }
 
 func TestUnmarshal_MapStringBool(t *testing.T) {
-	cfg, _ := hocon.ParseString("flags { debug = true, verbose = false }")
+	cfg := mustParseCfg(t, "flags { debug = true, verbose = false }")
 	var result struct{ Flags map[string]bool }
 	if err := cfg.Unmarshal(&result); err != nil {
 		t.Fatal(err)
@@ -171,7 +169,7 @@ func TestUnmarshal_MapStringBool(t *testing.T) {
 }
 
 func TestUnmarshal_MapStringFloat64(t *testing.T) {
-	cfg, _ := hocon.ParseString("rates { usd = 1.0, eur = 0.85 }")
+	cfg := mustParseCfg(t, "rates { usd = 1.0, eur = 0.85 }")
 	var result struct{ Rates map[string]float64 }
 	if err := cfg.Unmarshal(&result); err != nil {
 		t.Fatal(err)
