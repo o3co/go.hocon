@@ -257,6 +257,7 @@ func (l *Lexer) readString(line, col int) Token {
 
 func (l *Lexer) readTripleQuoted(line, col int) Token {
 	var sb strings.Builder
+	closed := false
 	for {
 		ch, ok := l.peek()
 		if !ok {
@@ -280,6 +281,7 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 				for i := 0; i < extra; i++ {
 					sb.WriteByte('"')
 				}
+				closed = true
 				break
 			}
 			// Fewer than 3 quotes — they are content
@@ -307,6 +309,9 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 		}
 		l.advance()
 		sb.WriteRune(ch)
+	}
+	if !closed {
+		return Token{Type: TokenError, Value: "unterminated triple-quoted string", Line: line, Col: col}
 	}
 	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
 }

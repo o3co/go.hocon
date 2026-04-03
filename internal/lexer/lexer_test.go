@@ -175,6 +175,27 @@ func TestUnterminatedSubstitution(t *testing.T) {
 	}
 }
 
+func TestUnterminatedTripleQuotedString(t *testing.T) {
+	tests := []string{
+		`a = """unterminated`,
+		"a = \"\"\"line1\nline2",
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			tokens := tokenize(input)
+			hasError := false
+			for _, tok := range tokens {
+				if tok.Type == lexer.TokenError {
+					hasError = true
+				}
+			}
+			if !hasError {
+				t.Errorf("expected error token for unterminated triple-quoted string in: %s", input)
+			}
+		})
+	}
+}
+
 func TestLexer_LineCol(t *testing.T) {
 	l := lexer.New("a\nb")
 	tok := l.Next() // 'a' unquoted string
