@@ -166,6 +166,14 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 			return nil, fmt.Errorf("parse error at line %d, col %d: expected '(' after 'required' in include directive", line, col)
 		}
 		p.advance() // consume '('
+
+		// re-check for unsupported forms inside required(...): url(...) classpath(...)
+		if p.current.Type == lexer.TokenString {
+			switch p.current.Value {
+			case "url", "classpath":
+				return nil, fmt.Errorf("parse error at line %d, col %d: include required(%s(...)) is not supported in v1.0", line, col, p.current.Value)
+			}
+		}
 	}
 
 	// support: include "file.conf" and include file("file.conf")

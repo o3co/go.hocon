@@ -295,6 +295,26 @@ func TestParser_IncludeNotRequired(t *testing.T) {
 	}
 }
 
+func TestParser_IncludeRequiredUrlNotSupported(t *testing.T) {
+	_, err := parser.Parse(`include required(url("http://example.com"))`)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("expected 'not supported' in error, got: %s", err.Error())
+	}
+}
+
+func TestParser_IncludeRequiredClasspathNotSupported(t *testing.T) {
+	_, err := parser.Parse(`include required(classpath("reference.conf"))`)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("expected 'not supported' in error, got: %s", err.Error())
+	}
+}
+
 func TestBracedRootTrailingGarbage(t *testing.T) {
 	tests := []string{
 		`{ a = 1 } }`,
