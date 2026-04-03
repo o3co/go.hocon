@@ -99,6 +99,9 @@ func (p *parser) parseObjectFields(braced bool) (*ObjectNode, error) {
 	obj := &ObjectNode{}
 	for {
 		p.skipNewlines()
+		if p.current.Type == lexer.TokenError {
+			return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+		}
 		if braced && p.current.Type == lexer.TokenRBrace {
 			p.advance()
 			break
@@ -210,6 +213,9 @@ func (p *parser) parseField() (*FieldNode, error) {
 }
 
 func (p *parser) parseKey() ([]string, error) {
+	if p.current.Type == lexer.TokenError {
+		return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+	}
 	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt {
 		return nil, fmt.Errorf("parse error at line %d, col %d: expected key, got %v", p.current.Line, p.current.Col, p.current.Type)
 	}
@@ -289,6 +295,9 @@ func (p *parser) parseValue() (Node, error) {
 }
 
 func (p *parser) parseSingleValue() (Node, error) {
+	if p.current.Type == lexer.TokenError {
+		return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+	}
 	line, col := p.current.Line, p.current.Col
 	switch p.current.Type {
 	case lexer.TokenLBrace:

@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -202,6 +203,36 @@ func TestBracedRootParseError(t *testing.T) {
 				t.Errorf("expected error for malformed braced root: %s", input)
 			}
 		})
+	}
+}
+
+func TestParserUnterminatedString(t *testing.T) {
+	_, err := parser.Parse(`a = "unterminated`)
+	if err == nil {
+		t.Fatal("expected error for unterminated string")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("expected error to mention 'unterminated', got: %v", err)
+	}
+}
+
+func TestParserUnterminatedSubstitution(t *testing.T) {
+	_, err := parser.Parse(`a = ${unclosed`)
+	if err == nil {
+		t.Fatal("expected error for unterminated substitution")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("expected error to mention 'unterminated', got: %v", err)
+	}
+}
+
+func TestParserUnterminatedTripleQuote(t *testing.T) {
+	_, err := parser.Parse(`a = """unterminated`)
+	if err == nil {
+		t.Fatal("expected error for unterminated triple-quoted string")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("expected error to mention 'unterminated', got: %v", err)
 	}
 }
 
