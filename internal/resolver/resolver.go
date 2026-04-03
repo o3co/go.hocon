@@ -137,7 +137,8 @@ func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
 		}
 		opts.BaseDir = wd
 	}
-	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val)}
+	stack := make([]string, 0, 8)
+	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val), includeStack: &stack}
 	obj, err := r.resolveObject(root, opts.Fallback)
 	if err != nil {
 		return nil, err
@@ -155,6 +156,7 @@ type resolver struct {
 	resolving     map[string]bool // cycle detection
 	resolvedCache map[string]Val  // previously resolved values for self-reference
 	priorValues   map[string]Val  // previous value before self-referential overwrite (first pass)
+	includeStack  *[]string       // shared stack for circular include detection (normalized paths)
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (*ObjectVal, error) {
@@ -394,6 +396,15 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 	return nil, &ResolveError{Message: "unresolved substitution", Path: pathStr, Line: n.Line(), Col: n.Col()}
 }
 
+func isSeparator(v Val) bool {
+	if s, ok := v.(*ScalarVal); ok {
+		if str, ok := s.V.(string); ok && str == " " {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val, error) {
 	// resolve each val
 	var resolved []Val
@@ -404,36 +415,102 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 		}
 		resolved = append(resolved, rv)
 	}
-	// determine mode from first non-nil element
+
+	// Classify non-nil, non-separator elements to determine concatenation mode.
+	hasArray := false
+	hasObject := false
+	hasScalar := false
 	for _, rv := range resolved {
-		if rv == nil {
+		if rv == nil || isSeparator(rv) {
 			continue
 		}
 		switch rv.(type) {
 		case *ArrayVal:
-			return r.concatArrays(resolved)
+			hasArray = true
 		case *ObjectVal:
-			return nil, &ResolveError{Message: "objects cannot appear in concatenation", Path: path}
+			hasObject = true
 		default:
-			return r.concatStrings(resolved), nil
+			hasScalar = true
 		}
 	}
-	return &ScalarVal{V: ""}, nil
+
+	switch {
+	case hasObject && !hasArray && !hasScalar:
+		// All meaningful elements are objects → deep merge (left to right, later wins)
+		return concatObjects(resolved), nil
+	case hasArray:
+		// Array concatenation (permissive: non-array elements become single items)
+		return concatArraysPermissive(resolved), nil
+	default:
+		// String concatenation (fallback)
+		return r.concatStrings(resolved), nil
+	}
 }
 
-func (r *resolver) concatArrays(vals []Val) (Val, error) {
-	result := &ArrayVal{}
+// mergeObjectConcat merges two objects for object concatenation.
+// Key order follows left (earlier), new keys from right are appended.
+// For duplicate keys, right (later) values win.
+func mergeObjectConcat(left, right *ObjectVal) *ObjectVal {
+	result := newObjectVal()
+	// seed with left keys in order
+	for _, k := range left.keys {
+		result.set(k, left.values[k])
+	}
+	// merge right keys: override existing values, append new keys
+	for _, k := range right.keys {
+		rv := right.values[k]
+		if lv, ok := result.values[k]; ok {
+			// both object → recursive merge preserving order
+			if lo, lok := lv.(*ObjectVal); lok {
+				if ro, rok := rv.(*ObjectVal); rok {
+					result.values[k] = mergeObjectConcat(lo, ro)
+					continue
+				}
+			}
+			// right wins for value
+			result.values[k] = rv
+		} else {
+			result.set(k, rv)
+		}
+	}
+	return result
+}
+
+func concatObjects(vals []Val) Val {
+	var result *ObjectVal
 	for _, v := range vals {
-		if v == nil {
+		if v == nil || isSeparator(v) {
 			continue
 		}
-		arr, ok := v.(*ArrayVal)
+		obj, ok := v.(*ObjectVal)
 		if !ok {
-			return nil, &ResolveError{Message: "cannot concatenate non-array with array"}
+			continue
 		}
-		result.Elements = append(result.Elements, arr.Elements...)
+		if result == nil {
+			result = obj
+		} else {
+			result = mergeObjectConcat(result, obj)
+		}
 	}
-	return result, nil
+	if result == nil {
+		return newObjectVal()
+	}
+	return result
+}
+
+func concatArraysPermissive(vals []Val) Val {
+	result := &ArrayVal{}
+	for _, v := range vals {
+		if v == nil || isSeparator(v) {
+			continue
+		}
+		if arr, ok := v.(*ArrayVal); ok {
+			result.Elements = append(result.Elements, arr.Elements...)
+		} else {
+			result.Elements = append(result.Elements, v)
+		}
+	}
+	return result
 }
 
 func (r *resolver) concatStrings(vals []Val) Val {
@@ -572,6 +649,27 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
 // loadIncludeFile reads, parses, and resolves a single include file.
 // When required=false a missing file is silently ignored (returns empty object).
 func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, error) {
+	// Normalize path for reliable circular detection.
+	// Clean removes ".." / "." segments; Abs makes relative paths absolute.
+	canonicalPath := filepath.Clean(path)
+	if abs, err := filepath.Abs(canonicalPath); err == nil {
+		canonicalPath = abs
+	}
+
+	// Circular include detection using shared stack.
+	for _, p := range *r.includeStack {
+		if p == canonicalPath {
+			return nil, &ResolveError{
+				Message:  fmt.Sprintf("circular include: %s", path),
+				FilePath: path,
+			}
+		}
+	}
+	*r.includeStack = append(*r.includeStack, canonicalPath)
+	defer func() {
+		*r.includeStack = (*r.includeStack)[:len(*r.includeStack)-1]
+	}()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !required && os.IsNotExist(err) {
@@ -611,6 +709,7 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 		resolving:     make(map[string]bool),
 		resolvedCache: make(map[string]Val),
 		priorValues:   make(map[string]Val),
+		includeStack:  r.includeStack,
 	}
 	obj, err := childResolver.resolveObject(ast, nil)
 	if err != nil {

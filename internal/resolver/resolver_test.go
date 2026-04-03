@@ -3,6 +3,7 @@ package resolver_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -535,5 +536,161 @@ func TestResolver_IncludeProbingPropagatesParseError(t *testing.T) {
 	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
 	if err == nil {
 		t.Error("expected parse error from broken include file to propagate, got nil")
+	}
+}
+
+func TestResolver_ObjectConcatenation(t *testing.T) {
+	// HOCON spec: `a = {x: 1} {y: 2}` should deep-merge into {x:1, y:2}
+	res := resolve(t, `a = {x: 1} {y: 2}`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	o, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("expected ObjectVal, got %T", v)
+	}
+	xv, ok := o.Get("x")
+	if !ok {
+		t.Error("x missing after object concatenation")
+	} else if sv, ok := xv.(*resolver.ScalarVal); !ok || sv.V != int64(1) {
+		t.Errorf("expected x=1, got %v", xv)
+	}
+	yv, ok := o.Get("y")
+	if !ok {
+		t.Error("y missing after object concatenation")
+	} else if sv, ok := yv.(*resolver.ScalarVal); !ok || sv.V != int64(2) {
+		t.Errorf("expected y=2, got %v", yv)
+	}
+}
+
+func TestResolver_ArrayConcatenationPermissive(t *testing.T) {
+	// HOCON spec: non-array elements concatenated with arrays are pushed as items.
+	// `a = [1, 2] 3` should produce [1, 2, 3].
+	res := resolve(t, `a = [1, 2] 3`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", v)
+	}
+	if len(arr.Elements) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(arr.Elements))
+	}
+	for i, want := range []int64{1, 2, 3} {
+		sv, ok := arr.Elements[i].(*resolver.ScalarVal)
+		if !ok {
+			t.Errorf("element %d: expected ScalarVal, got %T", i, arr.Elements[i])
+			continue
+		}
+		if sv.V != want {
+			t.Errorf("element %d: expected %d, got %v", i, want, sv.V)
+		}
+	}
+}
+
+func TestResolver_ObjectConcatenationDeepMerge(t *testing.T) {
+	// HOCON spec: nested object concatenation should deep-merge
+	res := resolve(t, `a = {x: {nested: 1}} {x: {other: 2}}`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	o, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("expected ObjectVal, got %T", v)
+	}
+	xv, ok := o.Get("x")
+	if !ok {
+		t.Fatal("x missing after deep merge")
+	}
+	xo, ok := xv.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("expected x to be ObjectVal, got %T", xv)
+	}
+	if nv, ok := xo.Get("nested"); !ok {
+		t.Error("nested missing after deep merge")
+	} else if sv, ok := nv.(*resolver.ScalarVal); !ok || sv.V != int64(1) {
+		t.Errorf("expected nested=1, got %v", nv)
+	}
+	if ov, ok := xo.Get("other"); !ok {
+		t.Error("other missing after deep merge")
+	} else if sv, ok := ov.(*resolver.ScalarVal); !ok || sv.V != int64(2) {
+		t.Errorf("expected other=2, got %v", ov)
+	}
+}
+
+func TestResolver_CircularIncludeDetection(t *testing.T) {
+	// circular_a.conf includes circular_b.conf which includes circular_a.conf.
+	// This must produce a ResolveError with "circular include" rather than
+	// hanging forever or stack-overflowing.
+	baseDir := filepath.Join("..", "..", "testdata", "hocon")
+	ast, err := parser.Parse(`include "circular_a.conf"`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: baseDir})
+	if err == nil {
+		t.Fatal("expected circular include error, got nil")
+	}
+	re, ok := err.(*resolver.ResolveError)
+	if !ok {
+		t.Fatalf("expected *ResolveError, got %T: %v", err, err)
+	}
+	if !strings.Contains(re.Message, "circular include") {
+		t.Errorf("expected message containing \"circular include\", got %q", re.Message)
+	}
+}
+
+func TestResolver_CircularIncludeDetected(t *testing.T) {
+	// Two files that include each other must produce a circular include error,
+	// not an infinite loop. Use relative paths so Clean+Abs normalization is exercised.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.conf"), `include "b.conf"`)
+	writeFile(t, filepath.Join(dir, "b.conf"), `include "a.conf"`)
+
+	ast, err := parser.Parse(`include "a.conf"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected circular include error, got nil")
+	}
+	if re, ok := err.(*resolver.ResolveError); ok {
+		if re.Message == "" {
+			t.Error("expected non-empty error message")
+		}
+	}
+}
+
+func TestResolver_CircularIncludeSelfDetected(t *testing.T) {
+	// A file that includes itself must be detected as circular.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "self.conf"), `include "self.conf"`)
+
+	ast, err := parser.Parse(`include "self.conf"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected circular include error for self-include, got nil")
+	}
+}
+
+func TestResolver_ObjectConcatenationKeyOrder(t *testing.T) {
+	src := `a = {x: 1} {y: 2}`
+	res := resolve(t, src)
+	aVal, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	aObj := aVal.(*resolver.ObjectVal)
+	keys := aObj.Keys()
+	if len(keys) != 2 || keys[0] != "x" || keys[1] != "y" {
+		t.Errorf("expected keys [x, y], got %v", keys)
 	}
 }

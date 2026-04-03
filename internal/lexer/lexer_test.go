@@ -1,6 +1,7 @@
 package lexer_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/lexer"
@@ -229,6 +230,35 @@ func TestUnicodeEscapeInvalid(t *testing.T) {
 		}
 		if !hasError {
 			t.Errorf("expected error for %s", input)
+		}
+	}
+}
+
+func TestUnquotedParenthesesProduceSeparateTokens(t *testing.T) {
+	// Parentheses are forbidden in unquoted strings so that
+	// `include file(...)` / `include required(...)` can be parsed.
+	// They should produce dedicated LParen/RParen tokens.
+	tokens := tokenize("key = foo(bar)")
+	hasLParen := false
+	hasRParen := false
+	for _, tok := range tokens {
+		if tok.Type == lexer.TokenLParen {
+			hasLParen = true
+		}
+		if tok.Type == lexer.TokenRParen {
+			hasRParen = true
+		}
+	}
+	if !hasLParen || !hasRParen {
+		t.Errorf("parentheses should produce LParen/RParen tokens, got: %v", tokens)
+	}
+}
+
+func TestUnquotedStarForbidden(t *testing.T) {
+	tokens := tokenize("key = foo*bar")
+	for _, tok := range tokens {
+		if tok.Type == lexer.TokenString && strings.Contains(tok.Value, "*") {
+			t.Errorf("* should be forbidden in unquoted strings, got token: %q", tok.Value)
 		}
 	}
 }
