@@ -132,18 +132,42 @@ func TestParser_NullBoolNumbers(t *testing.T) {
 	}
 }
 
-func TestTrailingGarbageAfterBracedRoot(t *testing.T) {
-	tests := []string{
-		`{ a = 1 } garbage`,
-		`{ a = 1 } extra tokens here`,
+func TestBracedRootObjectConcat(t *testing.T) {
+	obj := mustParse(t, "{ a = 1 } { b = 2 }")
+	hasA, hasB := false, false
+	for _, f := range obj.Fields {
+		if len(f.Key) > 0 && f.Key[0] == "a" {
+			hasA = true
+		}
+		if len(f.Key) > 0 && f.Key[0] == "b" {
+			hasB = true
+		}
 	}
-	for _, input := range tests {
-		t.Run(input, func(t *testing.T) {
-			_, err := parser.Parse(input)
-			if err == nil {
-				t.Errorf("expected error for trailing garbage: %s", input)
-			}
-		})
+	if !hasA || !hasB {
+		t.Errorf("expected both a and b in merged root, got fields: %v", obj.Fields)
+	}
+}
+
+func TestBracedRootWithTrailingFields(t *testing.T) {
+	obj := mustParse(t, "{ a = 1 }\nb = 2")
+	hasA, hasB := false, false
+	for _, f := range obj.Fields {
+		if len(f.Key) > 0 && f.Key[0] == "a" {
+			hasA = true
+		}
+		if len(f.Key) > 0 && f.Key[0] == "b" {
+			hasB = true
+		}
+	}
+	if !hasA || !hasB {
+		t.Errorf("expected both a and b, got fields: %v", obj.Fields)
+	}
+}
+
+func TestBracedRootMultipleObjects(t *testing.T) {
+	obj := mustParse(t, "{ a = 1 }\n{ b = 2 }\n{ c = 3 }")
+	if len(obj.Fields) != 3 {
+		t.Errorf("expected 3 fields, got %d", len(obj.Fields))
 	}
 }
 
