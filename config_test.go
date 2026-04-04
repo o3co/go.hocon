@@ -801,3 +801,55 @@ func TestConfig_GetConfigSliceOption_WrongElementType(t *testing.T) {
 		t.Error("expected None when array elements are not objects")
 	}
 }
+
+// --- Delayed merge / self-referential substitution tests ---
+
+func TestConfig_DelayedMergeObjectWithSubstitution(t *testing.T) {
+	// When a key is assigned a substitution (resolving to object) then overridden
+	// with a literal object, the two objects should be deep-merged (prior as base,
+	// current on top).
+	cfg, err := hocon.ParseString("x={q:10}\na=${x}\na={c:3}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GetInt("a.q"); got != 10 {
+		t.Errorf("expected a.q=10, got %d", got)
+	}
+	if got := cfg.GetInt("a.c"); got != 3 {
+		t.Errorf("expected a.c=3, got %d", got)
+	}
+}
+
+func TestConfig_LastAssignmentWinsForSubstitution(t *testing.T) {
+	// When a key is overridden multiple times with substitutions, the last one wins.
+	// b=${x} then b=${y} → b should be 5 (the value of y), not {q:10}.
+	cfg, err := hocon.ParseString("x={q:10}\ny=5\nb=${x}\nb=${y}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GetInt("b"); got != 5 {
+		t.Errorf("expected b=5, got %d", got)
+	}
+}
+
+func TestConfig_DelayedMergeNestedSubstitution(t *testing.T) {
+	// Nested delayed merge: c=${x} then c={d:600, e:${a}} where a itself
+	// is a delayed merge. The substitution lookup must also apply delayed merge.
+	cfg, err := hocon.ParseString("x={q:10}\na=${x}\na={c:3}\nc=${x}\nc={d:600,e:${a}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// c should be deep-merge of {q:10} (from ${x}) and {d:600, e:{c:3,q:10}}
+	if got := cfg.GetInt("c.q"); got != 10 {
+		t.Errorf("expected c.q=10, got %d", got)
+	}
+	if got := cfg.GetInt("c.d"); got != 600 {
+		t.Errorf("expected c.d=600, got %d", got)
+	}
+	if got := cfg.GetInt("c.e.q"); got != 10 {
+		t.Errorf("expected c.e.q=10, got %d", got)
+	}
+	if got := cfg.GetInt("c.e.c"); got != 3 {
+		t.Errorf("expected c.e.c=3, got %d", got)
+	}
+}
