@@ -295,6 +295,18 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			return nil, err
 		}
 		if resolved != nil {
+			// Delayed merge (site 1): if both current and prior resolve to objects,
+			// deep-merge them (prior as base, current on top).
+			if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
+				if prior, hasPrior := obj.priorValues[k]; hasPrior {
+					priorResolved, perr := r.resolveVal(prior, root, k)
+					if perr == nil && priorResolved != nil {
+						if priorObj, pOk := priorResolved.(*ObjectVal); pOk {
+							resolved = deepMerge(resolvedObj, priorObj)
+						}
+					}
+				}
+			}
 			result.set(k, resolved)
 			// cache top-level resolved values to support self-referential substitutions
 			if obj == root {
@@ -367,10 +379,25 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 	segments := strings.Split(pathStr, ".")
 	val, ok := r.lookupPath(root, segments)
 	if ok {
-		// If the found value is still a placeholder (self-referential definition),
-		// use the prior value instead.
-		switch val.(type) {
-		case *substPlaceholder, *concatPlaceholder:
+		// If the found value is still a placeholder that references the SAME path
+		// (actual self-reference like b=${b}), use the prior value instead.
+		// A placeholder referencing a DIFFERENT path is not self-referential and
+		// should be resolved normally.
+		isSelfRef := false
+		switch v := val.(type) {
+		case *substPlaceholder:
+			if v.node.Path == pathStr {
+				isSelfRef = true
+			}
+		case *concatPlaceholder:
+			for _, cv := range v.vals {
+				if sp, spOk := cv.(*substPlaceholder); spOk && sp.node.Path == pathStr {
+					isSelfRef = true
+					break
+				}
+			}
+		}
+		if isSelfRef {
 			if prior, ok2 := r.priorValues[pathStr]; ok2 {
 				return r.resolveVal(prior, root, pathStr)
 			}
@@ -384,7 +411,45 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 				}
 			}
 		}
-		return r.resolveVal(val, root, pathStr)
+		resolved, err := r.resolveVal(val, root, pathStr)
+		if err != nil {
+			return nil, err
+		}
+		if resolved == nil {
+			// The looked-up value resolved to nil (e.g. optional substitution with
+			// missing env var). Check the target path's per-object priorValues for a
+			// fallback — this mirrors the fallback logic in resolveSubstitutions but
+			// applies when accessing the value via a substitution lookup.
+			if len(segments) > 0 {
+				var parentObj *ObjectVal
+				if len(segments) == 1 {
+					parentObj = root
+				} else {
+					parentObj, _ = r.lookupPathObj(root, segments[:len(segments)-1])
+				}
+				if parentObj != nil {
+					lastKey := segments[len(segments)-1]
+					if prior, pOk := parentObj.priorValues[lastKey]; pOk {
+						return r.resolveVal(prior, root, pathStr)
+					}
+				}
+			}
+		}
+		// Delayed merge (site 2): after resolving a substitution lookup, if the
+		// result is an object and there is a prior value that also resolves to an
+		// object, deep-merge them (prior as base, current on top).
+		if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
+			prior := r.findPrior(root, segments, pathStr)
+			if prior != nil {
+				priorResolved, perr := r.resolveVal(prior, root, pathStr)
+				if perr == nil && priorResolved != nil {
+					if priorObj, poOk := priorResolved.(*ObjectVal); poOk {
+						resolved = deepMerge(resolvedObj, priorObj)
+					}
+				}
+			}
+		}
+		return resolved, nil
 	}
 	// env var fallback
 	if ev, ok := os.LookupEnv(pathStr); ok {
@@ -394,6 +459,30 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 		return nil, nil // field will be dropped
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: pathStr, Line: n.Line(), Col: n.Col()}
+}
+
+// findPrior looks up the per-object priorValues for a given path in the tree.
+func (r *resolver) findPrior(root *ObjectVal, segments []string, pathStr string) Val {
+	// Check resolver-level priorValues first (top-level keys).
+	if prior, ok := r.priorValues[pathStr]; ok {
+		return prior
+	}
+	// Check the parent object's per-object priorValues for nested paths.
+	if len(segments) > 0 {
+		var parentObj *ObjectVal
+		if len(segments) == 1 {
+			parentObj = root
+		} else {
+			parentObj, _ = r.lookupPathObj(root, segments[:len(segments)-1])
+		}
+		if parentObj != nil {
+			lastKey := segments[len(segments)-1]
+			if prior, ok := parentObj.priorValues[lastKey]; ok {
+				return prior
+			}
+		}
+	}
+	return nil
 }
 
 func isSeparator(v Val) bool {
