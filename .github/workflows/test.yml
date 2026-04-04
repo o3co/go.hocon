@@ -35,7 +35,7 @@ jobs:
           path: |
             testdata/expected
             .xx-hocon-version
-          key: xx-hocon-expected-${{ github.run_id }}
+          key: xx-hocon-expected-${{ hashFiles('.xx-hocon-version') }}
           restore-keys: xx-hocon-expected-
 
       - name: Fetch expected JSON

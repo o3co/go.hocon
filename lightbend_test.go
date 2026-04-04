@@ -233,6 +233,7 @@ func TestLightbendExpectedErrors(t *testing.T) {
 		return
 	}
 
+	tested := 0
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasSuffix(name, "-expected-error.json") {
@@ -253,6 +254,11 @@ func TestLightbendExpectedErrors(t *testing.T) {
 				t.Errorf("expected error for %s but got success", confPath)
 			}
 		})
+		tested++
+	}
+
+	if tested == 0 {
+		t.Error("No expected error tests were run. Check testdata/expected/")
 	}
 }
 
