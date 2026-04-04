@@ -6,13 +6,13 @@ EXPECTED_DIR   := testdata/expected
 
 testdata:
 	@echo "Fetching expected JSON from $(TESTDATA_REPO)@$(TESTDATA_REF)..."
-	@rm -rf /tmp/xx-hocon-dl
-	@mkdir -p /tmp/xx-hocon-dl $(EXPECTED_DIR)
-	@gh api repos/$(TESTDATA_REPO)/tarball/$(TESTDATA_REF) > /tmp/xx-hocon-dl/archive.tar.gz
-	@tar xzf /tmp/xx-hocon-dl/archive.tar.gz -C /tmp/xx-hocon-dl --strip-components=1
-	@rsync -a /tmp/xx-hocon-dl/expected/hocon/ $(EXPECTED_DIR)/
-	@rm -rf /tmp/xx-hocon-dl
-	@echo "Done."
+	@tmpdir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmpdir"' EXIT INT TERM; \
+	mkdir -p "$(EXPECTED_DIR)"; \
+	curl -sL "https://github.com/$(TESTDATA_REPO)/archive/$(TESTDATA_REF).tar.gz" -o "$$tmpdir/archive.tar.gz"; \
+	tar xzf "$$tmpdir/archive.tar.gz" -C "$$tmpdir" --strip-components=1; \
+	cp -R "$$tmpdir/expected/hocon/." "$(EXPECTED_DIR)/"; \
+	echo "Done."
 
-test: testdata
+test:
 	go test ./... -count=1

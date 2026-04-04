@@ -151,6 +151,9 @@ func TestLightbendExpected(t *testing.T) {
 
 	entries, err := os.ReadDir(expectedDir)
 	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("expected JSON dir not found at %s in CI — fetch testdata before running tests: %v", expectedDir, err)
+		}
 		t.Skipf("expected JSON dir not found at %s — run `make testdata` first: %v", expectedDir, err)
 		return
 	}
@@ -223,7 +226,10 @@ func TestLightbendExpectedErrors(t *testing.T) {
 
 	entries, err := os.ReadDir(expectedDir)
 	if err != nil {
-		t.Skipf("expected dir not found — run `make testdata`")
+		if os.Getenv("CI") != "" {
+			t.Fatalf("expected JSON dir not found at %s in CI — fetch testdata before running tests: %v", expectedDir, err)
+		}
+		t.Skipf("expected dir not found at %s — run `make testdata` first: %v", expectedDir, err)
 		return
 	}
 
