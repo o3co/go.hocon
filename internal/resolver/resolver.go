@@ -218,7 +218,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 			}
 			existArr, ok := existing.(*ArrayVal)
 			if !ok {
-				return nil, &ResolveError{Message: "'+=' on non-array value", Path: strings.Join(field.Key, ".")}
+				return nil, &ResolveError{Message: "'+=' on non-array value", Path: segmentsToKey(field.Key)}
 			}
 			newArr, ok2 := val.(*ArrayVal)
 			if !ok2 {
@@ -725,7 +725,7 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 				}
 			} else {
 				// non-object overwrite: save prior value for self-referential substitution support
-				r.priorValues[strings.Join(segments, ".")] = existing
+				r.priorValues[segmentsToKey(segments)] = existing
 			}
 		}
 		obj.set(key, val)

@@ -24,7 +24,8 @@ func parseSubstPath(raw string) []string {
 			break
 		}
 
-		if raw[i] == '"' {
+		switch raw[i] {
+		case '"':
 			// Quoted segment
 			i++ // skip opening quote
 			start := i
@@ -42,11 +43,11 @@ func parseSubstPath(raw string) []string {
 			if i < len(raw) && raw[i] == '.' {
 				i++
 			}
-		} else if raw[i] == '.' {
+		case '.':
 			// Dot at start or after dot means empty-string segment
 			segments = append(segments, "")
 			i++
-		} else {
+		default:
 			// Unquoted segment - read until dot or end
 			start := i
 			for i < len(raw) && raw[i] != '.' {
