@@ -36,7 +36,7 @@ func parseWith(input, filePath string) (*Config, error) {
 		pe := &ParseError{FilePath: filePath}
 		var parserErr *parser.Error
 		if errors.As(err, &parserErr) {
-			pe.Message = parserErr.Msg
+			pe.Message = parserErr.Message
 			pe.Line = parserErr.Line
 			pe.Col = parserErr.Col
 		} else {

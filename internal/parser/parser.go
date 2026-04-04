@@ -244,11 +244,12 @@ func (p *parser) parseField() (*FieldNode, error) {
 }
 
 func (p *parser) parseKey() ([]string, error) {
+	line, col := p.current.Line, p.current.Col
 	if p.current.Type == lexer.TokenError {
-		return nil, newError(p.current.Line, p.current.Col, "%s", p.current.Value)
+		return nil, newError(line, col, "%s", p.current.Value)
 	}
 	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt {
-		return nil, newError(p.current.Line, p.current.Col, "expected key, got %v", p.current.Type)
+		return nil, newError(line, col, "expected key, got %v", p.current.Type)
 	}
 
 	var parts []string
@@ -288,7 +289,7 @@ func (p *parser) parseKey() ([]string, error) {
 	}
 
 	if len(parts) == 0 {
-		return nil, newError(0, 0, "empty key")
+		return nil, newError(line, col, "empty key")
 	}
 	return parts, nil
 }
@@ -386,7 +387,7 @@ func (p *parser) parseArray() (*ArrayNode, error) {
 			break
 		}
 		if p.current.Type == lexer.TokenEOF {
-			return nil, newError(line, col, "unexpected EOF in array")
+			return nil, newError(p.current.Line, p.current.Col, "unexpected EOF in array")
 		}
 		elem, err := p.parseValue()
 		if err != nil {
