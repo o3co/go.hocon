@@ -162,8 +162,6 @@ func TestLightbendExpected(t *testing.T) {
 	skip := map[string]string{
 		"test01-expected.json":       "system section contains environment-dependent values",
 		"test02-expected.json":       "unresolved substitution for empty-key path",
-		"test03-expected.json":       "nested include substitution scope",
-		"test10-expected.json":       "nested include substitution scope",
 		"file-include-expected.json": "extra keys from file include (bar-file, baz)",
 	}
 

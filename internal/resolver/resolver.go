@@ -69,6 +69,10 @@ func deepMerge(dst, src *ObjectVal) *ObjectVal {
 	for _, k := range dst.keys {
 		result.set(k, dst.values[k])
 	}
+	// carry over priorValues from dst
+	for k, v := range dst.priorValues {
+		result.priorValues[k] = v
+	}
 	// merge src keys
 	for _, k := range src.keys {
 		sv := src.values[k]
@@ -84,6 +88,12 @@ func deepMerge(dst, src *ObjectVal) *ObjectVal {
 			continue
 		}
 		result.set(k, sv)
+	}
+	// carry over priorValues from src (dst's take precedence)
+	for k, v := range src.priorValues {
+		if _, exists := result.priorValues[k]; !exists {
+			result.priorValues[k] = v
+		}
 	}
 	return result
 }
@@ -139,7 +149,7 @@ func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
 	}
 	stack := make([]string, 0, 8)
 	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val), includeStack: &stack}
-	obj, err := r.resolveObject(root, opts.Fallback)
+	obj, err := r.resolveObject(root, opts.Fallback, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +167,10 @@ type resolver struct {
 	resolvedCache map[string]Val  // previously resolved values for self-reference
 	priorValues   map[string]Val  // previous value before self-referential overwrite (first pass)
 	includeStack  *[]string       // shared stack for circular include detection (normalized paths)
+	lenient       bool            // when true, unresolved substitutions are left as placeholders instead of erroring
 }
 
-func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (*ObjectVal, error) {
+func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, pathPrefix []string) (*ObjectVal, error) {
 	obj := newObjectVal()
 	if fallback != nil {
 		// seed with fallback
@@ -172,7 +183,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (
 	for _, field := range node.Fields {
 		// include directive
 		if inc, ok := field.Value.(*parser.IncludeNode); ok {
-			included, err := r.resolveInclude(inc)
+			included, err := r.resolveInclude(inc, pathPrefix)
 			if err != nil {
 				return nil, err
 			}
@@ -188,7 +199,12 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (
 			continue
 		}
 
-		val, err := r.resolveNode(field.Value, obj)
+		// Extend pathPrefix with the field key for child resolution.
+		childPrefix := pathPrefix
+		if len(field.Key) == 1 {
+			childPrefix = append(append([]string{}, pathPrefix...), field.Key[0])
+		}
+		val, err := r.resolveNode(field.Value, obj, childPrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -236,16 +252,16 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal) (
 	return obj, nil
 }
 
-func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal) (Val, error) {
+func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal, pathPrefix []string) (Val, error) {
 	switch n := node.(type) {
 	case *parser.ScalarNode:
 		return &ScalarVal{V: n.Value}, nil
 	case *parser.ObjectNode:
-		return r.resolveObject(n, nil)
+		return r.resolveObject(n, nil, pathPrefix)
 	case *parser.ArrayNode:
 		arr := &ArrayVal{}
 		for _, elem := range n.Elements {
-			v, err := r.resolveNode(elem, ctx)
+			v, err := r.resolveNode(elem, ctx, pathPrefix)
 			if err != nil {
 				return nil, err
 			}
@@ -256,23 +272,26 @@ func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal) (Val, error) {
 		// leave substitution nodes for second pass
 		return &substPlaceholder{node: n}, nil
 	case *parser.ConcatNode:
-		return r.resolveConcatPartial(n, ctx)
+		return r.resolveConcatPartial(n, ctx, pathPrefix)
 	case *parser.IncludeNode:
-		return r.resolveInclude(n)
+		return r.resolveInclude(n, pathPrefix)
 	default:
 		return nil, fmt.Errorf("unknown node type %T", node)
 	}
 }
 
 // substPlaceholder is a temporary stand-in for unresolved substitutions.
-type substPlaceholder struct{ node *parser.SubstNode }
+type substPlaceholder struct {
+	node      *parser.SubstNode
+	prefixLen int // 0 for normal, >0 for relativized (number of prefix segments)
+}
 
 func (s *substPlaceholder) val() {}
 
-func (r *resolver) resolveConcatPartial(n *parser.ConcatNode, ctx *ObjectVal) (Val, error) {
+func (r *resolver) resolveConcatPartial(n *parser.ConcatNode, ctx *ObjectVal, pathPrefix []string) (Val, error) {
 	var vals []Val
 	for _, child := range n.Nodes {
-		v, err := r.resolveNode(child, ctx)
+		v, err := r.resolveNode(child, ctx, pathPrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -336,7 +355,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) {
 	switch vv := v.(type) {
 	case *substPlaceholder:
-		return r.resolveSubst(vv.node, root)
+		return r.resolveSubst(vv, root)
 	case *concatPlaceholder:
 		return r.resolveConcat(vv.vals, root, path)
 	case *ObjectVal:
@@ -358,7 +377,8 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 	}
 }
 
-func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, error) {
+func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, error) {
+	n := s.node
 	pathStr := n.Path
 	if r.resolving[pathStr] {
 		// Check if a previously resolved value exists (self-referential substitution).
@@ -460,12 +480,43 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 		}
 		return resolved, nil
 	}
+
+	// Relativized path not found — fall back to original (non-relativized) path.
+	if s.prefixLen > 0 && len(segments) > s.prefixLen {
+		originalPath := strings.Join(segments[s.prefixLen:], ".")
+		originalSegments := segments[s.prefixLen:]
+		origVal, origOk := r.lookupPath(root, originalSegments)
+		if origOk {
+			resolved, err := r.resolveVal(origVal, root, originalPath)
+			if err != nil {
+				return nil, err
+			}
+			return resolved, nil
+		}
+		// Also try env var with original path
+		if ev, ok := os.LookupEnv(originalPath); ok {
+			return &ScalarVal{V: ev}, nil
+		}
+	}
+
 	// env var fallback
 	if ev, ok := os.LookupEnv(pathStr); ok {
 		return &ScalarVal{V: ev}, nil
 	}
+	// For relativized paths, also try env var with original path
+	if s.prefixLen > 0 && len(segments) > s.prefixLen {
+		originalPath := strings.Join(segments[s.prefixLen:], ".")
+		if ev, ok := os.LookupEnv(originalPath); ok {
+			return &ScalarVal{V: ev}, nil
+		}
+	}
 	if n.Optional {
 		return nil, nil // field will be dropped
+	}
+	if r.lenient {
+		// In lenient mode (child resolver for includes), leave unresolved
+		// substitutions as placeholders for the parent resolver to handle.
+		return s, nil
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: pathStr, Line: n.Line(), Col: n.Col()}
 }
@@ -694,54 +745,106 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 // has no extension, per the HOCON spec (properties first, then JSON, then HOCON).
 var includeExtensions = []string{".properties", ".json", ".conf"}
 
-func (r *resolver) resolveInclude(inc *parser.IncludeNode) (*ObjectVal, error) {
+func (r *resolver) resolveInclude(inc *parser.IncludeNode, pathPrefix []string) (*ObjectVal, error) {
 	path := inc.Path
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(r.opts.BaseDir, path)
 	}
 
+	var included *ObjectVal
+
 	// Single file with explicit extension.
 	if filepath.Ext(path) != "" {
-		return r.loadIncludeFile(path, inc.Required)
-	}
-
-	// No extension: probe all known extensions and merge all found files.
-	// Per HOCON spec, .properties first, then .json, then .conf (HOCON last).
-	merged := newObjectVal()
-	found := false
-	for _, ext := range includeExtensions {
-		p := path + ext
-		if _, err := os.Stat(p); err != nil {
-			if os.IsNotExist(err) {
-				// File does not exist: skip to next extension.
-				continue
-			}
-			// Permission error or other I/O failure — propagate.
-			return nil, &ResolveError{
-				Message:  "cannot stat include file: " + err.Error(),
-				FilePath: p,
-			}
-		}
-		// File exists — load it; any error here is a real parse/resolve error.
-		obj, err := r.loadIncludeFile(p, true)
+		obj, err := r.loadIncludeFile(path, inc.Required)
 		if err != nil {
 			return nil, err
 		}
-		found = true
-		// Later files override earlier ones: pass new obj as dst (winner).
-		merged = deepMerge(obj, merged)
-	}
-	if !found {
-		if inc.Required {
-			return nil, &ResolveError{
-				Message:  fmt.Sprintf("cannot read include file: no file found for %q (tried %v)", inc.Path, includeExtensions),
-				FilePath: path,
+		included = obj
+	} else {
+		// No extension: probe all known extensions and merge all found files.
+		// Per HOCON spec, .properties first, then .json, then .conf (HOCON last).
+		merged := newObjectVal()
+		found := false
+		for _, ext := range includeExtensions {
+			p := path + ext
+			if _, err := os.Stat(p); err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, &ResolveError{
+					Message:  "cannot stat include file: " + err.Error(),
+					FilePath: p,
+				}
 			}
+			obj, err := r.loadIncludeFile(p, true)
+			if err != nil {
+				return nil, err
+			}
+			found = true
+			merged = deepMerge(obj, merged)
 		}
-		// Non-required: silently return empty object per HOCON spec.
-		return newObjectVal(), nil
+		if !found {
+			if inc.Required {
+				return nil, &ResolveError{
+					Message:  fmt.Sprintf("cannot read include file: no file found for %q (tried %v)", inc.Path, includeExtensions),
+					FilePath: path,
+				}
+			}
+			return newObjectVal(), nil
+		}
+		included = merged
 	}
-	return merged, nil
+
+	// Relativize substitution placeholders in the included object so that
+	// paths like ${x} become ${prefix.x} when included under a nested scope.
+	if len(pathPrefix) > 0 {
+		prefix := strings.Join(pathPrefix, ".")
+		relativizeVals(included, prefix, len(pathPrefix))
+	}
+
+	return included, nil
+}
+
+// relativizeVals recursively walks all values in obj and prepends prefix to
+// any substPlaceholder paths, recording prefixLen so the resolver can fall
+// back to the original (non-relativized) path if the relativized one is not found.
+func relativizeVals(obj *ObjectVal, prefix string, prefixLen int) {
+	for _, k := range obj.keys {
+		obj.values[k] = relativizeVal(obj.values[k], prefix, prefixLen)
+	}
+	for k, v := range obj.priorValues {
+		obj.priorValues[k] = relativizeVal(v, prefix, prefixLen)
+	}
+}
+
+func relativizeVal(v Val, prefix string, prefixLen int) Val {
+	switch vv := v.(type) {
+	case *substPlaceholder:
+		if vv.prefixLen == 0 {
+			// Create a new SubstNode with the relativized path.
+			newNode := &parser.SubstNode{}
+			*newNode = *vv.node
+			newNode.Path = prefix + "." + vv.node.Path
+			return &substPlaceholder{node: newNode, prefixLen: prefixLen}
+		}
+		return v
+	case *concatPlaceholder:
+		newVals := make([]Val, len(vv.vals))
+		for i, cv := range vv.vals {
+			newVals[i] = relativizeVal(cv, prefix, prefixLen)
+		}
+		return &concatPlaceholder{vals: newVals}
+	case *ObjectVal:
+		relativizeVals(vv, prefix, prefixLen)
+		return vv
+	case *ArrayVal:
+		for i, elem := range vv.Elements {
+			vv.Elements[i] = relativizeVal(elem, prefix, prefixLen)
+		}
+		return vv
+	default:
+		return v
+	}
 }
 
 // loadIncludeFile reads, parses, and resolves a single include file.
@@ -797,6 +900,9 @@ func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, erro
 }
 
 // parseAndResolve parses raw HOCON/JSON data and resolves it into an ObjectVal.
+// Substitutions that can be resolved within the included file are resolved here.
+// Substitutions that reference external paths are left as placeholders for the
+// parent resolver to relativize and resolve against the full tree.
 func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, error) {
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
@@ -808,8 +914,9 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 		resolvedCache: make(map[string]Val),
 		priorValues:   make(map[string]Val),
 		includeStack:  r.includeStack,
+		lenient:       true, // don't error on unresolved substitutions; leave as placeholders
 	}
-	obj, err := childResolver.resolveObject(ast, nil)
+	obj, err := childResolver.resolveObject(ast, nil, nil)
 	if err != nil {
 		return nil, err
 	}

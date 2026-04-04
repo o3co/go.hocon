@@ -694,3 +694,95 @@ func TestResolver_ObjectConcatenationKeyOrder(t *testing.T) {
 		t.Errorf("expected keys [x, y], got %v", keys)
 	}
 }
+
+func TestResolver_IncludeRelativizeSubstitutions(t *testing.T) {
+	// When a file is included into a nested scope, substitution paths in
+	// the included file must be relativized so they resolve against the
+	// parent tree. For example, ${y} in child.conf becomes ${wrapper.y}
+	// when included as `wrapper { include "child.conf" }`.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `
+x = 10
+y = ${x}
+`)
+
+	// Simple nesting: wrapper { include "child.conf" }
+	res := resolveWithDir(t, `wrapper { include "child.conf" }`, dir)
+	wv, ok := res.Root.Get("wrapper")
+	if !ok {
+		t.Fatal("wrapper not found")
+	}
+	wo := wv.(*resolver.ObjectVal)
+
+	xv, ok := wo.Get("x")
+	if !ok {
+		t.Fatal("x not found in wrapper")
+	}
+	if sv := xv.(*resolver.ScalarVal); sv.V != int64(10) {
+		t.Errorf("expected x=10, got %v", sv.V)
+	}
+
+	yv, ok := wo.Get("y")
+	if !ok {
+		t.Fatal("y not found in wrapper")
+	}
+	if sv := yv.(*resolver.ScalarVal); sv.V != int64(10) {
+		t.Errorf("expected y=10 (resolved from ${x}), got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeRelativizeDeepNesting(t *testing.T) {
+	// Double nesting: bar { nested { include "child.conf" } }
+	// ${x} should resolve to ${bar.nested.x}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `
+x = 10
+y = ${x}
+`)
+
+	res := resolveWithDir(t, `bar { nested { include "child.conf" } }`, dir)
+	bv, ok := res.Root.Get("bar")
+	if !ok {
+		t.Fatal("bar not found")
+	}
+	nv, ok := bv.(*resolver.ObjectVal).Get("nested")
+	if !ok {
+		t.Fatal("nested not found")
+	}
+	no := nv.(*resolver.ObjectVal)
+
+	yv, ok := no.Get("y")
+	if !ok {
+		t.Fatal("y not found in bar.nested")
+	}
+	if sv := yv.(*resolver.ScalarVal); sv.V != int64(10) {
+		t.Errorf("expected y=10, got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeRelativizeFallbackToParent(t *testing.T) {
+	// When a substitution in an included file cannot be resolved within
+	// the include scope, it should fall back to the root level.
+	// child.conf has ${bar} which is not in child.conf but is at root.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `
+a = ${bar}
+`)
+
+	res := resolveWithDir(t, `
+bar = "from-root"
+wrapper { include "child.conf" }
+`, dir)
+
+	wv, ok := res.Root.Get("wrapper")
+	if !ok {
+		t.Fatal("wrapper not found")
+	}
+	av, ok := wv.(*resolver.ObjectVal).Get("a")
+	if !ok {
+		t.Fatal("a not found in wrapper")
+	}
+	if sv := av.(*resolver.ScalarVal); sv.V != "from-root" {
+		t.Errorf("expected a='from-root', got %v", sv.V)
+	}
+}
