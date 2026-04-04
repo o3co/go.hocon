@@ -29,6 +29,18 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
 
+      - name: Cache expected JSON
+        uses: actions/cache@v4
+        with:
+          path: |
+            testdata/expected
+            .xx-hocon-version
+          key: xx-hocon-expected-${{ hashFiles('.xx-hocon-version') }}
+          restore-keys: xx-hocon-expected-
+
+      - name: Fetch expected JSON
+        run: make testdata
+
       - name: Verify modules
         run: go mod verify
 

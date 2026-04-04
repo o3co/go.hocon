@@ -24,5 +24,11 @@ coverage.out
 # Claude Code (local-only settings)
 .claude/settings.local.json
 
+# Fetched test data (from xx.hocon)
+testdata/expected/
+
+# xx.hocon version tracking (local cache marker)
+.xx-hocon-version
+
 # Superpowers (development process artifacts)
 docs/superpowers/

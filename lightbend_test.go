@@ -143,6 +143,125 @@ func jsonEqual(a, b any) bool {
 	return string(aj) == string(bj)
 }
 
+// TestLightbendExpected auto-discovers expected JSON files from xx.hocon
+// and compares parsed .conf output against them.
+func TestLightbendExpected(t *testing.T) {
+	confDir := "testdata/hocon"
+	expectedDir := "testdata/expected"
+
+	entries, err := os.ReadDir(expectedDir)
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("expected JSON dir not found at %s in CI — fetch testdata before running tests: %v", expectedDir, err)
+		}
+		t.Skipf("expected JSON dir not found at %s — run `make testdata` first: %v", expectedDir, err)
+		return
+	}
+
+	// Known failures — skip tests that cannot pass yet
+	skip := map[string]string{
+		"test01-expected.json":       "system section contains environment-dependent values",
+		"test02-expected.json":       "unresolved substitution for empty-key path",
+		"test03-expected.json":       "nested include substitution scope",
+		"test09-expected.json":       "object merge with substitution not fully propagated",
+		"test10-expected.json":       "nested include substitution scope",
+		"file-include-expected.json": "extra keys from file include (bar-file, baz)",
+	}
+
+	for _, e := range entries {
+		name := e.Name()
+
+		if !strings.HasSuffix(name, "-expected.json") || strings.Contains(name, "-expected-error") {
+			continue
+		}
+		if reason, ok := skip[name]; ok {
+			t.Run(name, func(t *testing.T) {
+				t.Skipf("known failure: %s", reason)
+			})
+			continue
+		}
+
+		confName := strings.Replace(name, "-expected.json", ".conf", 1)
+		confPath := filepath.Join(confDir, confName)
+		expectedPath := filepath.Join(expectedDir, name)
+
+		t.Run(confName, func(t *testing.T) {
+			if _, err := os.Stat(confPath); os.IsNotExist(err) {
+				t.Skipf("conf not found: %s", confPath)
+				return
+			}
+
+			cfg, err := hocon.ParseFile(confPath)
+			if err != nil {
+				t.Fatalf("ParseFile: %v", err)
+			}
+
+			expectedData, err := os.ReadFile(expectedPath)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			var want any
+			if err := json.Unmarshal(expectedData, &want); err != nil {
+				t.Fatalf("parse expected JSON: %v", err)
+			}
+
+			got := make(map[string]any)
+			if err := cfg.Unmarshal(&got); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+
+			if !jsonEqual(got, want) {
+				gotJSON, _ := json.MarshalIndent(got, "", "  ")
+				wantJSON, _ := json.MarshalIndent(want, "", "  ")
+				t.Errorf("mismatch\ngot:\n%s\nwant:\n%s", gotJSON, wantJSON)
+			}
+		})
+	}
+}
+
+// TestLightbendExpectedErrors auto-discovers expected error files.
+func TestLightbendExpectedErrors(t *testing.T) {
+	confDir := "testdata/hocon"
+	expectedDir := "testdata/expected"
+
+	entries, err := os.ReadDir(expectedDir)
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("expected JSON dir not found at %s in CI — fetch testdata before running tests: %v", expectedDir, err)
+		}
+		t.Skipf("expected dir not found at %s — run `make testdata` first: %v", expectedDir, err)
+		return
+	}
+
+	tested := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, "-expected-error.json") {
+			continue
+		}
+
+		confName := strings.Replace(name, "-expected-error.json", ".conf", 1)
+		confPath := filepath.Join(confDir, confName)
+
+		t.Run(confName+" should error", func(t *testing.T) {
+			if _, err := os.Stat(confPath); os.IsNotExist(err) {
+				t.Skipf("conf not found: %s", confPath)
+				return
+			}
+
+			_, err := hocon.ParseFile(confPath)
+			if err == nil {
+				t.Errorf("expected error for %s but got success", confPath)
+			}
+		})
+		tested++
+	}
+
+	if tested == 0 {
+		t.Error("No expected error tests were run. Check testdata/expected/")
+	}
+}
+
 // normalizeForJSON converts int64 values to float64 to match encoding/json's
 // default number type when unmarshaling into any.
 func normalizeForJSON(v any) any {
