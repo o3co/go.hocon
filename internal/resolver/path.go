@@ -8,7 +8,10 @@
 
 package resolver
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // parseSubstPath parses a substitution path string into segments,
 // handling quoted identifiers that may contain dots.
@@ -30,7 +33,7 @@ func parseSubstPath(raw string) []string {
 			i++ // skip opening quote
 			var seg strings.Builder
 			for i < len(raw) && raw[i] != '"' {
-				if raw[i] == '\\' && i+1 < len(raw) {
+				if raw[i] == '\\' && i+1 < len(raw) && (raw[i+1] == '"' || raw[i+1] == '\\') {
 					seg.WriteByte(raw[i+1])
 					i += 2
 				} else {
@@ -68,12 +71,26 @@ func parseSubstPath(raw string) []string {
 	return segments
 }
 
+// needsQuoting returns true if a segment must be quoted in a key string.
+// Matches Lightbend's hasFunkyChars: any char that is not letter/digit/hyphen/underscore.
+func needsQuoting(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, c := range s {
+		if !unicode.IsLetter(c) && !unicode.IsDigit(c) && c != '-' && c != '_' {
+			return true
+		}
+	}
+	return false
+}
+
 // segmentsToKey produces a canonical string from path segments.
 // Segments containing dots or that are empty strings are quoted.
 func segmentsToKey(segments []string) string {
 	parts := make([]string, len(segments))
 	for i, s := range segments {
-		if s == "" || strings.ContainsAny(s, ".\"\\") {
+		if needsQuoting(s) {
 			escaped := strings.ReplaceAll(s, `\`, `\\`)
 			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 			parts[i] = `"` + escaped + `"`

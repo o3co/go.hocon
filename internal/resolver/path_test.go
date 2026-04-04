@@ -96,6 +96,28 @@ func TestParseSubstPath_EscapedQuotes(t *testing.T) {
 	}
 }
 
+func TestParseSubstPath_PreservesUnknownEscapes(t *testing.T) {
+	// \n inside quotes should be preserved as literal \n
+	got := parseSubstPath(`"a\nb"`)
+	expected := []string{"a\\nb"}
+	if len(got) != 1 || got[0] != expected[0] {
+		t.Fatalf("parseSubstPath preserves unknown escapes: got %v, want %v", got, expected)
+	}
+}
+
+func TestSegmentsToKey_QuotesWhitespace(t *testing.T) {
+	got := segmentsToKey([]string{" a ", "b"})
+	expected := `" a ".b`
+	if got != expected {
+		t.Fatalf("segmentsToKey whitespace: got %q, want %q", got, expected)
+	}
+	// roundtrip
+	parsed := parseSubstPath(got)
+	if len(parsed) != 2 || parsed[0] != " a " || parsed[1] != "b" {
+		t.Fatalf("roundtrip whitespace: got %v", parsed)
+	}
+}
+
 func TestSegmentsToKey_EscapedQuotes(t *testing.T) {
 	tests := []struct {
 		input    []string
