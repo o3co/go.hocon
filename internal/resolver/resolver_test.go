@@ -698,8 +698,8 @@ func TestResolver_ObjectConcatenationKeyOrder(t *testing.T) {
 func TestResolver_IncludeRelativizeSubstitutions(t *testing.T) {
 	// When a file is included into a nested scope, substitution paths in
 	// the included file must be relativized so they resolve against the
-	// parent tree. For example, ${y} in child.conf becomes ${wrapper.y}
-	// when included as `wrapper { include "child.conf" }`.
+	// parent tree. For example, ${x} in child.conf (referenced as y = ${x})
+	// becomes ${wrapper.x} when included as `wrapper { include "child.conf" }`.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "child.conf"), `
 x = 10
@@ -757,6 +757,43 @@ y = ${x}
 	}
 	if sv := yv.(*resolver.ScalarVal); sv.V != int64(10) {
 		t.Errorf("expected y=10, got %v", sv.V)
+	}
+}
+
+func TestResolver_IncludeRelativizeMultiSegmentKey(t *testing.T) {
+	// Multi-segment key: a.b { include "child.conf" }
+	// The parser keeps Key = ["a", "b"] without decomposing into nested
+	// objects, so pathPrefix must include all segments.
+	// child.conf references ${ext} which is NOT in child.conf — it stays
+	// as a placeholder and must be relativized to ${a.b.ext} for correct
+	// resolution against the parent tree.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `
+val = ${ext}
+`)
+
+	res := resolveWithDir(t, `
+a.b {
+  ext = "hello"
+  include "child.conf"
+}
+`, dir)
+	av, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	bv, ok := av.(*resolver.ObjectVal).Get("b")
+	if !ok {
+		t.Fatal("b not found in a")
+	}
+	bo := bv.(*resolver.ObjectVal)
+
+	vv, ok := bo.Get("val")
+	if !ok {
+		t.Fatal("val not found in a.b")
+	}
+	if sv := vv.(*resolver.ScalarVal); sv.V != "hello" {
+		t.Errorf("expected val='hello' (resolved from ${ext}), got %v", sv.V)
 	}
 }
 

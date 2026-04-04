@@ -200,10 +200,9 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 		}
 
 		// Extend pathPrefix with the field key for child resolution.
-		childPrefix := pathPrefix
-		if len(field.Key) == 1 {
-			childPrefix = append(append([]string{}, pathPrefix...), field.Key[0])
-		}
+		// For multi-segment keys like a.b, all segments form the path
+		// prefix for includes nested within the value.
+		childPrefix := append(append([]string{}, pathPrefix...), field.Key...)
 		val, err := r.resolveNode(field.Value, obj, childPrefix)
 		if err != nil {
 			return nil, err
