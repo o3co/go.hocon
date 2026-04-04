@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -367,6 +368,24 @@ func TestParser_IncludeRequiredQuotedClasspathNotError(t *testing.T) {
 	}
 	if !inc.Required {
 		t.Error("expected Required=true")
+	}
+}
+
+func TestParser_ErrorCarriesLineCol(t *testing.T) {
+	// Unclosed brace on line 1 — parser should return an error with line/col info.
+	_, err := parser.Parse("{ a = 1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var pe *parser.Error
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *parser.Error, got %T: %v", err, err)
+	}
+	if pe.Line == 0 {
+		t.Error("expected Line > 0 in parser.Error")
+	}
+	if pe.Col == 0 {
+		t.Error("expected Col > 0 in parser.Error")
 	}
 }
 
