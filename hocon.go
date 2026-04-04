@@ -9,6 +9,7 @@
 package hocon
 
 import (
+	"errors"
 	"os"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -32,11 +33,16 @@ func ParseFile(path string) (*Config, error) {
 func parseWith(input, filePath string) (*Config, error) {
 	ast, err := parser.Parse(input)
 	if err != nil {
-		if pe, ok := err.(*ParseError); ok {
-			pe.FilePath = filePath
-			return nil, pe
+		pe := &ParseError{FilePath: filePath}
+		var parserErr *parser.Error
+		if errors.As(err, &parserErr) {
+			pe.Message = parserErr.Message
+			pe.Line = parserErr.Line
+			pe.Col = parserErr.Col
+		} else {
+			pe.Message = err.Error()
 		}
-		return nil, &ParseError{Message: err.Error(), FilePath: filePath}
+		return nil, pe
 	}
 	baseDir := ""
 	if filePath != "" {

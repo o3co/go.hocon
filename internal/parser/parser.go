@@ -9,7 +9,6 @@
 package parser
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -100,7 +99,7 @@ func (p *parser) parseObjectFields(braced bool) (*ObjectNode, error) {
 	for {
 		p.skipNewlines()
 		if p.current.Type == lexer.TokenError {
-			return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+			return nil, newError(p.current.Line, p.current.Col, "%s", p.current.Value)
 		}
 		if braced && p.current.Type == lexer.TokenRBrace {
 			p.advance()
@@ -108,7 +107,7 @@ func (p *parser) parseObjectFields(braced bool) (*ObjectNode, error) {
 		}
 		if p.current.Type == lexer.TokenEOF {
 			if braced {
-				return nil, fmt.Errorf("parse error at line %d, col %d: unexpected EOF, expected '}'", p.current.Line, p.current.Col)
+				return nil, newError(p.current.Line, p.current.Col, "unexpected EOF, expected '}'")
 			}
 			break
 		}
@@ -154,7 +153,7 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 	if p.current.Type == lexer.TokenString && !p.current.IsQuoted {
 		switch p.current.Value {
 		case "url", "classpath":
-			return nil, fmt.Errorf("parse error at line %d, col %d: include %s(...) is not supported in v1.0", line, col, p.current.Value)
+			return nil, newError(line, col, "include %s(...) is not supported in v1.0", p.current.Value)
 		}
 	}
 
@@ -164,7 +163,7 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		required = true
 		p.advance() // consume "required"
 		if p.current.Type != lexer.TokenLParen {
-			return nil, fmt.Errorf("parse error at line %d, col %d: expected '(' after 'required' in include directive", line, col)
+			return nil, newError(line, col, "expected '(' after 'required' in include directive")
 		}
 		p.advance() // consume '('
 
@@ -173,7 +172,7 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		if p.current.Type == lexer.TokenString && !p.current.IsQuoted {
 			switch p.current.Value {
 			case "url", "classpath":
-				return nil, fmt.Errorf("parse error at line %d, col %d: include required(%s(...)) is not supported in v1.0", line, col, p.current.Value)
+				return nil, newError(line, col, "include required(%s(...)) is not supported in v1.0", p.current.Value)
 			}
 		}
 	}
@@ -184,21 +183,21 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		p.advance() // consume "file"
 		// expect '('
 		if p.current.Type != lexer.TokenLParen {
-			return nil, fmt.Errorf("parse error at line %d, col %d: expected '(' after 'file' in include directive", line, col)
+			return nil, newError(line, col, "expected '(' after 'file' in include directive")
 		}
 		p.advance() // consume '('
 		if p.current.Type != lexer.TokenString {
-			return nil, fmt.Errorf("parse error at line %d, col %d: expected filename string in include file(...)", line, col)
+			return nil, newError(line, col, "expected filename string in include file(...)")
 		}
 		path = p.current.Value
 		p.advance() // consume path
 		if p.current.Type != lexer.TokenRParen {
-			return nil, fmt.Errorf("parse error at line %d, col %d: expected ')' after filename in include file(...)", line, col)
+			return nil, newError(line, col, "expected ')' after filename in include file(...)")
 		}
 		p.advance() // consume ')'
 	} else {
 		if p.current.Type != lexer.TokenString {
-			return nil, fmt.Errorf("parse error at line %d, col %d: expected filename after include", line, col)
+			return nil, newError(line, col, "expected filename after include")
 		}
 		path = p.current.Value
 		p.advance()
@@ -207,7 +206,7 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 	// if we consumed 'required(', close the outer paren
 	if required {
 		if p.current.Type != lexer.TokenRParen {
-			return nil, fmt.Errorf("parse error at line %d, col %d: expected ')' to close required(...) in include directive", line, col)
+			return nil, newError(line, col, "expected ')' to close required(...) in include directive")
 		}
 		p.advance() // consume ')'
 	}
@@ -235,7 +234,7 @@ func (p *parser) parseField() (*FieldNode, error) {
 	case lexer.TokenLBrace:
 		// key { ... } shorthand — value is an object
 	default:
-		return nil, fmt.Errorf("parse error at line %d, col %d: expected ':', '=' or '{' after key", p.current.Line, p.current.Col)
+		return nil, newError(p.current.Line, p.current.Col, "expected ':', '=' or '{' after key")
 	}
 	val, err := p.parseValue()
 	if err != nil {
@@ -245,11 +244,12 @@ func (p *parser) parseField() (*FieldNode, error) {
 }
 
 func (p *parser) parseKey() ([]string, error) {
+	line, col := p.current.Line, p.current.Col
 	if p.current.Type == lexer.TokenError {
-		return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+		return nil, newError(line, col, "%s", p.current.Value)
 	}
 	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt {
-		return nil, fmt.Errorf("parse error at line %d, col %d: expected key, got %v", p.current.Line, p.current.Col, p.current.Type)
+		return nil, newError(line, col, "expected key, got %v", p.current.Type)
 	}
 
 	var parts []string
@@ -289,7 +289,7 @@ func (p *parser) parseKey() ([]string, error) {
 	}
 
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("parse error: empty key")
+		return nil, newError(line, col, "empty key")
 	}
 	return parts, nil
 }
@@ -328,7 +328,7 @@ func (p *parser) parseValue() (Node, error) {
 
 func (p *parser) parseSingleValue() (Node, error) {
 	if p.current.Type == lexer.TokenError {
-		return nil, fmt.Errorf("parse error at line %d, col %d: %s", p.current.Line, p.current.Col, p.current.Value)
+		return nil, newError(p.current.Line, p.current.Col, "%s", p.current.Value)
 	}
 	line, col := p.current.Line, p.current.Col
 	switch p.current.Type {
@@ -353,7 +353,7 @@ func (p *parser) parseSingleValue() (Node, error) {
 		p.advance()
 		n, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("parse error at line %d: invalid int %q", line, raw)
+			return nil, newError(line, col, "invalid int %q", raw)
 		}
 		return &ScalarNode{pos: pos{line, col}, Value: n}, nil
 	case lexer.TokenFloat:
@@ -361,7 +361,7 @@ func (p *parser) parseSingleValue() (Node, error) {
 		p.advance()
 		f, err := strconv.ParseFloat(raw, 64)
 		if err != nil {
-			return nil, fmt.Errorf("parse error at line %d: invalid float %q", line, raw)
+			return nil, newError(line, col, "invalid float %q", raw)
 		}
 		return &ScalarNode{pos: pos{line, col}, Value: f}, nil
 	case lexer.TokenBool:
@@ -372,7 +372,7 @@ func (p *parser) parseSingleValue() (Node, error) {
 		p.advance()
 		return &ScalarNode{pos: pos{line, col}, Value: nil}, nil
 	default:
-		return nil, fmt.Errorf("parse error at line %d, col %d: unexpected token %v", line, col, p.current.Type)
+		return nil, newError(line, col, "unexpected token %v", p.current.Type)
 	}
 }
 
@@ -387,7 +387,7 @@ func (p *parser) parseArray() (*ArrayNode, error) {
 			break
 		}
 		if p.current.Type == lexer.TokenEOF {
-			return nil, fmt.Errorf("parse error at line %d: unexpected EOF in array", line)
+			return nil, newError(p.current.Line, p.current.Col, "unexpected EOF in array")
 		}
 		elem, err := p.parseValue()
 		if err != nil {
