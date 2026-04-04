@@ -28,11 +28,17 @@ func parseSubstPath(raw string) []string {
 		case '"':
 			// Quoted segment
 			i++ // skip opening quote
-			start := i
+			var seg strings.Builder
 			for i < len(raw) && raw[i] != '"' {
-				i++
+				if raw[i] == '\\' && i+1 < len(raw) {
+					seg.WriteByte(raw[i+1])
+					i += 2
+				} else {
+					seg.WriteByte(raw[i])
+					i++
+				}
 			}
-			segments = append(segments, raw[start:i])
+			segments = append(segments, seg.String())
 			if i < len(raw) {
 				i++ // skip closing quote
 			}
@@ -67,8 +73,10 @@ func parseSubstPath(raw string) []string {
 func segmentsToKey(segments []string) string {
 	parts := make([]string, len(segments))
 	for i, s := range segments {
-		if s == "" || strings.ContainsAny(s, ".\"") {
-			parts[i] = `"` + s + `"`
+		if s == "" || strings.ContainsAny(s, ".\"\\") {
+			escaped := strings.ReplaceAll(s, `\`, `\\`)
+			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+			parts[i] = `"` + escaped + `"`
 		} else {
 			parts[i] = s
 		}
