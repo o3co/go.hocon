@@ -300,7 +300,10 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
 				if prior, hasPrior := obj.priorValues[k]; hasPrior {
 					priorResolved, perr := r.resolveVal(prior, root, k)
-					if perr == nil && priorResolved != nil {
+					if perr != nil {
+						return nil, perr
+					}
+					if priorResolved != nil {
 						if priorObj, pOk := priorResolved.(*ObjectVal); pOk {
 							resolved = deepMerge(resolvedObj, priorObj)
 						}
@@ -438,13 +441,19 @@ func (r *resolver) resolveSubst(n *parser.SubstNode, root *ObjectVal) (Val, erro
 		// Delayed merge (site 2): after resolving a substitution lookup, if the
 		// result is an object and there is a prior value that also resolves to an
 		// object, deep-merge them (prior as base, current on top).
-		if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
-			prior := r.findPrior(root, segments, pathStr)
-			if prior != nil {
-				priorResolved, perr := r.resolveVal(prior, root, pathStr)
-				if perr == nil && priorResolved != nil {
-					if priorObj, poOk := priorResolved.(*ObjectVal); poOk {
-						resolved = deepMerge(resolvedObj, priorObj)
+		// Restricted to single-segment paths to avoid incorrect merges on nested paths.
+		if len(segments) == 1 {
+			if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
+				prior := r.findPrior(root, segments, pathStr)
+				if prior != nil {
+					priorResolved, perr := r.resolveVal(prior, root, pathStr)
+					if perr != nil {
+						return nil, perr
+					}
+					if priorResolved != nil {
+						if priorObj, poOk := priorResolved.(*ObjectVal); poOk {
+							resolved = deepMerge(resolvedObj, priorObj)
+						}
 					}
 				}
 			}
