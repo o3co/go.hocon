@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Scalar internal representation**: `ScalarVal` changed from `{V any}` to `{Raw string, Type ScalarType}`. Scalars now store the original text and a type discriminant instead of converted Go values. This eliminates type erasure (e.g., `0100` → `100`) and preserves original text.
+- `GetString()` now returns `Raw` for **all** scalar types (number, boolean, null), matching Lightbend behavior. Previously it required a `string` type assertion.
+- `GetStringSlice()` now works on arrays containing non-string scalars (returns raw text).
+- Env var lookup uses raw dot-join instead of `segmentsToKey` (no quoting), matching Lightbend behavior.
+
+### Fixed
+
+- `GetBool()` now supports `yes`/`no`/`on`/`off` (case-insensitive) per HOCON spec. Previously only `true`/`false` were accepted.
+- Quoted-key include relativization: `${"a.b".c}` inside included files now resolves correctly.
+- Nested include prefix composition: multi-layer includes accumulate prefixes correctly.
+- Duplicate env-var lookup removed in substitution resolver.
+- `resolvedCache` key normalization: quoted keys now use canonical form consistently.
+
+### Added
+
+- `ScalarType` enum and `ScalarVal` struct exported from `resolver` package.
+- Substitution path segments: `substPlaceholder` uses `segments []string` for correct quoted-key handling.
+
 ## [1.0.0] - 2026-04-04
 
 ### Added
