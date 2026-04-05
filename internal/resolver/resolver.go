@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -217,7 +218,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 			}
 			existArr, ok := existing.(*ArrayVal)
 			if !ok {
-				return nil, &ResolveError{Message: "'+=' on non-array value", Path: strings.Join(field.Key, ".")}
+				return nil, &ResolveError{Message: "'+=' on non-array value", Path: segmentsToKey(field.Key)}
 			}
 			newArr, ok2 := val.(*ArrayVal)
 			if !ok2 {
@@ -238,7 +239,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					}
 				} else {
 					// non-object overwrite: save prior value for self-referential substitution support
-					r.priorValues[key] = existing
+					r.priorValues[segmentsToKey([]string{key})] = existing
 					obj.priorValues[key] = existing // per-object scope for optional-substitution fallback
 				}
 				// non-object: last value wins (fall through to obj.set below)
@@ -269,7 +270,7 @@ func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal, pathPrefix []st
 		return arr, nil
 	case *parser.SubstNode:
 		// leave substitution nodes for second pass
-		return &substPlaceholder{node: n}, nil
+		return &substPlaceholder{node: n, segments: parseSubstPath(n.Path)}, nil
 	case *parser.ConcatNode:
 		return r.resolveConcatPartial(n, ctx, pathPrefix)
 	case *parser.IncludeNode:
@@ -282,7 +283,8 @@ func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal, pathPrefix []st
 // substPlaceholder is a temporary stand-in for unresolved substitutions.
 type substPlaceholder struct {
 	node      *parser.SubstNode
-	prefixLen int // 0 for normal, >0 for relativized (number of prefix segments)
+	segments  []string // path segments — source of truth
+	prefixLen int      // 0 for normal, >0 for relativized (number of prefix segments)
 }
 
 func (s *substPlaceholder) val() {}
@@ -331,7 +333,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			result.set(k, resolved)
 			// cache top-level resolved values to support self-referential substitutions
 			if obj == root {
-				r.resolvedCache[k] = resolved
+				r.resolvedCache[segmentsToKey([]string{k})] = resolved
 			}
 		} else if prior, ok := obj.priorValues[k]; ok {
 			// optional substitution resolved to nothing — fall back to prior value (per-object scope)
@@ -342,7 +344,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			if fallback != nil {
 				result.set(k, fallback)
 				if obj == root {
-					r.resolvedCache[k] = fallback
+					r.resolvedCache[segmentsToKey([]string{k})] = fallback
 				}
 			}
 		}
@@ -378,27 +380,28 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 
 func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, error) {
 	n := s.node
-	pathStr := n.Path
-	if r.resolving[pathStr] {
+	key := segmentsToKey(s.segments)
+	segments := s.segments
+
+	if r.resolving[key] {
 		// Check if a previously resolved value exists (self-referential substitution).
 		// e.g. path=${path}["/extra"] — the ${path} should resolve to the prior value.
-		if cached, ok := r.resolvedCache[pathStr]; ok {
+		if cached, ok := r.resolvedCache[key]; ok {
 			return cached, nil
 		}
 		// Check for prior (pre-overwrite) value saved during first pass.
-		if prior, ok := r.priorValues[pathStr]; ok {
+		if prior, ok := r.priorValues[key]; ok {
 			// Resolve the prior value (it may itself contain placeholders).
-			return r.resolveVal(prior, root, pathStr)
+			return r.resolveVal(prior, root, key)
 		}
 		if !n.Optional {
-			return nil, &ResolveError{Message: "circular reference detected", Path: pathStr, Line: n.Line(), Col: n.Col()}
+			return nil, &ResolveError{Message: "circular reference detected", Path: key, Line: n.Line(), Col: n.Col()}
 		}
 		return nil, nil
 	}
-	r.resolving[pathStr] = true
-	defer delete(r.resolving, pathStr)
+	r.resolving[key] = true
+	defer delete(r.resolving, key)
 
-	segments := strings.Split(pathStr, ".")
 	val, ok := r.lookupPath(root, segments)
 	if ok {
 		// If the found value is still a placeholder that references the SAME path
@@ -408,32 +411,32 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		isSelfRef := false
 		switch v := val.(type) {
 		case *substPlaceholder:
-			if v.node.Path == pathStr {
+			if slices.Equal(v.segments, s.segments) {
 				isSelfRef = true
 			}
 		case *concatPlaceholder:
 			for _, cv := range v.vals {
-				if sp, spOk := cv.(*substPlaceholder); spOk && sp.node.Path == pathStr {
+				if sp, spOk := cv.(*substPlaceholder); spOk && slices.Equal(sp.segments, s.segments) {
 					isSelfRef = true
 					break
 				}
 			}
 		}
 		if isSelfRef {
-			if prior, ok2 := r.priorValues[pathStr]; ok2 {
-				return r.resolveVal(prior, root, pathStr)
+			if prior, ok2 := r.priorValues[key]; ok2 {
+				return r.resolveVal(prior, root, key)
 			}
 			// For nested paths, check the parent object's per-object priorValues.
 			if len(segments) > 1 {
 				if parent, pok := r.lookupPathObj(root, segments[:len(segments)-1]); pok {
 					lastKey := segments[len(segments)-1]
 					if prior2, ok3 := parent.priorValues[lastKey]; ok3 {
-						return r.resolveVal(prior2, root, pathStr)
+						return r.resolveVal(prior2, root, key)
 					}
 				}
 			}
 		}
-		resolved, err := r.resolveVal(val, root, pathStr)
+		resolved, err := r.resolveVal(val, root, key)
 		if err != nil {
 			return nil, err
 		}
@@ -452,7 +455,7 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 				if parentObj != nil {
 					lastKey := segments[len(segments)-1]
 					if prior, pOk := parentObj.priorValues[lastKey]; pOk {
-						return r.resolveVal(prior, root, pathStr)
+						return r.resolveVal(prior, root, key)
 					}
 				}
 			}
@@ -463,9 +466,9 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// Restricted to single-segment paths to avoid incorrect merges on nested paths.
 		if len(segments) == 1 {
 			if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
-				prior := r.findPrior(root, segments, pathStr)
+				prior := r.findPrior(root, segments, key)
 				if prior != nil {
-					priorResolved, perr := r.resolveVal(prior, root, pathStr)
+					priorResolved, perr := r.resolveVal(prior, root, key)
 					if perr != nil {
 						return nil, perr
 					}
@@ -482,32 +485,25 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 
 	// Relativized path not found — fall back to original (non-relativized) path.
 	if s.prefixLen > 0 && len(segments) > s.prefixLen {
-		originalPath := strings.Join(segments[s.prefixLen:], ".")
 		originalSegments := segments[s.prefixLen:]
+		originalKey := segmentsToKey(originalSegments)
 		origVal, origOk := r.lookupPath(root, originalSegments)
 		if origOk {
-			resolved, err := r.resolveVal(origVal, root, originalPath)
+			resolved, err := r.resolveVal(origVal, root, originalKey)
 			if err != nil {
 				return nil, err
 			}
 			return resolved, nil
 		}
-		// Also try env var with original path
-		if ev, ok := os.LookupEnv(originalPath); ok {
+		// Also try env var with original path (raw dot-join, no quoting)
+		if ev, ok := os.LookupEnv(strings.Join(originalSegments, ".")); ok {
 			return &ScalarVal{V: ev}, nil
 		}
 	}
 
-	// env var fallback
-	if ev, ok := os.LookupEnv(pathStr); ok {
+	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior
+	if ev, ok := os.LookupEnv(strings.Join(s.segments, ".")); ok {
 		return &ScalarVal{V: ev}, nil
-	}
-	// For relativized paths, also try env var with original path
-	if s.prefixLen > 0 && len(segments) > s.prefixLen {
-		originalPath := strings.Join(segments[s.prefixLen:], ".")
-		if ev, ok := os.LookupEnv(originalPath); ok {
-			return &ScalarVal{V: ev}, nil
-		}
 	}
 	if n.Optional {
 		return nil, nil // field will be dropped
@@ -517,7 +513,7 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// substitutions as placeholders for the parent resolver to handle.
 		return s, nil
 	}
-	return nil, &ResolveError{Message: "unresolved substitution", Path: pathStr, Line: n.Line(), Col: n.Col()}
+	return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
 }
 
 // findPrior looks up the per-object priorValues for a given path in the tree.
@@ -722,7 +718,7 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 				}
 			} else {
 				// non-object overwrite: save prior value for self-referential substitution support
-				r.priorValues[strings.Join(segments, ".")] = existing
+				r.priorValues[segmentsToKey(segments)] = existing
 			}
 		}
 		obj.set(key, val)
@@ -797,48 +793,48 @@ func (r *resolver) resolveInclude(inc *parser.IncludeNode, pathPrefix []string) 
 	// Relativize substitution placeholders in the included object so that
 	// paths like ${x} become ${prefix.x} when included under a nested scope.
 	if len(pathPrefix) > 0 {
-		prefix := strings.Join(pathPrefix, ".")
-		relativizeVals(included, prefix, len(pathPrefix))
+		relativizeVals(included, pathPrefix)
 	}
 
 	return included, nil
 }
 
-// relativizeVals recursively walks all values in obj and prepends prefix to
+// relativizeVals recursively walks all values in obj and prepends prefix segments to
 // any substPlaceholder paths, recording prefixLen so the resolver can fall
 // back to the original (non-relativized) path if the relativized one is not found.
-func relativizeVals(obj *ObjectVal, prefix string, prefixLen int) {
+func relativizeVals(obj *ObjectVal, prefixSegments []string) {
 	for _, k := range obj.keys {
-		obj.values[k] = relativizeVal(obj.values[k], prefix, prefixLen)
+		obj.values[k] = relativizeVal(obj.values[k], prefixSegments)
 	}
 	for k, v := range obj.priorValues {
-		obj.priorValues[k] = relativizeVal(v, prefix, prefixLen)
+		obj.priorValues[k] = relativizeVal(v, prefixSegments)
 	}
 }
 
-func relativizeVal(v Val, prefix string, prefixLen int) Val {
+func relativizeVal(v Val, prefixSegments []string) Val {
 	switch vv := v.(type) {
 	case *substPlaceholder:
-		if vv.prefixLen == 0 {
-			// Create a new SubstNode with the relativized path.
-			newNode := &parser.SubstNode{}
-			*newNode = *vv.node
-			newNode.Path = prefix + "." + vv.node.Path
-			return &substPlaceholder{node: newNode, prefixLen: prefixLen}
-		}
-		return v
+		// Create a new SubstNode with the relativized path.
+		// Accumulate prefixLen so multi-layer includes compose correctly.
+		newNode := &parser.SubstNode{}
+		*newNode = *vv.node
+		newSegments := make([]string, 0, len(prefixSegments)+len(vv.segments))
+		newSegments = append(newSegments, prefixSegments...)
+		newSegments = append(newSegments, vv.segments...)
+		newNode.Path = segmentsToKey(newSegments)
+		return &substPlaceholder{node: newNode, segments: newSegments, prefixLen: vv.prefixLen + len(prefixSegments)}
 	case *concatPlaceholder:
 		newVals := make([]Val, len(vv.vals))
 		for i, cv := range vv.vals {
-			newVals[i] = relativizeVal(cv, prefix, prefixLen)
+			newVals[i] = relativizeVal(cv, prefixSegments)
 		}
 		return &concatPlaceholder{vals: newVals}
 	case *ObjectVal:
-		relativizeVals(vv, prefix, prefixLen)
+		relativizeVals(vv, prefixSegments)
 		return vv
 	case *ArrayVal:
 		for i, elem := range vv.Elements {
-			vv.Elements[i] = relativizeVal(elem, prefix, prefixLen)
+			vv.Elements[i] = relativizeVal(elem, prefixSegments)
 		}
 		return vv
 	default:

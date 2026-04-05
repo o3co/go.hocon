@@ -823,3 +823,79 @@ wrapper { include "child.conf" }
 		t.Errorf("expected a='from-root', got %v", sv.V)
 	}
 }
+
+// lookupObj navigates into a nested ObjectVal using a dot-separated key.
+// Each segment is looked up as a direct key first (for quoted keys like "a.b"),
+// falling back to nested traversal.
+func lookupObj(t *testing.T, res *resolver.Result, key string) *resolver.ObjectVal {
+	t.Helper()
+	// Try direct key first (handles quoted keys like "a.b")
+	v, ok := res.Root.Get(key)
+	if ok {
+		obj, isObj := v.(*resolver.ObjectVal)
+		if isObj {
+			return obj
+		}
+	}
+	// Fall back to dot-separated traversal
+	parts := strings.Split(key, ".")
+	cur := res.Root
+	for _, p := range parts {
+		val, found := cur.Get(p)
+		if !found {
+			t.Fatalf("key %q not found while looking up %q", p, key)
+		}
+		obj, isObj := val.(*resolver.ObjectVal)
+		if !isObj {
+			t.Fatalf("value at %q is %T, not ObjectVal", p, val)
+		}
+		cur = obj
+	}
+	return cur
+}
+
+func assertScalar(t *testing.T, obj *resolver.ObjectVal, key string, expected any) {
+	t.Helper()
+	v, ok := obj.Get(key)
+	if !ok {
+		t.Fatalf("key %q not found", key)
+	}
+	sv, ok := v.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("key %q: expected ScalarVal, got %T", key, v)
+	}
+	if sv.V != expected {
+		t.Errorf("key %q: expected %v (%T), got %v (%T)", key, expected, expected, sv.V, sv.V)
+	}
+}
+
+func TestResolver_IncludeRelativizeQuotedKeyWithDots(t *testing.T) {
+	// When a file is included under a quoted key containing dots (like "a.b"),
+	// substitutions referencing external values must be correctly relativized.
+	// The path prefix ["a.b"] must NOT be joined with "." naively — that would
+	// produce "a.b.ext" which splits into ["a","b","ext"] instead of ["a.b","ext"].
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `val = ${ext}`)
+
+	res := resolveWithDir(t, `
+"a.b" {
+  ext = "hello"
+  include "child.conf"
+}
+`, dir)
+	ab := lookupObj(t, res, "a.b")
+	assertScalar(t, ab, "ext", "hello")
+	assertScalar(t, ab, "val", "hello")
+}
+
+func TestResolver_EnvFallbackQuotedKeyPrefix(t *testing.T) {
+	// Env var fallback for substitutions under a quoted-dot key prefix.
+	// ${MY_VAR} included under "a.b" is relativized to "a.b".MY_VAR.
+	// The env lookup must try the original key MY_VAR (not "a.b".MY_VAR).
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `val = ${MY_VAR}`)
+	t.Setenv("MY_VAR", "ok")
+	res := resolveWithDir(t, `"a.b" { include "child.conf" }`, dir)
+	ab := lookupObj(t, res, "a.b")
+	assertScalar(t, ab, "val", "ok")
+}
