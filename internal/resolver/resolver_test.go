@@ -963,7 +963,19 @@ include file("cwd-only.conf")
 
 func TestResolver_FileIncludeMissingSilentlySkipped(t *testing.T) {
 	// include file("nonexistent.conf") with Required=false should be silently skipped.
+	// Use a temp directory as CWD so the test doesn't depend on the real CWD's contents.
 	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	writeFile(t, filepath.Join(dir, "main.conf"), "base = 1\ninclude file(\"nonexistent.conf\")\n")
 
 	src := `
 base = 1
