@@ -219,8 +219,8 @@ func (c *Config) GetFloat32Option(path string) Option[float32] {
 
 func (c *Config) GetBool(path string) bool {
 	sv := c.getScalar(path)
-	parsed, err := strconv.ParseBool(sv.Raw)
-	if err != nil {
+	parsed, ok := parseBool(sv.Raw)
+	if !ok {
 		panicConfig(path, fmt.Sprintf("expected bool, got %q", sv.Raw))
 	}
 	return parsed
@@ -235,10 +235,26 @@ func (c *Config) GetBoolOption(path string) Option[bool] {
 	if !ok2 || sv.Type == resolver.ScalarNull {
 		return None[bool]()
 	}
-	if parsed, err := strconv.ParseBool(sv.Raw); err == nil {
+	if parsed, ok3 := parseBool(sv.Raw); ok3 {
 		return Some(parsed)
 	}
 	return None[bool]()
+}
+
+// parseBool parses a boolean string per the HOCON spec.
+// Accepted values (case-insensitive): true, yes, on → true; false, no, off → false.
+// Falls back to strconv.ParseBool for 1/0/t/f/T/F compatibility.
+func parseBool(s string) (bool, bool) {
+	switch strings.ToLower(s) {
+	case "true", "yes", "on":
+		return true, true
+	case "false", "no", "off":
+		return false, true
+	}
+	if v, err := strconv.ParseBool(s); err == nil {
+		return v, true
+	}
+	return false, false
 }
 
 // ── duration ──────────────────────────────────────────────────────

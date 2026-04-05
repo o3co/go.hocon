@@ -251,8 +251,8 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 		}
 		target.SetFloat(parsed)
 	case reflect.Bool:
-		parsed, err := strconv.ParseBool(sv.Raw)
-		if err != nil {
+		parsed, ok := parseBool(sv.Raw)
+		if !ok {
 			return fmt.Errorf("hocon: expected bool, got %q", sv.Raw)
 		}
 		target.SetBool(parsed)
