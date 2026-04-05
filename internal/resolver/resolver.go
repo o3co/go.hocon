@@ -118,6 +118,9 @@ const (
 // plus a type discriminant. The raw string is what appeared in the source
 // (or was produced by concatenation / env var lookup).
 type ScalarVal struct {
+	// Raw is the scalar's string representation. For unquoted tokens this is
+	// the literal source text. For quoted strings the lexer has already
+	// decoded escape sequences, so Raw contains the decoded value.
 	Raw  string
 	Type ScalarType
 }
