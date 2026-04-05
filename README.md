@@ -14,6 +14,10 @@ A full [Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md)
 
 [日本語](README.ja.md)
 
+**Library stance** -- go.hocon is a HOCON config loader, not a low-level parser API. Its purpose is reading `.hocon` files and providing typed access via the Config API (`GetString`, `GetInt`, `GetFloat64`, `GetBool`, `GetDuration`, `GetBytes`, `Unmarshal`). Internal types such as `ScalarVal` may change between minor versions.
+
+**Cross-language conformance** -- This implementation is tested against shared expected-JSON fixtures from [o3co/xx.hocon](https://github.com/o3co/xx.hocon) alongside [ts.hocon](https://github.com/o3co/ts.hocon) and [rs.hocon](https://github.com/o3co/rs.hocon) to ensure all three implementations meet the same Lightbend HOCON specification.
+
 ---
 
 ## Quick Start
