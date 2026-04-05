@@ -333,7 +333,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			result.set(k, resolved)
 			// cache top-level resolved values to support self-referential substitutions
 			if obj == root {
-				r.resolvedCache[k] = resolved
+				r.resolvedCache[segmentsToKey([]string{k})] = resolved
 			}
 		} else if prior, ok := obj.priorValues[k]; ok {
 			// optional substitution resolved to nothing — fall back to prior value (per-object scope)
@@ -344,7 +344,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			if fallback != nil {
 				result.set(k, fallback)
 				if obj == root {
-					r.resolvedCache[k] = fallback
+					r.resolvedCache[segmentsToKey([]string{k})] = fallback
 				}
 			}
 		}
