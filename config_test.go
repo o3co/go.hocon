@@ -840,18 +840,12 @@ func TestConfig_DotPrefixedFloat_ToObject(t *testing.T) {
 	if err := cfg.Unmarshal(&m); err != nil {
 		t.Fatal(err)
 	}
-	// .33 is a valid float, so it becomes float64 in map[string]any
-	switch v := m["val"].(type) {
-	case float64:
-		if v != 0.33 {
-			t.Errorf("got %v, want 0.33", v)
-		}
-	case string:
-		if v != ".33" {
-			t.Errorf("got %q, want %q", v, ".33")
-		}
-	default:
-		t.Errorf("unexpected type %T for val", m["val"])
+	v, ok := m["val"].(string)
+	if !ok {
+		t.Fatalf("unexpected type %T for val, want string", m["val"])
+	}
+	if v != ".33" {
+		t.Errorf("got %q, want %q", v, ".33")
 	}
 }
 

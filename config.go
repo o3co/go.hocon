@@ -392,7 +392,7 @@ func (c *Config) GetStringSlice(path string) []string {
 	for i, elem := range arr.Elements {
 		sv, ok := elem.(*resolver.ScalarVal)
 		if !ok || sv.Type == resolver.ScalarNull {
-			panicConfig(path, fmt.Sprintf("element %d is not a string", i))
+			panicConfig(path, fmt.Sprintf("element %d is not a non-null scalar", i))
 		}
 		result[i] = sv.Raw
 	}
