@@ -767,7 +767,17 @@ var includeExtensions = []string{".properties", ".json", ".conf"}
 func (r *resolver) resolveInclude(inc *parser.IncludeNode, pathPrefix []string) (*ObjectVal, error) {
 	path := inc.Path
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(r.opts.BaseDir, path)
+		if inc.IsFile {
+			// file() includes resolve relative to the process working directory,
+			// NOT relative to the including file's directory (BaseDir).
+			wd, err := os.Getwd()
+			if err != nil {
+				return nil, &ResolveError{Message: "cannot determine working directory: " + err.Error()}
+			}
+			path = filepath.Join(wd, path)
+		} else {
+			path = filepath.Join(r.opts.BaseDir, path)
+		}
 	}
 
 	var included *ObjectVal

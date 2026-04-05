@@ -160,9 +160,8 @@ func TestLightbendExpected(t *testing.T) {
 
 	// Known failures — skip tests that cannot pass yet
 	skip := map[string]string{
-		"test01-expected.json":       "system section contains environment-dependent values",
-		"test02-expected.json":       "unresolved substitution for empty-key path",
-		"file-include-expected.json": "extra keys from file include (bar-file, baz)",
+		"test01-expected.json": "system section contains environment-dependent values",
+		"test02-expected.json": "unresolved substitution for empty-key path",
 	}
 
 	for _, e := range entries {

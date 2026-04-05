@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `include file("path")` now resolves relative to the process working directory (CWD) instead of the including file's directory, matching the HOCON spec. Bare `include "path"` continues to resolve relative to the including file. This fixes the Lightbend `file-include` conformance test.
 - `GetBool()` now supports `yes`/`no`/`on`/`off` (case-insensitive) per HOCON spec. Previously only `true`/`false` were accepted.
 - Quoted-key include relativization: `${"a.b".c}` inside included files now resolves correctly.
 - Nested include prefix composition: multi-layer includes accumulate prefixes correctly.

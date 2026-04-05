@@ -102,6 +102,40 @@ func TestParser_Include(t *testing.T) {
 	if inc.Path != "other.conf" {
 		t.Errorf("unexpected path: %s", inc.Path)
 	}
+	if inc.IsFile {
+		t.Error("expected IsFile=false for bare include")
+	}
+}
+
+func TestParser_IncludeFileIsFile(t *testing.T) {
+	obj := mustParse(t, `include file("other.conf")`)
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field (include), got %d", len(obj.Fields))
+	}
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if inc.Path != "other.conf" {
+		t.Errorf("unexpected path: %s", inc.Path)
+	}
+	if !inc.IsFile {
+		t.Error("expected IsFile=true for include file(...)")
+	}
+}
+
+func TestParser_IncludeRequiredFileIsFile(t *testing.T) {
+	obj := mustParse(t, `include required(file("base.conf"))`)
+	inc, ok := obj.Fields[0].Value.(*parser.IncludeNode)
+	if !ok {
+		t.Fatalf("expected IncludeNode, got %T", obj.Fields[0].Value)
+	}
+	if !inc.IsFile {
+		t.Error("expected IsFile=true for include required(file(...))")
+	}
+	if !inc.Required {
+		t.Error("expected Required=true")
+	}
 }
 
 func TestParser_PlusEquals(t *testing.T) {
