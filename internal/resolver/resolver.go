@@ -108,7 +108,7 @@ func (a *ArrayVal) val() {}
 type ScalarType int
 
 const (
-	ScalarString  ScalarType = iota
+	ScalarString ScalarType = iota
 	ScalarNumber
 	ScalarBoolean
 	ScalarNull

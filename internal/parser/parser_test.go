@@ -114,9 +114,9 @@ func TestParser_PlusEquals(t *testing.T) {
 func TestParser_NullBoolNumbers(t *testing.T) {
 	obj := mustParse(t, "a=null\nb=true\nc=42\nd=3.14")
 	checks := []struct {
-		idx       int
-		wantRaw   string
-		wantType  string
+		idx      int
+		wantRaw  string
+		wantType string
 	}{
 		{0, "null", "null"},
 		{1, "true", "boolean"},
