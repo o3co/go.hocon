@@ -770,11 +770,17 @@ func TestIncludePropertiesFile(t *testing.T) {
 	}
 }
 
-func TestConfig_GetStringSliceOption_WrongElementType(t *testing.T) {
+func TestConfig_GetStringSliceOption_NumberElements(t *testing.T) {
+	// After the raw-string refactor, GetStringSlice works on any scalar type
+	// (returns the raw string representation). [1, 2, 3] → ["1", "2", "3"].
 	cfg := mustParseCfg(t, `key = [1, 2, 3]`)
 	opt := cfg.GetStringSliceOption("key")
-	if opt.IsSome() {
-		t.Error("expected None when array elements are not strings")
+	if opt.IsNone() {
+		t.Error("expected Some for number elements (raw strings)")
+	}
+	v, _ := opt.Get()
+	if len(v) != 3 || v[0] != "1" || v[1] != "2" || v[2] != "3" {
+		t.Errorf("expected [1 2 3], got %v", v)
 	}
 }
 
@@ -799,6 +805,112 @@ func TestConfig_GetConfigSliceOption_WrongElementType(t *testing.T) {
 	opt := cfg.GetConfigSliceOption("key")
 	if opt.IsSome() {
 		t.Error("expected None when array elements are not objects")
+	}
+}
+
+// --- Scalar raw-string preservation tests ---
+
+func TestConfig_GetString_ReturnsRawTextForNumber(t *testing.T) {
+	cfg := mustParseCfg(t, `port = 8080`)
+	if got := cfg.GetString("port"); got != "8080" {
+		t.Errorf("got %q, want %q", got, "8080")
+	}
+}
+
+func TestConfig_GetString_ReturnsRawTextForBool(t *testing.T) {
+	cfg := mustParseCfg(t, `enabled = true`)
+	if got := cfg.GetString("enabled"); got != "true" {
+		t.Errorf("got %q, want %q", got, "true")
+	}
+}
+
+func TestConfig_GetString_DotPrefixedFloat(t *testing.T) {
+	// ".33" must be preserved as the raw string, not normalized to "0.33".
+	cfg := mustParseCfg(t, `val = .33`)
+	if got := cfg.GetString("val"); got != ".33" {
+		t.Errorf("got %q, want %q", got, ".33")
+	}
+}
+
+func TestConfig_DotPrefixedFloat_ToObject(t *testing.T) {
+	// When unmarshalled into map[string]any, ".33" should stay as a string
+	// because it cannot be parsed as int and preserves the raw representation.
+	cfg := mustParseCfg(t, `val = .33`)
+	var m map[string]any
+	if err := cfg.Unmarshal(&m); err != nil {
+		t.Fatal(err)
+	}
+	v, ok := m["val"].(string)
+	if !ok {
+		t.Fatalf("unexpected type %T for val, want string", m["val"])
+	}
+	if v != ".33" {
+		t.Errorf("got %q, want %q", v, ".33")
+	}
+}
+
+func TestConfig_GetString_OctalLikePreserved(t *testing.T) {
+	// "0100" must be preserved as the raw string, not interpreted as octal.
+	cfg := mustParseCfg(t, `val = 0100`)
+	if got := cfg.GetString("val"); got != "0100" {
+		t.Errorf("got %q, want %q", got, "0100")
+	}
+}
+
+// --- GetBool yes/no/on/off tests ---
+
+func TestConfig_GetBool_YesNoOnOff(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{`b = yes`, true},
+		{`b = Yes`, true},
+		{`b = YES`, true},
+		{`b = no`, false},
+		{`b = No`, false},
+		{`b = NO`, false},
+		{`b = on`, true},
+		{`b = On`, true},
+		{`b = ON`, true},
+		{`b = off`, false},
+		{`b = Off`, false},
+		{`b = OFF`, false},
+		{`b = true`, true},
+		{`b = false`, false},
+	}
+	for _, tc := range tests {
+		cfg := mustParseCfg(t, tc.input)
+		got := cfg.GetBool("b")
+		if got != tc.want {
+			t.Errorf("input=%q: got %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestConfig_GetBoolOption_YesNoOnOff(t *testing.T) {
+	cfg := mustParseCfg(t, `a = yes
+b = no
+c = on
+d = off`)
+	for _, tc := range []struct {
+		key  string
+		want bool
+	}{
+		{"a", true},
+		{"b", false},
+		{"c", true},
+		{"d", false},
+	} {
+		opt := cfg.GetBoolOption(tc.key)
+		if opt.IsNone() {
+			t.Errorf("key=%q: expected Some, got None", tc.key)
+			continue
+		}
+		v, _ := opt.Get()
+		if v != tc.want {
+			t.Errorf("key=%q: got %v, want %v", tc.key, v, tc.want)
+		}
 	}
 }
 

@@ -29,7 +29,7 @@ func TestResolver_SimpleKV(t *testing.T) {
 	if !ok {
 		t.Fatal("key not found")
 	}
-	if sv, ok := v.(*resolver.ScalarVal); !ok || sv.V != "hello" {
+	if sv, ok := v.(*resolver.ScalarVal); !ok || sv.Raw != "hello" {
 		t.Errorf("unexpected value: %v", v)
 	}
 }
@@ -52,7 +52,7 @@ func TestResolver_DuplicateKeyMerge(t *testing.T) {
 func TestResolver_Substitution(t *testing.T) {
 	res := resolve(t, "x=1\ny=${x}")
 	v, _ := res.Root.Get("y")
-	if sv, ok := v.(*resolver.ScalarVal); !ok || sv.V != int64(1) {
+	if sv, ok := v.(*resolver.ScalarVal); !ok || sv.Raw != "1" {
 		t.Errorf("substitution failed: %v", v)
 	}
 }
@@ -74,7 +74,7 @@ func TestResolver_OptionalSubstitutionFallback(t *testing.T) {
 		t.Fatal("prior value should be preserved when optional substitution is unset")
 	}
 	sv, ok := v.(*resolver.ScalarVal)
-	if !ok || sv.V != "0.0.0.0" {
+	if !ok || sv.Raw != "0.0.0.0" {
 		t.Errorf("expected prior value \"0.0.0.0\", got %v", v)
 	}
 }
@@ -113,7 +113,7 @@ func TestResolver_NullValue(t *testing.T) {
 		t.Fatal("key missing")
 	}
 	sv, ok := v.(*resolver.ScalarVal)
-	if !ok || sv.V != nil {
+	if !ok || sv.Type != resolver.ScalarNull {
 		t.Errorf("expected null ScalarVal, got %v", v)
 	}
 }
@@ -126,7 +126,7 @@ func TestResolver_DuplicateScalarLastWins(t *testing.T) {
 		t.Fatal("a not found")
 	}
 	sv, ok := v.(*resolver.ScalarVal)
-	if !ok || sv.V != int64(2) {
+	if !ok || sv.Raw != "2" {
 		t.Errorf("expected last value 2, got %v", v)
 	}
 }
@@ -190,7 +190,7 @@ func TestResolver_ObjectEqualsReplacesWithScalar(t *testing.T) {
 		t.Fatal("a not found")
 	}
 	sv, ok := v.(*resolver.ScalarVal)
-	if !ok || sv.V != int64(42) {
+	if !ok || sv.Raw != "42" {
 		t.Errorf("expected scalar 42, got %v", v)
 	}
 }
@@ -241,8 +241,8 @@ func TestResolver_IncludeProbeConf(t *testing.T) {
 	if !ok {
 		t.Fatal("x not found")
 	}
-	if sv := v.(*resolver.ScalarVal); sv.V != "from-conf" {
-		t.Errorf("expected from-conf, got %v", sv.V)
+	if sv := v.(*resolver.ScalarVal); sv.Raw != "from-conf" {
+		t.Errorf("expected from-conf, got %v", sv.Raw)
 	}
 }
 
@@ -259,8 +259,8 @@ func TestResolver_IncludeProbeJSON(t *testing.T) {
 	if !ok {
 		t.Fatal("y not found")
 	}
-	if sv := v.(*resolver.ScalarVal); sv.V != "from-json" {
-		t.Errorf("expected from-json, got %v", sv.V)
+	if sv := v.(*resolver.ScalarVal); sv.Raw != "from-json" {
+		t.Errorf("expected from-json, got %v", sv.Raw)
 	}
 }
 
@@ -278,8 +278,8 @@ func TestResolver_IncludeProbeProperties(t *testing.T) {
 	if !ok {
 		t.Fatal("z not found")
 	}
-	if sv := v.(*resolver.ScalarVal); sv.V != "from-props" {
-		t.Errorf("expected from-props, got %v", sv.V)
+	if sv := v.(*resolver.ScalarVal); sv.Raw != "from-props" {
+		t.Errorf("expected from-props, got %v", sv.Raw)
 	}
 }
 
@@ -297,16 +297,16 @@ y = "only-conf"`)
 
 	// x exists in both: .conf wins (parsed last per spec).
 	v, _ := o.Get("x")
-	if sv := v.(*resolver.ScalarVal); sv.V != "conf" {
-		t.Errorf("expected conf (later override), got %v", sv.V)
+	if sv := v.(*resolver.ScalarVal); sv.Raw != "conf" {
+		t.Errorf("expected conf (later override), got %v", sv.Raw)
 	}
 	// y exists only in .conf: should be present.
 	v2, ok := o.Get("y")
 	if !ok {
 		t.Fatal("y not found — merge missed .conf-only key")
 	}
-	if sv := v2.(*resolver.ScalarVal); sv.V != "only-conf" {
-		t.Errorf("expected only-conf, got %v", sv.V)
+	if sv := v2.(*resolver.ScalarVal); sv.Raw != "only-conf" {
+		t.Errorf("expected only-conf, got %v", sv.Raw)
 	}
 }
 
@@ -325,16 +325,16 @@ func TestResolver_IncludeMergeAllWithProperties(t *testing.T) {
 	if !ok1 {
 		t.Fatal("p not found")
 	}
-	if sv := v1.(*resolver.ScalarVal); sv.V != "from-props" {
-		t.Errorf("expected from-props, got %v", sv.V)
+	if sv := v1.(*resolver.ScalarVal); sv.Raw != "from-props" {
+		t.Errorf("expected from-props, got %v", sv.Raw)
 	}
 
 	v2, ok2 := o.Get("c")
 	if !ok2 {
 		t.Fatal("c not found")
 	}
-	if sv := v2.(*resolver.ScalarVal); sv.V != "from-conf" {
-		t.Errorf("expected from-conf, got %v", sv.V)
+	if sv := v2.(*resolver.ScalarVal); sv.Raw != "from-conf" {
+		t.Errorf("expected from-conf, got %v", sv.Raw)
 	}
 }
 
@@ -346,8 +346,8 @@ func TestResolver_IncludeWithExtensionNoProbe(t *testing.T) {
 	res := resolveWithDir(t, `a { include "sub.conf" }`, dir)
 	obj, _ := res.Root.Get("a")
 	v, _ := obj.(*resolver.ObjectVal).Get("x")
-	if sv := v.(*resolver.ScalarVal); sv.V != "direct" {
-		t.Errorf("expected direct, got %v", sv.V)
+	if sv := v.(*resolver.ScalarVal); sv.Raw != "direct" {
+		t.Errorf("expected direct, got %v", sv.Raw)
 	}
 }
 
@@ -377,9 +377,9 @@ d = null
 			continue
 		}
 		sv := v.(*resolver.ScalarVal)
-		s, ok := sv.V.(string)
-		if !ok {
-			t.Errorf("key %q: expected string type, got %T (%v)", tc.key, sv.V, sv.V)
+		s := sv.Raw
+		if sv.Type != resolver.ScalarString {
+			t.Errorf("key %q: expected ScalarString type, got %v (%v)", tc.key, sv.Type, sv.Raw)
 			continue
 		}
 		if s != tc.want {
@@ -397,8 +397,8 @@ func TestResolver_IncludePropertiesExplicitExtension(t *testing.T) {
 	obj, _ := res.Root.Get("x")
 	v, _ := obj.(*resolver.ObjectVal).Get("val")
 	sv := v.(*resolver.ScalarVal)
-	if _, ok := sv.V.(string); !ok {
-		t.Errorf("expected string, got %T (%v)", sv.V, sv.V)
+	if sv.Type != resolver.ScalarString {
+		t.Errorf("expected ScalarString type, got %v (%v)", sv.Type, sv.Raw)
 	}
 }
 
@@ -419,12 +419,12 @@ inner.b = true
 	o := inner.(*resolver.ObjectVal)
 
 	v1, _ := o.Get("a")
-	if sv := v1.(*resolver.ScalarVal); sv.V != "42" {
-		t.Errorf("nested a: expected string \"42\", got %T %v", sv.V, sv.V)
+	if sv := v1.(*resolver.ScalarVal); sv.Raw != "42" {
+		t.Errorf("nested a: expected string \"42\", got %T %v", sv.Raw, sv.Raw)
 	}
 	v2, _ := o.Get("b")
-	if sv := v2.(*resolver.ScalarVal); sv.V != "true" {
-		t.Errorf("nested b: expected string \"true\", got %T %v", sv.V, sv.V)
+	if sv := v2.(*resolver.ScalarVal); sv.Raw != "true" {
+		t.Errorf("nested b: expected string \"true\", got %T %v", sv.Raw, sv.Raw)
 	}
 }
 
@@ -445,8 +445,8 @@ list = one,two,three
 		t.Fatal("list not found")
 	}
 	sv := v.(*resolver.ScalarVal)
-	if s, ok := sv.V.(string); !ok || s != "one,two,three" {
-		t.Errorf("list: expected string \"one,two,three\", got %T %v", sv.V, sv.V)
+	if sv.Raw != "one,two,three" || sv.Type != resolver.ScalarString {
+		t.Errorf("list: expected string \"one,two,three\", got %v (type %v)", sv.Raw, sv.Type)
 	}
 }
 
@@ -553,13 +553,13 @@ func TestResolver_ObjectConcatenation(t *testing.T) {
 	xv, ok := o.Get("x")
 	if !ok {
 		t.Error("x missing after object concatenation")
-	} else if sv, ok := xv.(*resolver.ScalarVal); !ok || sv.V != int64(1) {
+	} else if sv, ok := xv.(*resolver.ScalarVal); !ok || sv.Raw != "1" {
 		t.Errorf("expected x=1, got %v", xv)
 	}
 	yv, ok := o.Get("y")
 	if !ok {
 		t.Error("y missing after object concatenation")
-	} else if sv, ok := yv.(*resolver.ScalarVal); !ok || sv.V != int64(2) {
+	} else if sv, ok := yv.(*resolver.ScalarVal); !ok || sv.Raw != "2" {
 		t.Errorf("expected y=2, got %v", yv)
 	}
 }
@@ -579,14 +579,14 @@ func TestResolver_ArrayConcatenationPermissive(t *testing.T) {
 	if len(arr.Elements) != 3 {
 		t.Fatalf("expected 3 elements, got %d", len(arr.Elements))
 	}
-	for i, want := range []int64{1, 2, 3} {
+	for i, want := range []string{"1", "2", "3"} {
 		sv, ok := arr.Elements[i].(*resolver.ScalarVal)
 		if !ok {
 			t.Errorf("element %d: expected ScalarVal, got %T", i, arr.Elements[i])
 			continue
 		}
-		if sv.V != want {
-			t.Errorf("element %d: expected %d, got %v", i, want, sv.V)
+		if sv.Raw != want {
+			t.Errorf("element %d: expected %s, got %v", i, want, sv.Raw)
 		}
 	}
 }
@@ -612,12 +612,12 @@ func TestResolver_ObjectConcatenationDeepMerge(t *testing.T) {
 	}
 	if nv, ok := xo.Get("nested"); !ok {
 		t.Error("nested missing after deep merge")
-	} else if sv, ok := nv.(*resolver.ScalarVal); !ok || sv.V != int64(1) {
+	} else if sv, ok := nv.(*resolver.ScalarVal); !ok || sv.Raw != "1" {
 		t.Errorf("expected nested=1, got %v", nv)
 	}
 	if ov, ok := xo.Get("other"); !ok {
 		t.Error("other missing after deep merge")
-	} else if sv, ok := ov.(*resolver.ScalarVal); !ok || sv.V != int64(2) {
+	} else if sv, ok := ov.(*resolver.ScalarVal); !ok || sv.Raw != "2" {
 		t.Errorf("expected other=2, got %v", ov)
 	}
 }
@@ -718,16 +718,16 @@ y = ${x}
 	if !ok {
 		t.Fatal("x not found in wrapper")
 	}
-	if sv := xv.(*resolver.ScalarVal); sv.V != int64(10) {
-		t.Errorf("expected x=10, got %v", sv.V)
+	if sv := xv.(*resolver.ScalarVal); sv.Raw != "10" {
+		t.Errorf("expected x=10, got %v", sv.Raw)
 	}
 
 	yv, ok := wo.Get("y")
 	if !ok {
 		t.Fatal("y not found in wrapper")
 	}
-	if sv := yv.(*resolver.ScalarVal); sv.V != int64(10) {
-		t.Errorf("expected y=10 (resolved from ${x}), got %v", sv.V)
+	if sv := yv.(*resolver.ScalarVal); sv.Raw != "10" {
+		t.Errorf("expected y=10 (resolved from ${x}), got %v", sv.Raw)
 	}
 }
 
@@ -755,8 +755,8 @@ y = ${x}
 	if !ok {
 		t.Fatal("y not found in bar.nested")
 	}
-	if sv := yv.(*resolver.ScalarVal); sv.V != int64(10) {
-		t.Errorf("expected y=10, got %v", sv.V)
+	if sv := yv.(*resolver.ScalarVal); sv.Raw != "10" {
+		t.Errorf("expected y=10, got %v", sv.Raw)
 	}
 }
 
@@ -792,8 +792,8 @@ a.b {
 	if !ok {
 		t.Fatal("val not found in a.b")
 	}
-	if sv := vv.(*resolver.ScalarVal); sv.V != "hello" {
-		t.Errorf("expected val='hello' (resolved from ${ext}), got %v", sv.V)
+	if sv := vv.(*resolver.ScalarVal); sv.Raw != "hello" {
+		t.Errorf("expected val='hello' (resolved from ${ext}), got %v", sv.Raw)
 	}
 }
 
@@ -819,8 +819,8 @@ wrapper { include "child.conf" }
 	if !ok {
 		t.Fatal("a not found in wrapper")
 	}
-	if sv := av.(*resolver.ScalarVal); sv.V != "from-root" {
-		t.Errorf("expected a='from-root', got %v", sv.V)
+	if sv := av.(*resolver.ScalarVal); sv.Raw != "from-root" {
+		t.Errorf("expected a='from-root', got %v", sv.Raw)
 	}
 }
 
@@ -854,7 +854,7 @@ func lookupObj(t *testing.T, res *resolver.Result, key string) *resolver.ObjectV
 	return cur
 }
 
-func assertScalar(t *testing.T, obj *resolver.ObjectVal, key string, expected any) {
+func assertScalar(t *testing.T, obj *resolver.ObjectVal, key string, expected string) {
 	t.Helper()
 	v, ok := obj.Get(key)
 	if !ok {
@@ -864,8 +864,8 @@ func assertScalar(t *testing.T, obj *resolver.ObjectVal, key string, expected an
 	if !ok {
 		t.Fatalf("key %q: expected ScalarVal, got %T", key, v)
 	}
-	if sv.V != expected {
-		t.Errorf("key %q: expected %v (%T), got %v (%T)", key, expected, expected, sv.V, sv.V)
+	if sv.Raw != expected {
+		t.Errorf("key %q: expected %q, got %q", key, expected, sv.Raw)
 	}
 }
 
