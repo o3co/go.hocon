@@ -86,6 +86,7 @@ type IncludeNode struct {
 	pos
 	Path     string
 	Required bool
+	IsFile   bool
 }
 
 func (n *IncludeNode) node() {}

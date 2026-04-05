@@ -179,7 +179,9 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 
 	// support: include "file.conf" and include file("file.conf")
 	var path string
+	isFile := false
 	if p.current.Type == lexer.TokenString && !p.current.IsQuoted && p.current.Value == "file" {
+		isFile = true
 		p.advance() // consume "file"
 		// expect '('
 		if p.current.Type != lexer.TokenLParen {
@@ -211,7 +213,7 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		p.advance() // consume ')'
 	}
 
-	return &IncludeNode{pos: pos{line, col}, Path: path, Required: required}, nil
+	return &IncludeNode{pos: pos{line, col}, Path: path, Required: required, IsFile: isFile}, nil
 }
 
 func (p *parser) parseField() (*FieldNode, error) {

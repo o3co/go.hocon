@@ -899,3 +899,101 @@ func TestResolver_EnvFallbackQuotedKeyPrefix(t *testing.T) {
 	ab := lookupObj(t, res, "a.b")
 	assertScalar(t, ab, "val", "ok")
 }
+
+func TestResolver_FileIncludeResolvesFromCWD(t *testing.T) {
+	// include file("path") must resolve relative to the process working
+	// directory, NOT relative to the including file's directory (BaseDir).
+	// Bare include "path" continues to resolve relative to BaseDir.
+
+	// Set up two directories: baseDir (where the .conf file lives) and cwdDir (process CWD).
+	baseDir := t.TempDir()
+	cwdDir := t.TempDir()
+
+	// Put a file in cwdDir that should be found by file() include.
+	writeFile(t, filepath.Join(cwdDir, "cwd-only.conf"), `cwd_val = "from-cwd"`)
+
+	// Put a file in baseDir that should be found by bare include.
+	writeFile(t, filepath.Join(baseDir, "base-only.conf"), `base_val = "from-base"`)
+
+	// Put a file in baseDir that has the same name as one in cwdDir but different content.
+	// This tests that file() does NOT pick up the baseDir version.
+	writeFile(t, filepath.Join(baseDir, "cwd-only.conf"), `cwd_val = "WRONG-from-base"`)
+
+	// Change CWD to cwdDir for this test.
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwdDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	src := `
+include "base-only.conf"
+include file("cwd-only.conf")
+`
+	ast, parseErr := parser.Parse(src)
+	if parseErr != nil {
+		t.Fatalf("parse: %v", parseErr)
+	}
+	res, resolveErr := resolver.Resolve(ast, resolver.Options{BaseDir: baseDir})
+	if resolveErr != nil {
+		t.Fatalf("resolve: %v", resolveErr)
+	}
+
+	// Bare include should resolve from baseDir.
+	v, ok := res.Root.Get("base_val")
+	if !ok {
+		t.Fatal("base_val not found — bare include failed")
+	}
+	if sv := v.(*resolver.ScalarVal); sv.Raw != "from-base" {
+		t.Errorf("base_val: expected from-base, got %s", sv.Raw)
+	}
+
+	// file() include should resolve from CWD, not baseDir.
+	v2, ok2 := res.Root.Get("cwd_val")
+	if !ok2 {
+		t.Fatal("cwd_val not found — file() include failed")
+	}
+	if sv := v2.(*resolver.ScalarVal); sv.Raw != "from-cwd" {
+		t.Errorf("cwd_val: expected from-cwd, got %s", sv.Raw)
+	}
+}
+
+func TestResolver_FileIncludeMissingSilentlySkipped(t *testing.T) {
+	// include file("nonexistent.conf") with Required=false should be silently skipped.
+	// Use a temp directory as CWD so the test doesn't depend on the real CWD's contents.
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	writeFile(t, filepath.Join(dir, "main.conf"), "base = 1\ninclude file(\"nonexistent.conf\")\n")
+
+	src := `
+base = 1
+include file("nonexistent.conf")
+`
+	ast, parseErr := parser.Parse(src)
+	if parseErr != nil {
+		t.Fatalf("parse: %v", parseErr)
+	}
+	res, resolveErr := resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if resolveErr != nil {
+		t.Fatalf("resolve: %v — file() include of missing file should be silently skipped", resolveErr)
+	}
+	v, ok := res.Root.Get("base")
+	if !ok {
+		t.Fatal("base not found")
+	}
+	if sv := v.(*resolver.ScalarVal); sv.Raw != "1" {
+		t.Errorf("expected 1, got %s", sv.Raw)
+	}
+}
