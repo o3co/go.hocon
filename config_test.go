@@ -770,11 +770,17 @@ func TestIncludePropertiesFile(t *testing.T) {
 	}
 }
 
-func TestConfig_GetStringSliceOption_WrongElementType(t *testing.T) {
+func TestConfig_GetStringSliceOption_NumberElements(t *testing.T) {
+	// After the raw-string refactor, GetStringSlice works on any scalar type
+	// (returns the raw string representation). [1, 2, 3] → ["1", "2", "3"].
 	cfg := mustParseCfg(t, `key = [1, 2, 3]`)
 	opt := cfg.GetStringSliceOption("key")
-	if opt.IsSome() {
-		t.Error("expected None when array elements are not strings")
+	if opt.IsNone() {
+		t.Error("expected Some for number elements (raw strings)")
+	}
+	v, _ := opt.Get()
+	if len(v) != 3 || v[0] != "1" || v[1] != "2" || v[2] != "3" {
+		t.Errorf("expected [1 2 3], got %v", v)
 	}
 }
 

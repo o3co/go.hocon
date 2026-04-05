@@ -117,7 +117,7 @@ func (c *Config) Keys() []string {
 
 // ── scalar getters ────────────────────────────────────────────────
 
-func (c *Config) getScalar(path string) any {
+func (c *Config) getScalar(path string) *resolver.ScalarVal {
 	v, ok := c.lookup(path)
 	if !ok {
 		panicConfig(path, "key not found")
@@ -126,19 +126,15 @@ func (c *Config) getScalar(path string) any {
 	if !ok {
 		panicConfig(path, fmt.Sprintf("expected scalar, got %T", v))
 	}
-	if sv.V == nil {
+	if sv.Type == resolver.ScalarNull {
 		panicConfig(path, "value is null")
 	}
-	return sv.V
+	return sv
 }
 
 func (c *Config) GetString(path string) string {
-	v := c.getScalar(path)
-	s, ok := v.(string)
-	if !ok {
-		panicConfig(path, fmt.Sprintf("expected string, got %T", v))
-	}
-	return s
+	sv := c.getScalar(path)
+	return sv.Raw
 }
 
 func (c *Config) GetStringOption(path string) Option[string] {
@@ -147,31 +143,19 @@ func (c *Config) GetStringOption(path string) Option[string] {
 		return None[string]()
 	}
 	sv, ok := v.(*resolver.ScalarVal)
-	if !ok || sv.V == nil {
+	if !ok || sv.Type == resolver.ScalarNull {
 		return None[string]()
 	}
-	s, ok := sv.V.(string)
-	if !ok {
-		return None[string]()
-	}
-	return Some(s)
+	return Some(sv.Raw)
 }
 
 func (c *Config) GetInt64(path string) int64 {
-	v := c.getScalar(path)
-	switch n := v.(type) {
-	case int64:
-		return n
-	case string:
-		parsed, err := strconv.ParseInt(n, 10, 64)
-		if err != nil {
-			panicConfig(path, fmt.Sprintf("expected int64, got string %q", n))
-		}
-		return parsed
-	default:
-		panicConfig(path, fmt.Sprintf("expected int64, got %T", v))
+	sv := c.getScalar(path)
+	parsed, err := strconv.ParseInt(sv.Raw, 10, 64)
+	if err != nil {
+		panicConfig(path, fmt.Sprintf("expected int64, got %q", sv.Raw))
 	}
-	panic("unreachable")
+	return parsed
 }
 
 func (c *Config) GetInt64Option(path string) Option[int64] {
@@ -180,16 +164,11 @@ func (c *Config) GetInt64Option(path string) Option[int64] {
 		return None[int64]()
 	}
 	sv, ok2 := v.(*resolver.ScalarVal)
-	if !ok2 || sv.V == nil {
+	if !ok2 || sv.Type == resolver.ScalarNull {
 		return None[int64]()
 	}
-	switch n := sv.V.(type) {
-	case int64:
-		return Some(n)
-	case string:
-		if parsed, err := strconv.ParseInt(n, 10, 64); err == nil {
-			return Some(parsed)
-		}
+	if parsed, err := strconv.ParseInt(sv.Raw, 10, 64); err == nil {
+		return Some(parsed)
 	}
 	return None[int64]()
 }
@@ -205,21 +184,12 @@ func (c *Config) GetIntOption(path string) Option[int] {
 }
 
 func (c *Config) GetFloat64(path string) float64 {
-	v := c.getScalar(path)
-	switch f := v.(type) {
-	case float64:
-		return f
-	case int64:
-		return float64(f)
-	case string:
-		parsed, err := strconv.ParseFloat(f, 64)
-		if err != nil {
-			panicConfig(path, fmt.Sprintf("expected float64, got string %q", f))
-		}
-		return parsed
+	sv := c.getScalar(path)
+	parsed, err := strconv.ParseFloat(sv.Raw, 64)
+	if err != nil {
+		panicConfig(path, fmt.Sprintf("expected float64, got %q", sv.Raw))
 	}
-	panicConfig(path, fmt.Sprintf("expected float64, got %T", v))
-	return 0
+	return parsed
 }
 
 func (c *Config) GetFloat64Option(path string) Option[float64] {
@@ -228,18 +198,11 @@ func (c *Config) GetFloat64Option(path string) Option[float64] {
 		return None[float64]()
 	}
 	sv, ok2 := v.(*resolver.ScalarVal)
-	if !ok2 || sv.V == nil {
+	if !ok2 || sv.Type == resolver.ScalarNull {
 		return None[float64]()
 	}
-	switch f := sv.V.(type) {
-	case float64:
-		return Some(f)
-	case int64:
-		return Some(float64(f))
-	case string:
-		if parsed, err := strconv.ParseFloat(f, 64); err == nil {
-			return Some(parsed)
-		}
+	if parsed, err := strconv.ParseFloat(sv.Raw, 64); err == nil {
+		return Some(parsed)
 	}
 	return None[float64]()
 }
@@ -255,19 +218,12 @@ func (c *Config) GetFloat32Option(path string) Option[float32] {
 }
 
 func (c *Config) GetBool(path string) bool {
-	v := c.getScalar(path)
-	switch b := v.(type) {
-	case bool:
-		return b
-	case string:
-		parsed, err := strconv.ParseBool(b)
-		if err != nil {
-			panicConfig(path, fmt.Sprintf("expected bool, got string %q", b))
-		}
-		return parsed
+	sv := c.getScalar(path)
+	parsed, err := strconv.ParseBool(sv.Raw)
+	if err != nil {
+		panicConfig(path, fmt.Sprintf("expected bool, got %q", sv.Raw))
 	}
-	panicConfig(path, fmt.Sprintf("expected bool, got %T", v))
-	return false
+	return parsed
 }
 
 func (c *Config) GetBoolOption(path string) Option[bool] {
@@ -276,16 +232,11 @@ func (c *Config) GetBoolOption(path string) Option[bool] {
 		return None[bool]()
 	}
 	sv, ok2 := v.(*resolver.ScalarVal)
-	if !ok2 || sv.V == nil {
+	if !ok2 || sv.Type == resolver.ScalarNull {
 		return None[bool]()
 	}
-	switch b := sv.V.(type) {
-	case bool:
-		return Some(b)
-	case string:
-		if parsed, err := strconv.ParseBool(b); err == nil {
-			return Some(parsed)
-		}
+	if parsed, err := strconv.ParseBool(sv.Raw); err == nil {
+		return Some(parsed)
 	}
 	return None[bool]()
 }
@@ -424,14 +375,10 @@ func (c *Config) GetStringSlice(path string) []string {
 	result := make([]string, len(arr.Elements))
 	for i, elem := range arr.Elements {
 		sv, ok := elem.(*resolver.ScalarVal)
-		if !ok || sv.V == nil {
+		if !ok || sv.Type == resolver.ScalarNull {
 			panicConfig(path, fmt.Sprintf("element %d is not a string", i))
 		}
-		s, ok := sv.V.(string)
-		if !ok {
-			panicConfig(path, fmt.Sprintf("element %d: expected string, got %T", i, sv.V))
-		}
-		result[i] = s
+		result[i] = sv.Raw
 	}
 	return result
 }
@@ -448,14 +395,10 @@ func (c *Config) GetStringSliceOption(path string) Option[[]string] {
 	result := make([]string, len(arr.Elements))
 	for i, elem := range arr.Elements {
 		sv, ok := elem.(*resolver.ScalarVal)
-		if !ok || sv.V == nil {
+		if !ok || sv.Type == resolver.ScalarNull {
 			return None[[]string]()
 		}
-		s, ok := sv.V.(string)
-		if !ok {
-			return None[[]string]()
-		}
-		result[i] = s
+		result[i] = sv.Raw
 	}
 	return Some(result)
 }
@@ -465,21 +408,14 @@ func (c *Config) GetInt64Slice(path string) []int64 {
 	result := make([]int64, len(arr.Elements))
 	for i, elem := range arr.Elements {
 		sv, ok := elem.(*resolver.ScalarVal)
-		if !ok || sv.V == nil {
+		if !ok || sv.Type == resolver.ScalarNull {
 			panicConfig(path, fmt.Sprintf("element %d is not an int", i))
 		}
-		switch n := sv.V.(type) {
-		case int64:
-			result[i] = n
-		case string:
-			parsed, err := strconv.ParseInt(n, 10, 64)
-			if err != nil {
-				panicConfig(path, fmt.Sprintf("element %d: expected int64, got string %q", i, n))
-			}
-			result[i] = parsed
-		default:
-			panicConfig(path, fmt.Sprintf("element %d: expected int64, got %T", i, sv.V))
+		parsed, err := strconv.ParseInt(sv.Raw, 10, 64)
+		if err != nil {
+			panicConfig(path, fmt.Sprintf("element %d: expected int64, got %q", i, sv.Raw))
 		}
+		result[i] = parsed
 	}
 	return result
 }
@@ -496,21 +432,14 @@ func (c *Config) GetInt64SliceOption(path string) Option[[]int64] {
 	result := make([]int64, len(arr.Elements))
 	for i, elem := range arr.Elements {
 		sv, ok := elem.(*resolver.ScalarVal)
-		if !ok || sv.V == nil {
+		if !ok || sv.Type == resolver.ScalarNull {
 			return None[[]int64]()
 		}
-		switch n := sv.V.(type) {
-		case int64:
-			result[i] = n
-		case string:
-			parsed, err := strconv.ParseInt(n, 10, 64)
-			if err != nil {
-				return None[[]int64]()
-			}
-			result[i] = parsed
-		default:
+		parsed, err := strconv.ParseInt(sv.Raw, 10, 64)
+		if err != nil {
 			return None[[]int64]()
 		}
+		result[i] = parsed
 	}
 	return Some(result)
 }
@@ -536,21 +465,14 @@ func (c *Config) GetIntSliceOption(path string) Option[[]int] {
 	result := make([]int, len(arr.Elements))
 	for i, elem := range arr.Elements {
 		sv, ok := elem.(*resolver.ScalarVal)
-		if !ok || sv.V == nil {
+		if !ok || sv.Type == resolver.ScalarNull {
 			return None[[]int]()
 		}
-		switch n := sv.V.(type) {
-		case int64:
-			result[i] = int(n)
-		case string:
-			parsed, err := strconv.ParseInt(n, 10, 64)
-			if err != nil {
-				return None[[]int]()
-			}
-			result[i] = int(parsed)
-		default:
+		parsed, err := strconv.ParseInt(sv.Raw, 10, 64)
+		if err != nil {
 			return None[[]int]()
 		}
+		result[i] = int(parsed)
 	}
 	return Some(result)
 }
@@ -575,7 +497,7 @@ func (c *Config) GetConfigOption(path string) Option[*Config] {
 		return None[*Config]()
 	}
 	sv, isSc := v.(*resolver.ScalarVal)
-	if isSc && sv.V == nil {
+	if isSc && sv.Type == resolver.ScalarNull {
 		return None[*Config]()
 	}
 	obj, ok2 := v.(*resolver.ObjectVal)

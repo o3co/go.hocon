@@ -316,7 +316,7 @@ func (p *parser) parseValue() (Node, error) {
 			break
 		}
 		if hadSpace {
-			nodes = append(nodes, &ScalarNode{Value: " "})
+			nodes = append(nodes, &ScalarNode{Raw: " ", ValueType: "string"})
 		}
 		nodes = append(nodes, next)
 	}
@@ -347,30 +347,28 @@ func (p *parser) parseSingleValue() (Node, error) {
 	case lexer.TokenString:
 		val := p.current.Value
 		p.advance()
-		return &ScalarNode{pos: pos{line, col}, Value: val}, nil
+		return &ScalarNode{pos: pos{line, col}, Raw: val, ValueType: "string"}, nil
 	case lexer.TokenInt:
 		raw := p.current.Value
 		p.advance()
-		n, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
+		if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
 			return nil, newError(line, col, "invalid int %q", raw)
 		}
-		return &ScalarNode{pos: pos{line, col}, Value: n}, nil
+		return &ScalarNode{pos: pos{line, col}, Raw: raw, ValueType: "number"}, nil
 	case lexer.TokenFloat:
 		raw := p.current.Value
 		p.advance()
-		f, err := strconv.ParseFloat(raw, 64)
-		if err != nil {
+		if _, err := strconv.ParseFloat(raw, 64); err != nil {
 			return nil, newError(line, col, "invalid float %q", raw)
 		}
-		return &ScalarNode{pos: pos{line, col}, Value: f}, nil
+		return &ScalarNode{pos: pos{line, col}, Raw: raw, ValueType: "number"}, nil
 	case lexer.TokenBool:
-		val := p.current.Value == "true"
+		raw := p.current.Value
 		p.advance()
-		return &ScalarNode{pos: pos{line, col}, Value: val}, nil
+		return &ScalarNode{pos: pos{line, col}, Raw: raw, ValueType: "boolean"}, nil
 	case lexer.TokenNull:
 		p.advance()
-		return &ScalarNode{pos: pos{line, col}, Value: nil}, nil
+		return &ScalarNode{pos: pos{line, col}, Raw: "null", ValueType: "null"}, nil
 	default:
 		return nil, newError(line, col, "unexpected token %v", p.current.Type)
 	}

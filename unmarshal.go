@@ -34,7 +34,7 @@ func unmarshalVal(val resolver.Val, target reflect.Value) error {
 		if val == nil {
 			return nil
 		}
-		if sv, ok := val.(*resolver.ScalarVal); ok && sv.V == nil {
+		if sv, ok := val.(*resolver.ScalarVal); ok && sv.Type == resolver.ScalarNull {
 			return nil
 		}
 		if target.IsNil() {
@@ -66,11 +66,7 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 		if !ok2 {
 			return fmt.Errorf("hocon: expected string for duration")
 		}
-		s, ok3 := sv.V.(string)
-		if !ok3 {
-			return fmt.Errorf("hocon: expected string for duration, got %T", sv.V)
-		}
-		d, err := parseDuration(s)
+		d, err := parseDuration(sv.Raw)
 		if err != nil {
 			return err
 		}
@@ -102,7 +98,7 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 			return fmt.Errorf("hocon: missing required field %q", key)
 		}
 		// null + omitempty: preserve
-		if sv, isSc := v.(*resolver.ScalarVal); isSc && sv.V == nil && omitempty {
+		if sv, isSc := v.(*resolver.ScalarVal); isSc && sv.Type == resolver.ScalarNull && omitempty {
 			continue
 		}
 		if err := unmarshalVal(v, fval); err != nil {
@@ -160,7 +156,25 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 func valToAny(v resolver.Val) any {
 	switch vv := v.(type) {
 	case *resolver.ScalarVal:
-		return vv.V
+		switch vv.Type {
+		case resolver.ScalarNull:
+			return nil
+		case resolver.ScalarBoolean:
+			return vv.Raw == "true"
+		case resolver.ScalarNumber:
+			// Try int first (no dot/exponent), then float
+			if !strings.ContainsAny(vv.Raw, ".eE") {
+				if n, err := strconv.ParseInt(vv.Raw, 10, 64); err == nil {
+					return n
+				}
+			}
+			if f, err := strconv.ParseFloat(vv.Raw, 64); err == nil {
+				return f
+			}
+			return vv.Raw
+		default:
+			return vv.Raw
+		}
 	case *resolver.ArrayVal:
 		r := make([]any, len(vv.Elements))
 		for i, e := range vv.Elements {
@@ -202,17 +216,13 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 	if !ok {
 		return fmt.Errorf("hocon: expected scalar for %v, got %T", target.Type(), val)
 	}
-	if sv.V == nil {
+	if sv.Type == resolver.ScalarNull {
 		return nil // null → zero value
 	}
 
 	// time.Duration special case (underlying kind is int64)
 	if target.Type() == reflect.TypeOf(time.Duration(0)) {
-		s, ok2 := sv.V.(string)
-		if !ok2 {
-			return fmt.Errorf("hocon: expected string for duration")
-		}
-		d, err := parseDuration(s)
+		d, err := parseDuration(sv.Raw)
 		if err != nil {
 			return err
 		}
@@ -222,54 +232,30 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 
 	switch target.Kind() {
 	case reflect.String:
-		s, ok2 := sv.V.(string)
-		if !ok2 {
-			return fmt.Errorf("hocon: expected string, got %T", sv.V)
-		}
-		target.SetString(s)
+		target.SetString(sv.Raw)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		switch n := sv.V.(type) {
-		case int64:
-			target.SetInt(n)
-		case float64:
-			target.SetInt(int64(n))
-		case string:
-			parsed, err := strconv.ParseInt(n, 10, 64)
-			if err != nil {
-				return fmt.Errorf("hocon: expected int, got string %q", n)
+		parsed, err := strconv.ParseInt(sv.Raw, 10, 64)
+		if err != nil {
+			// Try parsing as float and truncating (e.g. "3.0" → 3)
+			if f, ferr := strconv.ParseFloat(sv.Raw, 64); ferr == nil {
+				target.SetInt(int64(f))
+				return nil
 			}
-			target.SetInt(parsed)
-		default:
-			return fmt.Errorf("hocon: expected int, got %T", sv.V)
+			return fmt.Errorf("hocon: expected int, got %q", sv.Raw)
 		}
+		target.SetInt(parsed)
 	case reflect.Float32, reflect.Float64:
-		switch f := sv.V.(type) {
-		case float64:
-			target.SetFloat(f)
-		case int64:
-			target.SetFloat(float64(f))
-		case string:
-			parsed, err := strconv.ParseFloat(f, 64)
-			if err != nil {
-				return fmt.Errorf("hocon: expected float, got string %q", f)
-			}
-			target.SetFloat(parsed)
-		default:
-			return fmt.Errorf("hocon: expected float, got %T", sv.V)
+		parsed, err := strconv.ParseFloat(sv.Raw, 64)
+		if err != nil {
+			return fmt.Errorf("hocon: expected float, got %q", sv.Raw)
 		}
+		target.SetFloat(parsed)
 	case reflect.Bool:
-		switch b := sv.V.(type) {
-		case bool:
-			target.SetBool(b)
-		case string:
-			parsed, err := strconv.ParseBool(b)
-			if err != nil {
-				return fmt.Errorf("hocon: expected bool, got string %q", b)
-			}
-			target.SetBool(parsed)
-		default:
-			return fmt.Errorf("hocon: expected bool, got %T", sv.V)
+		parsed, err := strconv.ParseBool(sv.Raw)
+		if err != nil {
+			return fmt.Errorf("hocon: expected bool, got %q", sv.Raw)
 		}
+		target.SetBool(parsed)
 	default:
 		return fmt.Errorf("hocon: unsupported target type %v", target.Type())
 	}

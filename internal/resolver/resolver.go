@@ -104,8 +104,23 @@ type ArrayVal struct{ Elements []Val }
 
 func (a *ArrayVal) val() {}
 
-// ScalarVal holds a resolved primitive.
-type ScalarVal struct{ V any }
+// ScalarType discriminates the kind of scalar value.
+type ScalarType int
+
+const (
+	ScalarString  ScalarType = iota
+	ScalarNumber
+	ScalarBoolean
+	ScalarNull
+)
+
+// ScalarVal holds a resolved primitive as its raw string representation
+// plus a type discriminant. The raw string is what appeared in the source
+// (or was produced by concatenation / env var lookup).
+type ScalarVal struct {
+	Raw  string
+	Type ScalarType
+}
 
 func (s *ScalarVal) val() {}
 
@@ -255,7 +270,16 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal, pathPrefix []string) (Val, error) {
 	switch n := node.(type) {
 	case *parser.ScalarNode:
-		return &ScalarVal{V: n.Value}, nil
+		st := ScalarString
+		switch n.ValueType {
+		case "number":
+			st = ScalarNumber
+		case "boolean":
+			st = ScalarBoolean
+		case "null":
+			st = ScalarNull
+		}
+		return &ScalarVal{Raw: n.Raw, Type: st}, nil
 	case *parser.ObjectNode:
 		return r.resolveObject(n, nil, pathPrefix)
 	case *parser.ArrayNode:
@@ -497,13 +521,13 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		}
 		// Also try env var with original path (raw dot-join, no quoting)
 		if ev, ok := os.LookupEnv(strings.Join(originalSegments, ".")); ok {
-			return &ScalarVal{V: ev}, nil
+			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
 		}
 	}
 
 	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior
 	if ev, ok := os.LookupEnv(strings.Join(s.segments, ".")); ok {
-		return &ScalarVal{V: ev}, nil
+		return &ScalarVal{Raw: ev, Type: ScalarString}, nil
 	}
 	if n.Optional {
 		return nil, nil // field will be dropped
@@ -542,7 +566,7 @@ func (r *resolver) findPrior(root *ObjectVal, segments []string, pathStr string)
 
 func isSeparator(v Val) bool {
 	if s, ok := v.(*ScalarVal); ok {
-		if str, ok := s.V.(string); ok && str == " " {
+		if s.Type == ScalarString && s.Raw == " " {
 			return true
 		}
 	}
@@ -665,16 +689,13 @@ func (r *resolver) concatStrings(vals []Val) Val {
 		}
 		sb.WriteString(valToString(v))
 	}
-	return &ScalarVal{V: sb.String()}
+	return &ScalarVal{Raw: sb.String(), Type: ScalarString}
 }
 
 func valToString(v Val) string {
 	switch vv := v.(type) {
 	case *ScalarVal:
-		if vv.V == nil {
-			return "null"
-		}
-		return fmt.Sprintf("%v", vv.V)
+		return vv.Raw
 	default:
 		return fmt.Sprintf("%v", v)
 	}
@@ -936,7 +957,7 @@ func propsToObjectVal(props map[string]string) *ObjectVal {
 		cur := root
 		for i, part := range parts {
 			if i == len(parts)-1 {
-				cur.set(part, &ScalarVal{V: value})
+				cur.set(part, &ScalarVal{Raw: value, Type: ScalarString})
 			} else {
 				existing, ok := cur.values[part]
 				if !ok {

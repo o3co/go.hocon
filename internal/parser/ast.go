@@ -44,11 +44,12 @@ type ArrayNode struct {
 
 func (n *ArrayNode) node() {}
 
-// ScalarNode holds a primitive value.
-// Value is one of: string, int64, float64, bool, nil (null).
+// ScalarNode holds a primitive value as its raw string plus a type tag.
+// ValueType is one of: "string", "number", "boolean", "null".
 type ScalarNode struct {
 	pos
-	Value any
+	Raw       string
+	ValueType string
 }
 
 func (n *ScalarNode) node() {}

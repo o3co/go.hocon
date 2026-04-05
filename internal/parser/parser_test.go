@@ -30,8 +30,8 @@ func TestParser_SimpleKV(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ScalarNode, got %T", f.Value)
 	}
-	if sc.Value != "value" {
-		t.Errorf("unexpected value: %v", sc.Value)
+	if sc.Raw != "value" || sc.ValueType != "string" {
+		t.Errorf("unexpected value: Raw=%v, ValueType=%v", sc.Raw, sc.ValueType)
 	}
 }
 
@@ -114,13 +114,14 @@ func TestParser_PlusEquals(t *testing.T) {
 func TestParser_NullBoolNumbers(t *testing.T) {
 	obj := mustParse(t, "a=null\nb=true\nc=42\nd=3.14")
 	checks := []struct {
-		idx  int
-		want any
+		idx       int
+		wantRaw   string
+		wantType  string
 	}{
-		{0, nil},
-		{1, true},
-		{2, int64(42)},
-		{3, float64(3.14)},
+		{0, "null", "null"},
+		{1, "true", "boolean"},
+		{2, "42", "number"},
+		{3, "3.14", "number"},
 	}
 	for _, tc := range checks {
 		sc, ok := obj.Fields[tc.idx].Value.(*parser.ScalarNode)
@@ -128,8 +129,8 @@ func TestParser_NullBoolNumbers(t *testing.T) {
 			t.Errorf("[%d] expected ScalarNode, got %T", tc.idx, obj.Fields[tc.idx].Value)
 			continue
 		}
-		if sc.Value != tc.want {
-			t.Errorf("[%d] got %v (%T), want %v", tc.idx, sc.Value, sc.Value, tc.want)
+		if sc.Raw != tc.wantRaw || sc.ValueType != tc.wantType {
+			t.Errorf("[%d] got Raw=%q ValueType=%q, want Raw=%q ValueType=%q", tc.idx, sc.Raw, sc.ValueType, tc.wantRaw, tc.wantType)
 		}
 	}
 }
