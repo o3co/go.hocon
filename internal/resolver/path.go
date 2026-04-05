@@ -86,7 +86,7 @@ func needsQuoting(s string) bool {
 }
 
 // segmentsToKey produces a canonical string from path segments.
-// Segments containing dots or that are empty strings are quoted.
+// Segments that are empty or contain chars outside letter/digit/hyphen/underscore are quoted.
 func segmentsToKey(segments []string) string {
 	parts := make([]string, len(segments))
 	for i, s := range segments {

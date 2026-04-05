@@ -239,7 +239,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					}
 				} else {
 					// non-object overwrite: save prior value for self-referential substitution support
-					r.priorValues[key] = existing
+					r.priorValues[segmentsToKey([]string{key})] = existing
 					obj.priorValues[key] = existing // per-object scope for optional-substitution fallback
 				}
 				// non-object: last value wins (fall through to obj.set below)
@@ -504,13 +504,6 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 	// env var fallback
 	if ev, ok := os.LookupEnv(segmentsToKey(s.segments)); ok {
 		return &ScalarVal{V: ev}, nil
-	}
-	// For relativized paths, also try env var with original path
-	if s.prefixLen > 0 && len(segments) > s.prefixLen {
-		originalKey := segmentsToKey(segments[s.prefixLen:])
-		if ev, ok := os.LookupEnv(originalKey); ok {
-			return &ScalarVal{V: ev}, nil
-		}
 	}
 	if n.Optional {
 		return nil, nil // field will be dropped
@@ -821,17 +814,15 @@ func relativizeVals(obj *ObjectVal, prefixSegments []string) {
 func relativizeVal(v Val, prefixSegments []string) Val {
 	switch vv := v.(type) {
 	case *substPlaceholder:
-		if vv.prefixLen == 0 {
-			// Create a new SubstNode with the relativized path.
-			newNode := &parser.SubstNode{}
-			*newNode = *vv.node
-			newSegments := make([]string, 0, len(prefixSegments)+len(vv.segments))
-			newSegments = append(newSegments, prefixSegments...)
-			newSegments = append(newSegments, vv.segments...)
-			newNode.Path = segmentsToKey(newSegments)
-			return &substPlaceholder{node: newNode, segments: newSegments, prefixLen: len(prefixSegments)}
-		}
-		return v
+		// Create a new SubstNode with the relativized path.
+		// Accumulate prefixLen so multi-layer includes compose correctly.
+		newNode := &parser.SubstNode{}
+		*newNode = *vv.node
+		newSegments := make([]string, 0, len(prefixSegments)+len(vv.segments))
+		newSegments = append(newSegments, prefixSegments...)
+		newSegments = append(newSegments, vv.segments...)
+		newNode.Path = segmentsToKey(newSegments)
+		return &substPlaceholder{node: newNode, segments: newSegments, prefixLen: vv.prefixLen + len(prefixSegments)}
 	case *concatPlaceholder:
 		newVals := make([]Val, len(vv.vals))
 		for i, cv := range vv.vals {
