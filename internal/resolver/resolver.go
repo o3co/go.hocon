@@ -495,14 +495,14 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			}
 			return resolved, nil
 		}
-		// Also try env var with original path
-		if ev, ok := os.LookupEnv(originalKey); ok {
+		// Also try env var with original path (raw dot-join, no quoting)
+		if ev, ok := os.LookupEnv(strings.Join(originalSegments, ".")); ok {
 			return &ScalarVal{V: ev}, nil
 		}
 	}
 
-	// env var fallback
-	if ev, ok := os.LookupEnv(segmentsToKey(s.segments)); ok {
+	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior
+	if ev, ok := os.LookupEnv(strings.Join(s.segments, ".")); ok {
 		return &ScalarVal{V: ev}, nil
 	}
 	if n.Optional {
