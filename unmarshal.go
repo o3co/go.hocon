@@ -85,7 +85,10 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 		if !fval.CanSet() {
 			continue
 		}
-		key, omitempty := parseTag(field)
+		key, omitempty, skip := parseTag(field)
+		if skip {
+			continue
+		}
 		v, ok2 := obj.Get(key)
 		if !ok2 {
 			if omitempty {
@@ -108,10 +111,13 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 	return nil
 }
 
-func parseTag(f reflect.StructField) (key string, omitempty bool) {
+func parseTag(f reflect.StructField) (key string, omitempty bool, skip bool) {
 	tag := f.Tag.Get("hocon")
 	if tag == "" {
-		return strings.ToLower(f.Name), false
+		return strings.ToLower(f.Name), false, false
+	}
+	if tag == "-" {
+		return "", false, true
 	}
 	parts := strings.SplitN(tag, ",", 2)
 	key = parts[0]

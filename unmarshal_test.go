@@ -168,6 +168,24 @@ func TestUnmarshal_MapStringBool(t *testing.T) {
 	}
 }
 
+func TestUnmarshal_SkipTag(t *testing.T) {
+	type Cfg struct {
+		Name     string `hocon:"name"`
+		Computed string `hocon:"-"`
+	}
+	cfg := mustParseCfg(t, `name = "alice"`)
+	c := Cfg{Computed: "should stay"}
+	if err := cfg.Unmarshal(&c); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if c.Name != "alice" {
+		t.Errorf("Name=%q, want alice", c.Name)
+	}
+	if c.Computed != "should stay" {
+		t.Errorf("Computed=%q, want 'should stay' (skip should preserve value)", c.Computed)
+	}
+}
+
 func TestUnmarshal_MapStringFloat64(t *testing.T) {
 	cfg := mustParseCfg(t, "rates { usd = 1.0, eur = 0.85 }")
 	var result struct{ Rates map[string]float64 }
