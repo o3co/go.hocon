@@ -340,12 +340,10 @@ func (p *parser) parseSingleValue() (Node, error) {
 		return p.parseArray()
 	case lexer.TokenSubstitution:
 		val := p.current.Value
+		optional := p.current.Subst != nil && p.current.Subst.Optional
+		subst := p.current.Subst
 		p.advance()
-		return &SubstNode{pos: pos{line, col}, Path: val, Optional: false}, nil
-	case lexer.TokenOptSubstitution:
-		val := p.current.Value
-		p.advance()
-		return &SubstNode{pos: pos{line, col}, Path: val, Optional: true}, nil
+		return &SubstNode{pos: pos{line, col}, Path: val, Optional: optional, Segments: subst}, nil
 	case lexer.TokenString:
 		val := p.current.Value
 		p.advance()

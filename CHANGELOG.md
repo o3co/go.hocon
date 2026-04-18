@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Substitution body tokenization: `${...}` internals are now tokenized at lex time via `parseSubstBody`. `substPlaceholder.Segments` is now `[]lexer.Segment` (text + position). `TokenOptSubstitution` removed — unified into `TokenSubstitution` with `tok.Subst.Optional`.
+- `readQuotedStringBody` extracted as a shared helper used by both top-level strings and substitution quoted segments, ensuring consistent escape handling in both contexts.
+- `parseSubstPath` resolver re-parse removed — segments are consumed directly from the lexer token.
+
+### Fixed
+
+- Escape sequences (`\n`, `\t`, `\/`, `\b`, `\f`, `\uXXXX`) inside `${...}` substitution paths are now decoded correctly, matching Lightbend behavior.
+- Whitespace concatenation between tokens inside `${...}` (e.g. `${"a" "b"}` → key `"a b"`) now works correctly.
+- `\b` (backspace) and `\f` (form-feed) escape sequences in top-level quoted strings are now supported.
+- Surrogate codepoints (`\uD800`–`\uDFFF`) in `\uXXXX` escapes are now rejected, matching rs.hocon behavior.
+
 ## [1.1.1] - 2026-04-10
 
 ### Fixed

@@ -19,6 +19,10 @@ testdata:
 	curl -sfL "https://github.com/$(TESTDATA_REPO)/archive/$(TESTDATA_REF).tar.gz" -o "$$tmpdir/archive.tar.gz" && \
 	tar xzf "$$tmpdir/archive.tar.gz" -C "$$tmpdir" --strip-components=1 && \
 	cp -R "$$tmpdir/expected/hocon/." "$(EXPECTED_DIR)/" && \
+	if [ -d "$$tmpdir/testdata/hocon/subst-tokenize" ]; then \
+	  mkdir -p testdata/hocon/subst-tokenize && \
+	  cp "$$tmpdir/testdata/hocon/subst-tokenize/"*.conf testdata/hocon/subst-tokenize/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 

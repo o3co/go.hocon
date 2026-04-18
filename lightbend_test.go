@@ -10,6 +10,7 @@ package hocon_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -255,6 +256,138 @@ func TestLightbendExpectedErrors(t *testing.T) {
 
 	if tested == 0 {
 		t.Error("No expected error tests were run. Check testdata/expected/")
+	}
+}
+
+// TestSubstTokenizeSuccess auto-discovers subst-tokenize success fixtures.
+func TestSubstTokenizeSuccess(t *testing.T) {
+	expectedDir := filepath.Join("testdata", "expected", "subst-tokenize")
+	if _, err := os.Stat(expectedDir); err != nil {
+		t.Skip("subst-tokenize fixtures missing; run `make testdata`")
+	}
+
+	entries, err := os.ReadDir(expectedDir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	ran := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, "-expected.json") {
+			continue
+		}
+		confName := strings.Replace(name, "-expected.json", ".conf", 1)
+		ran++
+		t.Run(confName, func(t *testing.T) {
+			confPath := filepath.Join("testdata", "hocon", "subst-tokenize", confName)
+			expectedPath := filepath.Join(expectedDir, name)
+
+			if _, err := os.Stat(confPath); os.IsNotExist(err) {
+				t.Skipf("conf not found: %s", confPath)
+				return
+			}
+
+			cfg, err := hocon.ParseFile(confPath)
+			if err != nil {
+				t.Fatalf("ParseFile(%s): %v", confPath, err)
+			}
+
+			expectedData, err := os.ReadFile(expectedPath)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			var want any
+			if err := json.Unmarshal(expectedData, &want); err != nil {
+				t.Fatalf("parse expected JSON: %v", err)
+			}
+
+			got := make(map[string]any)
+			if err := cfg.Unmarshal(&got); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+
+			if !jsonEqual(got, want) {
+				gotJSON, _ := json.MarshalIndent(got, "", "  ")
+				wantJSON, _ := json.MarshalIndent(want, "", "  ")
+				t.Errorf("mismatch\ngot:\n%s\nwant:\n%s", gotJSON, wantJSON)
+			}
+		})
+	}
+	if ran == 0 {
+		t.Fatal("no subst-tokenize success fixtures found — run `make testdata`")
+	}
+}
+
+// TestSubstTokenizeErrors auto-discovers subst-tokenize error fixtures.
+// Spec Goal 2: error position must fall within the offending ${...} body.
+// All fixtures are single-line, so we assert Line == 1 and that Col falls
+// within the [substStart, substEnd] byte span of the ${...} token.
+func TestSubstTokenizeErrors(t *testing.T) {
+	expectedDir := filepath.Join("testdata", "expected", "subst-tokenize")
+	entries, err := os.ReadDir(expectedDir)
+	if err != nil {
+		t.Fatal("subst-tokenize error fixtures missing — run `make testdata`")
+	}
+	ran := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, "-expected-error.json") {
+			continue
+		}
+		confName := strings.Replace(name, "-expected-error.json", ".conf", 1)
+		ran++
+		t.Run(confName+"_should_error", func(t *testing.T) {
+			confPath := filepath.Join("testdata", "hocon", "subst-tokenize", confName)
+			if _, err := os.Stat(confPath); os.IsNotExist(err) {
+				t.Skipf("conf not found: %s", confPath)
+				return
+			}
+			data, err := os.ReadFile(confPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = hocon.ParseString(string(data))
+			if err == nil {
+				t.Fatalf("expected error for %s", confName)
+			}
+			// Spec Goal 2: error position must fall within the offending ${...} body.
+			// All fixtures are single-line. Compute the ${...} span from fixture data
+			// and assert pe.Col falls within [minCol, maxCol] (1-based columns).
+			var pe *hocon.ParseError
+			if errors.As(err, &pe) {
+				if pe.Line != 1 {
+					t.Errorf("%s: expected error at line 1, got line %d (err: %v)", confName, pe.Line, err)
+				}
+				// Find the ${ in the fixture.
+				substStart := strings.Index(string(data), "${")
+				if substStart < 0 {
+					t.Fatalf("%s: no ${ in fixture", confName)
+				}
+				// Find the matching } (if missing, treat EOF as end for unterminated subst).
+				var substEnd int
+				if idx := strings.Index(string(data[substStart:]), "}"); idx >= 0 {
+					substEnd = substStart + idx
+				} else {
+					substEnd = len(data) - 1
+				}
+				// Convert to 1-based columns (on line 1, col == byte offset + 1).
+				minCol := substStart + 1
+				maxCol := substEnd + 1
+				if pe.Col < minCol || pe.Col > maxCol {
+					t.Errorf("%s: error col %d not in ${...} range [%d, %d] (err: %v)",
+						confName, pe.Col, minCol, maxCol, err)
+				}
+			} else {
+				// Non-ParseError: check the message contains "line 1" for position evidence.
+				msg := err.Error()
+				if !strings.Contains(msg, "line 1") {
+					t.Errorf("%s: error message does not mention line 1: %v", confName, err)
+				}
+			}
+		})
+	}
+	if ran == 0 {
+		t.Fatal("no subst-tokenize error fixtures found — run `make testdata`")
 	}
 }
 
