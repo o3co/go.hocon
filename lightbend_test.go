@@ -10,6 +10,7 @@ package hocon_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -313,6 +314,8 @@ func TestSubstTokenizeSuccess(t *testing.T) {
 }
 
 // TestSubstTokenizeErrors auto-discovers subst-tokenize error fixtures.
+// Spec Goal 2: error position must fall within the offending ${...} body.
+// All fixtures are single-line, so we assert Line == 1 and Col >= 1.
 func TestSubstTokenizeErrors(t *testing.T) {
 	expectedDir := filepath.Join("testdata", "expected", "subst-tokenize")
 	entries, err := os.ReadDir(expectedDir)
@@ -338,6 +341,23 @@ func TestSubstTokenizeErrors(t *testing.T) {
 			_, err = hocon.ParseString(string(data))
 			if err == nil {
 				t.Fatalf("expected error for %s", confName)
+			}
+			// Spec Goal 2: error position must fall within the offending ${...} body.
+			// All fixtures are single-line; assert Line == 1 and Col >= 1.
+			var pe *hocon.ParseError
+			if errors.As(err, &pe) {
+				if pe.Line != 1 {
+					t.Errorf("%s: expected error at line 1, got line %d (err: %v)", confName, pe.Line, err)
+				}
+				if pe.Col < 1 {
+					t.Errorf("%s: expected error col >= 1, got col %d (err: %v)", confName, pe.Col, err)
+				}
+			} else {
+				// Non-ParseError: check the message contains "line 1" for position evidence.
+				msg := err.Error()
+				if !strings.Contains(msg, "line 1") {
+					t.Errorf("%s: error message does not mention line 1: %v", confName, err)
+				}
 			}
 		})
 	}

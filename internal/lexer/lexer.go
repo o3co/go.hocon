@@ -305,7 +305,7 @@ func (l *Lexer) readQuotedStringBody(startLine, startCol int) (string, *Token) {
 				}
 				sb.WriteRune(r)
 			default:
-				errTok := Token{Type: TokenError, Value: fmt.Sprintf("unknown escape sequence: \\%c", next), Line: startLine, Col: escCol}
+				errTok := Token{Type: TokenError, Value: fmt.Sprintf("invalid escape sequence: \\%c", next), Line: startLine, Col: escCol}
 				return "", &errTok
 			}
 			continue

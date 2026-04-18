@@ -70,7 +70,7 @@ type SubstNode struct {
 	pos
 	Path     string
 	Optional bool
-	Segments *lexer.SubstPayload // pre-parsed segments from the lexer; may be nil for legacy paths
+	Segments *lexer.SubstPayload // Segments is always non-nil — populated by parser.go from the lexer's TokenSubstitution payload.
 }
 
 func (n *SubstNode) node() {}

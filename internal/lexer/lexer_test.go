@@ -289,7 +289,7 @@ func TestSegmentPositionUnquoted(t *testing.T) {
 	if segs[0].Text != "foo" || segs[0].Line != 1 || segs[0].Col != 3 {
 		t.Errorf("seg0 = %+v", segs[0])
 	}
-	if segs[1].Text != "bar" || segs[1].Col != 7 {
+	if segs[1].Text != "bar" || segs[1].Line != 1 || segs[1].Col != 7 {
 		t.Errorf("seg1 = %+v", segs[1])
 	}
 }
@@ -299,7 +299,7 @@ func TestSegmentPositionQuoted(t *testing.T) {
 	if segs[0].Text != "a" || segs[0].Col != 3 {
 		t.Errorf("seg0 = %+v", segs[0])
 	}
-	if segs[1].Text != "b" || segs[1].Col != 7 {
+	if segs[1].Text != "b" || segs[1].Line != 1 || segs[1].Col != 7 {
 		t.Errorf("seg1 = %+v", segs[1])
 	}
 }
