@@ -19,25 +19,25 @@ import (
 type TokenType int
 
 const (
-	TokenInvalid   TokenType = iota // zero value sentinel
-	TokenString                     // quoted, unquoted, or triple-quoted string
-	TokenInt                        // integer literal
-	TokenFloat                      // float literal (has . or e/E)
-	TokenBool                       // true / false
-	TokenNull                       // null
-	TokenLBrace                     // {
-	TokenRBrace                     // }
-	TokenLBracket                   // [
-	TokenRBracket                   // ]
-	TokenLParen                     // (
-	TokenRParen                     // )
-	TokenComma                      // ,
-	TokenColon                      // :
-	TokenEquals                     // =
-	TokenPlusEquals                 // +=
-	TokenSubstitution               // ${path} or ${?path} — check tok.Subst.Optional for optional
-	TokenInclude                    // include keyword
-	TokenNewline                    // \n
+	TokenInvalid      TokenType = iota // zero value sentinel
+	TokenString                        // quoted, unquoted, or triple-quoted string
+	TokenInt                           // integer literal
+	TokenFloat                         // float literal (has . or e/E)
+	TokenBool                          // true / false
+	TokenNull                          // null
+	TokenLBrace                        // {
+	TokenRBrace                        // }
+	TokenLBracket                      // [
+	TokenRBracket                      // ]
+	TokenLParen                        // (
+	TokenRParen                        // )
+	TokenComma                         // ,
+	TokenColon                         // :
+	TokenEquals                        // =
+	TokenPlusEquals                    // +=
+	TokenSubstitution                  // ${path} or ${?path} — check tok.Subst.Optional for optional
+	TokenInclude                       // include keyword
+	TokenNewline                       // \n
 	TokenEOF
 	TokenError // lexer error (e.g. unterminated string)
 )
@@ -62,8 +62,8 @@ type Token struct {
 	Value          string
 	Line           int
 	Col            int
-	IsQuoted       bool         // true for quoted strings (single or triple-quoted)
-	PrecedingSpace bool         // true if whitespace preceded this token (for concatenation)
+	IsQuoted       bool          // true for quoted strings (single or triple-quoted)
+	PrecedingSpace bool          // true if whitespace preceded this token (for concatenation)
 	Subst          *SubstPayload // non-nil only when Type == TokenSubstitution
 }
 
@@ -256,7 +256,7 @@ func (l *Lexer) readQuotedStringBody(startLine, startCol int) (string, *Token) {
 			return sb.String(), nil
 		}
 		if ch == '\\' {
-			l.advance() // consume '\'
+			l.advance()         // consume '\'
 			escCol := l.col - 1 // column of the backslash
 			next, ok2 := l.peek()
 			if !ok2 {

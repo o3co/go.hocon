@@ -364,7 +364,7 @@ func TestSubstTokenizeErrors(t *testing.T) {
 					t.Fatalf("%s: no ${ in fixture", confName)
 				}
 				// Find the matching } (if missing, treat EOF as end for unterminated subst).
-				substEnd := -1
+				var substEnd int
 				if idx := strings.Index(string(data[substStart:]), "}"); idx >= 0 {
 					substEnd = substStart + idx
 				} else {
