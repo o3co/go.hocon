@@ -258,6 +258,91 @@ func TestLightbendExpectedErrors(t *testing.T) {
 	}
 }
 
+// TestSubstTokenizeSuccess auto-discovers subst-tokenize success fixtures.
+func TestSubstTokenizeSuccess(t *testing.T) {
+	expectedDir := filepath.Join("testdata", "expected", "subst-tokenize")
+	if _, err := os.Stat(expectedDir); err != nil {
+		t.Skip("subst-tokenize fixtures missing; run `make testdata`")
+	}
+
+	entries, err := os.ReadDir(expectedDir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, "-expected.json") {
+			continue
+		}
+		confName := strings.Replace(name, "-expected.json", ".conf", 1)
+		t.Run(confName, func(t *testing.T) {
+			confPath := filepath.Join("testdata", "hocon", "subst-tokenize", confName)
+			expectedPath := filepath.Join(expectedDir, name)
+
+			if _, err := os.Stat(confPath); os.IsNotExist(err) {
+				t.Skipf("conf not found: %s", confPath)
+				return
+			}
+
+			cfg, err := hocon.ParseFile(confPath)
+			if err != nil {
+				t.Fatalf("ParseFile(%s): %v", confPath, err)
+			}
+
+			expectedData, err := os.ReadFile(expectedPath)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			var want any
+			if err := json.Unmarshal(expectedData, &want); err != nil {
+				t.Fatalf("parse expected JSON: %v", err)
+			}
+
+			got := make(map[string]any)
+			if err := cfg.Unmarshal(&got); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+
+			if !jsonEqual(got, want) {
+				gotJSON, _ := json.MarshalIndent(got, "", "  ")
+				wantJSON, _ := json.MarshalIndent(want, "", "  ")
+				t.Errorf("mismatch\ngot:\n%s\nwant:\n%s", gotJSON, wantJSON)
+			}
+		})
+	}
+}
+
+// TestSubstTokenizeErrors auto-discovers subst-tokenize error fixtures.
+func TestSubstTokenizeErrors(t *testing.T) {
+	expectedDir := filepath.Join("testdata", "expected", "subst-tokenize")
+	entries, err := os.ReadDir(expectedDir)
+	if err != nil {
+		t.Skip("fixtures missing")
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, "-expected-error.json") {
+			continue
+		}
+		confName := strings.Replace(name, "-expected-error.json", ".conf", 1)
+		t.Run(confName+"_should_error", func(t *testing.T) {
+			confPath := filepath.Join("testdata", "hocon", "subst-tokenize", confName)
+			if _, err := os.Stat(confPath); os.IsNotExist(err) {
+				t.Skipf("conf not found: %s", confPath)
+				return
+			}
+			data, err := os.ReadFile(confPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = hocon.ParseString(string(data))
+			if err == nil {
+				t.Fatalf("expected error for %s", confName)
+			}
+		})
+	}
+}
+
 // normalizeForJSON converts int64 values to float64 to match encoding/json's
 // default number type when unmarshaling into any.
 func normalizeForJSON(v any) any {

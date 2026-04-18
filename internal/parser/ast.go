@@ -8,6 +8,8 @@
 
 package parser
 
+import "github.com/o3co/go.hocon/internal/lexer"
+
 // Node is the interface implemented by all AST nodes.
 type Node interface {
 	node()
@@ -68,6 +70,7 @@ type SubstNode struct {
 	pos
 	Path     string
 	Optional bool
+	Segments *lexer.SubstPayload // pre-parsed segments from the lexer; may be nil for legacy paths
 }
 
 func (n *SubstNode) node() {}

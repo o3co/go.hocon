@@ -19,29 +19,42 @@ import (
 type TokenType int
 
 const (
-	TokenInvalid         TokenType = iota // zero value sentinel
-	TokenString                           // quoted, unquoted, or triple-quoted string
-	TokenInt                              // integer literal
-	TokenFloat                            // float literal (has . or e/E)
-	TokenBool                             // true / false
-	TokenNull                             // null
-	TokenLBrace                           // {
-	TokenRBrace                           // }
-	TokenLBracket                         // [
-	TokenRBracket                         // ]
-	TokenLParen                           // (
-	TokenRParen                           // )
-	TokenComma                            // ,
-	TokenColon                            // :
-	TokenEquals                           // =
-	TokenPlusEquals                       // +=
-	TokenSubstitution                     // ${path}
-	TokenOptSubstitution                  // ${?path}
-	TokenInclude                          // include keyword
-	TokenNewline                          // \n
+	TokenInvalid   TokenType = iota // zero value sentinel
+	TokenString                     // quoted, unquoted, or triple-quoted string
+	TokenInt                        // integer literal
+	TokenFloat                      // float literal (has . or e/E)
+	TokenBool                       // true / false
+	TokenNull                       // null
+	TokenLBrace                     // {
+	TokenRBrace                     // }
+	TokenLBracket                   // [
+	TokenRBracket                   // ]
+	TokenLParen                     // (
+	TokenRParen                     // )
+	TokenComma                      // ,
+	TokenColon                      // :
+	TokenEquals                     // =
+	TokenPlusEquals                 // +=
+	TokenSubstitution               // ${path} or ${?path} — check tok.Subst.Optional for optional
+	TokenInclude                    // include keyword
+	TokenNewline                    // \n
 	TokenEOF
 	TokenError // lexer error (e.g. unterminated string)
 )
+
+// Segment is a single path segment inside a substitution body, with its
+// source position (1-based line and column of the opening character).
+type Segment struct {
+	Text string
+	Line int
+	Col  int
+}
+
+// SubstPayload carries the parsed segments and optional flag for a substitution token.
+type SubstPayload struct {
+	Segments []Segment
+	Optional bool
+}
 
 // Token is a single lexed unit.
 type Token struct {
@@ -49,8 +62,9 @@ type Token struct {
 	Value          string
 	Line           int
 	Col            int
-	IsQuoted       bool // true for quoted strings (single or triple-quoted)
-	PrecedingSpace bool // true if whitespace preceded this token (for concatenation)
+	IsQuoted       bool         // true for quoted strings (single or triple-quoted)
+	PrecedingSpace bool         // true if whitespace preceded this token (for concatenation)
+	Subst          *SubstPayload // non-nil only when Type == TokenSubstitution
 }
 
 // Lexer tokenizes HOCON input.
@@ -60,6 +74,24 @@ type Lexer struct {
 	line         int
 	col          int
 	skippedSpace bool // set by skipWhitespaceAndComments
+}
+
+// Tokenize lexes the entire input and returns all tokens up to (and including)
+// EOF, or an error if a TokenError is encountered. Convenience wrapper over New.
+func Tokenize(src string) ([]Token, error) {
+	l := New(src)
+	var tokens []Token
+	for {
+		tok := l.Next()
+		if tok.Type == TokenError {
+			return nil, fmt.Errorf("lex error at line %d col %d: %s", tok.Line, tok.Col, tok.Value)
+		}
+		tokens = append(tokens, tok)
+		if tok.Type == TokenEOF {
+			break
+		}
+	}
+	return tokens, nil
 }
 
 // New returns a Lexer for the given input.
@@ -205,31 +237,31 @@ func (l *Lexer) skipWhitespaceAndComments() {
 	}
 }
 
-func (l *Lexer) readString(line, col int) Token {
-	l.advance() // consume first "
-	// check for triple-quote
-	if l.pos+1 < len(l.src) && l.src[l.pos] == '"' && l.src[l.pos+1] == '"' {
-		l.advance() // second "
-		l.advance() // third "
-		return l.readTripleQuoted(line, col)
-	}
-	// regular quoted string
+// readQuotedStringBody reads the body of a quoted string. The opening '"' has
+// already been consumed. It reads until the closing '"' and returns the decoded
+// text. On error it returns a non-nil error token. startLine/startCol are the
+// position of the opening '"' (for error reporting).
+//
+// This is a shared helper used by both top-level readString and parseSubstBody.
+func (l *Lexer) readQuotedStringBody(startLine, startCol int) (string, *Token) {
 	var sb strings.Builder
-	closed := false
 	for {
 		ch, ok := l.peek()
 		if !ok || ch == '\n' {
-			break
+			errTok := Token{Type: TokenError, Value: "unterminated string", Line: startLine, Col: startCol}
+			return "", &errTok
 		}
-		l.advance()
 		if ch == '"' {
-			closed = true
-			break
+			l.advance() // consume closing '"'
+			return sb.String(), nil
 		}
 		if ch == '\\' {
+			l.advance() // consume '\'
+			escCol := l.col - 1 // column of the backslash
 			next, ok2 := l.peek()
 			if !ok2 {
-				break
+				errTok := Token{Type: TokenError, Value: "unterminated string", Line: startLine, Col: startCol}
+				return "", &errTok
 			}
 			l.advance()
 			switch next {
@@ -243,31 +275,60 @@ func (l *Lexer) readString(line, col int) Token {
 				sb.WriteByte('"')
 			case '\\':
 				sb.WriteByte('\\')
+			case '/':
+				sb.WriteByte('/')
+			case 'b':
+				sb.WriteByte('\b')
+			case 'f':
+				sb.WriteByte('\f')
 			case 'u':
 				hex := make([]rune, 0, 4)
 				for i := 0; i < 4; i++ {
-					ch, ok := l.peek()
-					if !ok {
-						return Token{Type: TokenError, Value: "invalid unicode escape: unexpected end", Line: line, Col: col}
+					hch, hok := l.peek()
+					if !hok {
+						errTok := Token{Type: TokenError, Value: "invalid unicode escape: unexpected end", Line: startLine, Col: startCol}
+						return "", &errTok
 					}
-					if !isHexDigit(ch) {
-						return Token{Type: TokenError, Value: fmt.Sprintf("invalid unicode escape: non-hex char '%c'", ch), Line: line, Col: col}
+					if !isHexDigit(hch) {
+						errTok := Token{Type: TokenError, Value: fmt.Sprintf("invalid unicode escape: non-hex char '%c'", hch), Line: startLine, Col: startCol}
+						return "", &errTok
 					}
 					hex = append(hex, l.advance())
 				}
 				codePoint, _ := strconv.ParseInt(string(hex), 16, 32)
-				sb.WriteRune(rune(codePoint))
+				r := rune(codePoint)
+				// Reject surrogate codepoints — they are not valid Unicode scalar values.
+				// Go's rune / string is UTF-8; surrogates cannot be encoded. Match rs.hocon behavior.
+				if r >= 0xD800 && r <= 0xDFFF {
+					errTok := Token{Type: TokenError, Value: "invalid unicode escape: surrogate codepoint", Line: startLine, Col: startCol}
+					return "", &errTok
+				}
+				sb.WriteRune(r)
 			default:
-				return Token{Type: TokenError, Value: fmt.Sprintf("unknown escape sequence: \\%c", next), Line: line, Col: col}
+				errTok := Token{Type: TokenError, Value: fmt.Sprintf("unknown escape sequence: \\%c", next), Line: startLine, Col: escCol}
+				return "", &errTok
 			}
 			continue
 		}
+		l.advance()
 		sb.WriteRune(ch)
 	}
-	if !closed {
-		return Token{Type: TokenError, Value: "unterminated quoted string", Line: line, Col: col}
+}
+
+func (l *Lexer) readString(line, col int) Token {
+	l.advance() // consume first "
+	// check for triple-quote
+	if l.pos+1 < len(l.src) && l.src[l.pos] == '"' && l.src[l.pos+1] == '"' {
+		l.advance() // second "
+		l.advance() // third "
+		return l.readTripleQuoted(line, col)
 	}
-	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
+	// regular quoted string — use shared body reader
+	body, errTok := l.readQuotedStringBody(line, col)
+	if errTok != nil {
+		return *errTok
+	}
+	return Token{Type: TokenString, Value: body, Line: line, Col: col, IsQuoted: true}
 }
 
 func (l *Lexer) readTripleQuoted(line, col int) Token {
@@ -331,6 +392,153 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col, IsQuoted: true}
 }
 
+// isUnquotedSubstChar returns true if ch is allowed inside a ${...} body
+// as an unquoted character. Mirrors rs.hocon's is_unquoted_subst_char.
+func isUnquotedSubstChar(ch rune) bool {
+	switch ch {
+	case ' ', '\t', '\n', '\r',
+		'"', '\\',
+		'{', '}', '[', ']',
+		':', '=', ',', '+', '#',
+		'`', '^', '?', '!', '@', '*', '&',
+		'$', '.':
+		return false
+	}
+	return true
+}
+
+// parseSubstBody implements the Appendix A state machine for ${...} body tokenization.
+// Called after '$' and '{' have both been consumed.
+// startLine/startCol are the position of the '$' (for error reporting).
+func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
+	// START: optional sigil
+	optional := false
+	if ch, ok := l.peek(); ok && ch == '?' {
+		l.advance()
+		optional = true
+	}
+
+	// COLLECT state
+	var curText strings.Builder
+	curStarted := false
+	var curLine, curCol int
+
+	pendingWs := ""
+	var segments []Segment
+	lastDotLine, lastDotCol := 0, 0
+	hasLastDot := false
+
+	for {
+		ch, ok := l.peek()
+		if !ok {
+			// EOF — unterminated
+			return Token{Type: TokenError, Value: "unterminated substitution", Line: startLine, Col: startCol}
+		}
+
+		switch {
+		case ch == '}':
+			l.advance()
+			// trailing WS is discarded
+			goto done
+
+		case ch == '"':
+			qLine := startLine // substitutions cannot span newlines
+			qCol := l.col
+			if curStarted {
+				curText.WriteString(pendingWs)
+			}
+			pendingWs = ""
+			l.advance() // consume opening '"'
+			body, errTok := l.readQuotedStringBody(qLine, qCol)
+			if errTok != nil {
+				return *errTok
+			}
+			curText.WriteString(body)
+			if !curStarted {
+				curLine = qLine
+				curCol = qCol
+				curStarted = true
+			}
+
+		case isUnquotedSubstChar(ch):
+			uCol := l.col
+			if curStarted {
+				curText.WriteString(pendingWs)
+			}
+			pendingWs = ""
+			if !curStarted {
+				curLine = startLine // always same line as ${ (no newlines inside subst)
+				curCol = uCol
+				curStarted = true
+			}
+			// Read the unquoted run
+			for {
+				c, ok2 := l.peek()
+				if !ok2 || !isUnquotedSubstChar(c) {
+					break
+				}
+				curText.WriteRune(l.advance())
+			}
+
+		case ch == '.':
+			dotCol := l.col
+			pendingWs = ""
+			if !curStarted {
+				return Token{Type: TokenError, Value: "empty segment in path", Line: startLine, Col: dotCol}
+			}
+			segments = append(segments, Segment{Text: curText.String(), Line: curLine, Col: curCol})
+			curText.Reset()
+			curStarted = false
+			curLine = 0
+			curCol = 0
+			lastDotLine = startLine
+			lastDotCol = dotCol
+			hasLastDot = true
+			l.advance()
+
+		case ch == ' ' || ch == '\t':
+			pendingWs += string(ch)
+			l.advance()
+
+		case ch == '\n' || ch == '\r':
+			return Token{Type: TokenError, Value: "unterminated substitution", Line: startLine, Col: startCol}
+
+		default:
+			return Token{Type: TokenError, Value: fmt.Sprintf("unexpected character in substitution path: %c", ch), Line: startLine, Col: l.col}
+		}
+	}
+
+done:
+	if curStarted {
+		segments = append(segments, Segment{Text: curText.String(), Line: curLine, Col: curCol})
+	} else if len(segments) == 0 {
+		// ${}
+		return Token{Type: TokenError, Value: "empty substitution path", Line: startLine, Col: startCol}
+	} else {
+		// trailing dot: ${foo.}
+		errLine, errCol := startLine, startCol
+		if hasLastDot {
+			errLine, errCol = lastDotLine, lastDotCol
+		}
+		return Token{Type: TokenError, Value: "empty segment in path", Line: errLine, Col: errCol}
+	}
+
+	// Build the Value string from segments (dot-joined, for backward compat with resolver)
+	// The resolver now reads Subst.Segments directly, but Value is kept for debugging.
+	parts := make([]string, len(segments))
+	for i, s := range segments {
+		parts[i] = s.Text
+	}
+
+	return Token{
+		Type:  TokenSubstitution,
+		Value: strings.Join(parts, "."),
+		Line:  startLine,
+		Col:   startCol,
+		Subst: &SubstPayload{Segments: segments, Optional: optional},
+	}
+}
+
 func (l *Lexer) readSubstitution(line, col int) Token {
 	l.advance() // $
 	ch, ok := l.peek()
@@ -338,34 +546,8 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 		return Token{Type: TokenInvalid, Line: line, Col: col}
 	}
 	l.advance() // {
-	optional := false
-	if next, ok2 := l.peek(); ok2 && next == '?' {
-		optional = true
-		l.advance()
-	}
-	var sb strings.Builder
-	closed := false
-	for {
-		ch2, ok2 := l.peek()
-		if !ok2 {
-			break
-		}
-		if ch2 == '}' {
-			l.advance()
-			closed = true
-			break
-		}
-		l.advance()
-		sb.WriteRune(ch2)
-	}
-	if !closed {
-		return Token{Type: TokenError, Value: "unterminated substitution", Line: line, Col: col}
-	}
-	tt := TokenSubstitution
-	if optional {
-		tt = TokenOptSubstitution
-	}
-	return Token{Type: tt, Value: sb.String(), Line: line, Col: col}
+
+	return l.parseSubstBody(line, col)
 }
 
 func (l *Lexer) readNumber(line, col int) Token {

@@ -58,9 +58,13 @@ func TestLexer_Substitution(t *testing.T) {
 }
 
 func TestLexer_OptSubstitution(t *testing.T) {
-	types := tokenTypes("${?foo}")
-	if types[0] != lexer.TokenOptSubstitution {
-		t.Errorf("expected TokenOptSubstitution, got %v", types[0])
+	l := lexer.New("${?foo}")
+	tok := l.Next()
+	if tok.Type != lexer.TokenSubstitution {
+		t.Errorf("expected TokenSubstitution, got %v", tok.Type)
+	}
+	if tok.Subst == nil || !tok.Subst.Optional {
+		t.Errorf("expected Subst.Optional=true, got %+v", tok.Subst)
 	}
 }
 
@@ -260,6 +264,111 @@ func TestUnquotedStarForbidden(t *testing.T) {
 		if tok.Type == lexer.TokenString && strings.Contains(tok.Value, "*") {
 			t.Errorf("* should be forbidden in unquoted strings, got token: %q", tok.Value)
 		}
+	}
+}
+
+// substSegments is a test helper that tokenizes input and returns the Segments
+// from the first TokenSubstitution token found.
+func substSegments(t *testing.T, input string) []lexer.Segment {
+	t.Helper()
+	toks, err := lexer.Tokenize(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tk := range toks {
+		if tk.Type == lexer.TokenSubstitution {
+			return tk.Subst.Segments
+		}
+	}
+	t.Fatalf("no subst token in %q", input)
+	return nil
+}
+
+func TestSegmentPositionUnquoted(t *testing.T) {
+	segs := substSegments(t, "${foo.bar}")
+	if segs[0].Text != "foo" || segs[0].Line != 1 || segs[0].Col != 3 {
+		t.Errorf("seg0 = %+v", segs[0])
+	}
+	if segs[1].Text != "bar" || segs[1].Col != 7 {
+		t.Errorf("seg1 = %+v", segs[1])
+	}
+}
+
+func TestSegmentPositionQuoted(t *testing.T) {
+	segs := substSegments(t, `${"a"."b"}`)
+	if segs[0].Text != "a" || segs[0].Col != 3 {
+		t.Errorf("seg0 = %+v", segs[0])
+	}
+	if segs[1].Text != "b" || segs[1].Col != 7 {
+		t.Errorf("seg1 = %+v", segs[1])
+	}
+}
+
+func TestSegmentPositionMultiline(t *testing.T) {
+	segs := substSegments(t, "x=1\ny=${foo}")
+	if segs[0].Line != 2 || segs[0].Col != 5 {
+		t.Errorf("seg0 = %+v", segs[0])
+	}
+}
+
+func TestSegmentPositionWSConcat(t *testing.T) {
+	// Whitespace between simple values is preserved in the segment text.
+	segs := substSegments(t, `${"a" "b"}`)
+	if len(segs) != 1 || segs[0].Text != "a b" || segs[0].Col != 3 {
+		t.Errorf("segs = %+v", segs)
+	}
+}
+
+func TestSegmentPositionEmptyKey(t *testing.T) {
+	segs := substSegments(t, `${""}`)
+	if len(segs) != 1 || segs[0].Text != "" || segs[0].Col != 3 {
+		t.Errorf("segs = %+v", segs)
+	}
+}
+
+func TestErrorPositionInsideSubstBody(t *testing.T) {
+	// Goal 2: invalid escape error points inside ${...} body.
+	l := lexer.New(`x=${"a\xb"}`)
+	var errTok *lexer.Token
+	for {
+		tok := l.Next()
+		if tok.Type == lexer.TokenError {
+			errTok = &tok
+			break
+		}
+		if tok.Type == lexer.TokenEOF {
+			break
+		}
+	}
+	if errTok == nil {
+		t.Fatal("expected error token")
+	}
+	if errTok.Line != 1 {
+		t.Errorf("expected line 1 in error, got line %d", errTok.Line)
+	}
+	if errTok.Col < 7 || errTok.Col > 8 {
+		t.Errorf("expected col 7 or 8 in error, got col %d", errTok.Col)
+	}
+}
+
+func TestErrorPositionEmptyPath(t *testing.T) {
+	l := lexer.New("x=${}")
+	var errTok *lexer.Token
+	for {
+		tok := l.Next()
+		if tok.Type == lexer.TokenError {
+			errTok = &tok
+			break
+		}
+		if tok.Type == lexer.TokenEOF {
+			break
+		}
+	}
+	if errTok == nil {
+		t.Fatal("expected error token")
+	}
+	if errTok.Col < 3 || errTok.Col > 4 {
+		t.Errorf("expected col 3 or 4 in error, got col %d", errTok.Col)
 	}
 }
 
