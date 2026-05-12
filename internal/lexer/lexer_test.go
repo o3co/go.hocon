@@ -387,3 +387,313 @@ func TestUnknownEscapeError(t *testing.T) {
 		}
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Spec compliance Phase 1 (issue #57): lexer-level rules.
+//
+// Each test is annotated with its xx.hocon spec checklist ID (S<n>.<m>).
+// Where the current implementation diverges from spec, the test body calls
+//
+//	t.Skipf("spec violation, see #NN")
+//
+// as its first statement. This wires the spec-correct assertion while keeping
+// CI green (skipped tests are reported but not failed). When the underlying
+// bug is fixed, remove the t.Skipf call and promote the
+// docs/spec-compliance.md status row from ❌ / ⚠️ to ✅ or ⚠️ (partial).
+// -----------------------------------------------------------------------------
+
+// TestSpecS2_3_CommentMarkersInQuotedString verifies that // and # inside a
+// quoted string are treated as literal characters, not comment starts.
+// Spec L126.
+func TestSpecS2_3_CommentMarkersInQuotedString(t *testing.T) {
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{`"http://example.com"`, "http://example.com"},
+		{`"# not a comment"`, "# not a comment"},
+	}
+	for _, tc := range cases {
+		toks := tokenize(tc.src)
+		if len(toks) == 0 {
+			t.Fatalf("src=%q: no tokens", tc.src)
+		}
+		tok := toks[0]
+		if tok.Type != lexer.TokenString {
+			t.Errorf("src=%q: got type %v, want TokenString", tc.src, tok.Type)
+		}
+		if !tok.IsQuoted {
+			t.Errorf("src=%q: IsQuoted=false, want true", tc.src)
+		}
+		if tok.Value != tc.want {
+			t.Errorf("src=%q: value=%q, want %q", tc.src, tok.Value, tc.want)
+		}
+	}
+}
+
+// TestSpecS6_1_UnicodeCategoryZsIsWhitespace verifies that Unicode Zs-category
+// characters (e.g. em space U+2003) are treated as token separators.
+// Spec L170.
+// Status: ❌ spec violation — lexer rejects Zs chars with "unexpected character"
+// instead of treating them as whitespace. See issue #59.
+func TestSpecS6_1_UnicodeCategoryZsIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	// Em space (U+2003, Zs) between two unquoted tokens should act as a
+	// separator, producing two separate TokenString tokens.
+	src := "a\u2003b"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("src=%q: got string tokens %v, want [a b]", src, strings_)
+	}
+}
+
+// TestSpecS6_1_UnicodeCategoryZlIsWhitespace verifies that line separator
+// (U+2028, Zl) is treated as whitespace. Spec L170.
+// Status: ❌ spec violation — see issue #59.
+func TestSpecS6_1_UnicodeCategoryZlIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	// Line separator (U+2028, Zl) should separate two unquoted tokens.
+	src := "a\u2028b"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("src=%q: got string tokens %v, want [a b]", src, strings_)
+	}
+}
+
+// TestSpecS6_1_UnicodeCategoryZpIsWhitespace verifies that paragraph separator
+// (U+2029, Zp) is treated as whitespace. Spec L170 covers Zs/Zl/Zp; this is the
+// Zp half. Status: ❌ spec violation — see issue #59.
+func TestSpecS6_1_UnicodeCategoryZpIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	// Paragraph separator (U+2029, Zp) should separate two unquoted tokens.
+	src := "a\u2029b"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("src=%q: got string tokens %v, want [a b]", src, strings_)
+	}
+}
+
+// TestSpecS6_2_NBSPIsWhitespace verifies that NBSP (U+00A0) is whitespace.
+// Spec L171. Status: ❌ spec violation — see issue #59.
+func TestSpecS6_2_NBSPIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	src := "a\u00a0b"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("NBSP: got string tokens %v, want [a b]", strings_)
+	}
+}
+
+// TestSpecS6_2_FigureSpaceIsWhitespace verifies figure space (U+2007).
+// Spec L171. Status: ❌ spec violation — see issue #59.
+func TestSpecS6_2_FigureSpaceIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	src := "a\u2007b"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("figure space: got string tokens %v, want [a b]", strings_)
+	}
+}
+
+// TestSpecS6_2_NarrowNBSPIsWhitespace verifies narrow no-break space (U+202F).
+// Spec L171. Status: ❌ spec violation — see issue #59.
+func TestSpecS6_2_NarrowNBSPIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	src := "a\u202fb"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("narrow NBSP: got string tokens %v, want [a b]", strings_)
+	}
+}
+
+// TestSpecS6_4_TabIsWhitespace verifies tab (0x09) is a whitespace separator.
+// Spec L174. Status: ✅
+func TestSpecS6_4_TabIsWhitespace(t *testing.T) {
+	src := "a\tb"
+	toks := tokenize(src)
+	var strToks []lexer.Token
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strToks = append(strToks, tok)
+		}
+	}
+	if len(strToks) != 2 || strToks[0].Value != "a" || strToks[1].Value != "b" {
+		t.Errorf("tab: got string tokens %v, want [a b]", strToks)
+	}
+}
+
+// TestSpecS6_4_CRIsWhitespace verifies carriage return (0x0D) is whitespace.
+// Spec L174. Status: ✅
+func TestSpecS6_4_CRIsWhitespace(t *testing.T) {
+	src := "a\rb"
+	toks := tokenize(src)
+	var strToks []lexer.Token
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strToks = append(strToks, tok)
+		}
+	}
+	if len(strToks) != 2 || strToks[0].Value != "a" || strToks[1].Value != "b" {
+		t.Errorf("CR: got string tokens %v, want [a b]", strToks)
+	}
+}
+
+// TestSpecS6_4_VtabIsWhitespace verifies vertical tab (0x0B) is whitespace.
+// Spec L174. Status: ❌ spec violation — lexer rejects with "unexpected character".
+// See issue #59.
+func TestSpecS6_4_VtabIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	src := "a\x0bb"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("vtab: got string tokens %v, want [a b]", strings_)
+	}
+}
+
+// TestSpecS6_4_FFIsWhitespace verifies form feed (0x0C) is whitespace.
+// Spec L174. Status: ❌ spec violation — lexer rejects with "unexpected character".
+// See issue #59.
+func TestSpecS6_4_FFIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	src := "a\x0cb"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("FF: got string tokens %v, want [a b]", strings_)
+	}
+}
+
+// TestSpecS6_4_SeparatorsAreWhitespace verifies FS/GS/RS/US (0x1C-0x1F) are
+// whitespace. Spec L174. Status: ❌ spec violation — these chars are absorbed
+// into unquoted string runs instead of acting as separators. See issue #59.
+func TestSpecS6_4_SeparatorsAreWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	// FS=0x1C, GS=0x1D, RS=0x1E, US=0x1F — all must act as whitespace
+	for _, ch := range []rune{'\x1c', '\x1d', '\x1e', '\x1f'} {
+		src := "a" + string(ch) + "b"
+		toks := tokenize(src)
+		var strings_ []string
+		for _, tok := range toks {
+			if tok.Type == lexer.TokenString {
+				strings_ = append(strings_, tok.Value)
+			}
+		}
+		if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+			t.Errorf("U+%04X: got string tokens %v, want [a b]", ch, strings_)
+		}
+	}
+}
+
+// TestSpecS8_6_DigitStartUnquotedRejected verifies that an unquoted string
+// starting with a digit (e.g. "123abc") is rejected. Spec L270.
+// Status: ❌ spec violation — lexer tokenizes "123abc" as TokenInt("123") +
+// TokenString("abc") instead of rejecting. See issue #60.
+func TestSpecS8_6_DigitStartUnquotedRejected(t *testing.T) {
+	t.Skipf("spec violation, see #60")
+	// "x = 123abc": the value "123abc" starts with a digit and is not a valid
+	// JSON number, so it should be rejected (parse error).
+	_, err := lexer.Tokenize("123abc")
+	if err == nil {
+		t.Error("expected error for digit-starting unquoted string '123abc', got nil")
+	}
+}
+
+// TestSpecS8_6_HyphenStartUnquotedRejected verifies that "-foo" (not a valid
+// JSON number) is rejected. Spec L270.
+// Status: ❌ spec violation — lexer tokenizes "-foo" as TokenInt("-") +
+// TokenString("foo"). See issue #60.
+func TestSpecS8_6_HyphenStartUnquotedRejected(t *testing.T) {
+	t.Skipf("spec violation, see #60")
+	// "-foo" starts with '-' and is not a valid JSON number, so it should
+	// be rejected. "-123" is a valid number and is not tested here.
+	_, err := lexer.Tokenize("-foo")
+	if err == nil {
+		t.Error("expected error for hyphen-starting non-number '-foo', got nil")
+	}
+}
+
+// TestSpecS8_7_BackslashRejectedInUnquoted verifies that a backslash in an
+// unquoted string position is rejected (no escape decoding in unquoted strings).
+// Spec L253. Status: ✅
+func TestSpecS8_7_BackslashRejectedInUnquoted(t *testing.T) {
+	// tokenize("a\n") — the backslash terminates the unquoted run via
+	// isUnquotedForbidden, then the lexer hits the bare '\' and emits an error.
+	_, err := lexer.Tokenize(`a\n`)
+	if err == nil {
+		t.Error("expected error for backslash in unquoted string, got nil")
+	}
+}
+
+// TestSpecS8_8_ControlCharsAllowedInUnquoted verifies that control characters
+// not in the forbidden set (e.g. SOH 0x01, BEL 0x07) are allowed inside
+// unquoted strings. Spec L280. Status: ✅
+func TestSpecS8_8_ControlCharsAllowedInUnquoted(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"SOH (0x01)", "foo\x01bar", "foo\x01bar"},
+		{"BEL (0x07)", "foo\x07bar", "foo\x07bar"},
+	}
+	for _, tc := range cases {
+		toks := tokenize(tc.src)
+		if len(toks) == 0 {
+			t.Fatalf("%s: no tokens", tc.name)
+		}
+		tok := toks[0]
+		if tok.Type != lexer.TokenString {
+			t.Errorf("%s: type=%v, want TokenString", tc.name, tok.Type)
+		}
+		if tok.Value != tc.want {
+			t.Errorf("%s: value=%q, want %q", tc.name, tok.Value, tc.want)
+		}
+	}
+}

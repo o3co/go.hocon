@@ -438,3 +438,86 @@ func TestBracedRootTrailingGarbage(t *testing.T) {
 		})
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Spec compliance Phase 1 (issue #57): parser-level comma rules (S5.2–S5.6).
+//
+// Convention: tests assert spec-correct behavior. Where the impl currently
+// violates spec, use t.Skipf("spec violation, see #NN") at the top of the
+// test. See lexer/lexer_test.go for the full Phase 1 convention comment.
+// -----------------------------------------------------------------------------
+
+// TestSpecS5_2_SingleTrailingCommaInArrayAllowed verifies that a single
+// trailing comma in an array is silently ignored. Spec L155.
+// Status: ✅
+func TestSpecS5_2_SingleTrailingCommaInArrayAllowed(t *testing.T) {
+	obj, err := parser.Parse("list = [1, 2, 3,]")
+	if err != nil {
+		t.Fatalf("expected no error for trailing comma in array, got: %v", err)
+	}
+	if len(obj.Fields) == 0 {
+		t.Fatal("expected at least one field")
+	}
+	arr, ok := obj.Fields[0].Value.(*parser.ArrayNode)
+	if !ok {
+		t.Fatalf("expected ArrayNode, got %T", obj.Fields[0].Value)
+	}
+	if len(arr.Elements) != 3 {
+		t.Errorf("expected 3 elements (trailing comma ignored), got %d", len(arr.Elements))
+	}
+}
+
+// TestSpecS5_2_SingleTrailingCommaInObjectAllowed verifies that a single
+// trailing comma in an object is silently ignored. Spec L155.
+// Status: ✅
+func TestSpecS5_2_SingleTrailingCommaInObjectAllowed(t *testing.T) {
+	obj, err := parser.Parse("{ a = 1, b = 2, }")
+	if err != nil {
+		t.Fatalf("expected no error for trailing comma in object, got: %v", err)
+	}
+	if len(obj.Fields) != 2 {
+		t.Errorf("expected 2 fields (trailing comma ignored), got %d", len(obj.Fields))
+	}
+}
+
+// TestSpecS5_3_TwoTrailingCommasInArrayInvalid verifies that [1,2,3,,] is
+// rejected. Spec L160. Status: ✅
+func TestSpecS5_3_TwoTrailingCommasInArrayInvalid(t *testing.T) {
+	if _, err := parser.Parse("list = [1,2,3,,]"); err == nil {
+		t.Error("expected error for double trailing comma [1,2,3,,], got nil")
+	}
+}
+
+// TestSpecS5_4_LeadingCommaInArrayInvalid verifies that [,1,2,3] is rejected.
+// Spec L161. Status: ✅
+func TestSpecS5_4_LeadingCommaInArrayInvalid(t *testing.T) {
+	if _, err := parser.Parse("list = [,1,2,3]"); err == nil {
+		t.Error("expected error for leading comma [,1,2,3], got nil")
+	}
+}
+
+// TestSpecS5_5_ConsecutiveCommasInArrayInvalid verifies that [1,,2,3] is
+// rejected. Spec L162. Status: ✅
+func TestSpecS5_5_ConsecutiveCommasInArrayInvalid(t *testing.T) {
+	if _, err := parser.Parse("list = [1,,2,3]"); err == nil {
+		t.Error("expected error for consecutive commas [1,,2,3], got nil")
+	}
+}
+
+// TestSpecS5_6_CommaRulesApplyToObjects verifies that the same leading/double
+// comma rules that apply to arrays also apply to object fields. Spec L163.
+// Status: ✅
+func TestSpecS5_6_CommaRulesApplyToObjects(t *testing.T) {
+	invalid := []struct {
+		name string
+		src  string
+	}{
+		{"leading comma in object", "{ ,a = 1, b = 2 }"},
+		{"double comma in object", "{ a = 1,, b = 2 }"},
+	}
+	for _, tc := range invalid {
+		if _, err := parser.Parse(tc.src); err == nil {
+			t.Errorf("%s: expected error for %q, got nil", tc.name, tc.src)
+		}
+	}
+}
