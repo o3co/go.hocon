@@ -1020,17 +1020,46 @@ func TestSpec_S15_2_ConversionIsLazy(t *testing.T) {
 	}
 }
 
-// TestSpec_S15_3_ConversionInConcatenation verifies that an object with integer keys
-// is converted to an array when it appears in a list concatenation context.
-// Currently not implemented — see issue #71.
-func TestSpec_S15_3_ConversionInConcatenation(t *testing.T) {
+// TestSpec_S15_3_ConversionInConcatenation_Pin pins the current behaviour for a
+// real adjacent-value list concatenation: `arr = [a] ${obj}` with a numeric-keyed
+// object substitution. Spec L1210 requires the object to convert to its array
+// form and flatten in (yielding ["a","x","y"]). Probe (2026-05-12) shows go.hocon
+// parses successfully but the object is inserted un-converted, so:
+//   - GetStringSlice panics ("element 1 is not a non-null scalar")
+//   - GetStringSliceOption returns None
+//
+// Pin asserts the Option-None outcome — when conversion is implemented per #71,
+// this pin flips and the _Spec test below becomes the live assertion.
+func TestSpec_S15_3_ConversionInConcatenation_Pin(t *testing.T) {
+	// pin: see #71
+	_ = specIssueS15
+	cfg := mustParseCfg(t, `
+obj = {"0": "x", "1": "y"}
+arr = [a] ${obj}
+`)
+	if cfg.GetStringSliceOption("arr").IsSome() {
+		t.Error("[pin] GetStringSliceOption(arr) should currently return None (object element not converted)")
+	}
+}
+
+// TestSpec_S15_3_ConversionInConcatenation_Spec is skipped while conversion is
+// unimplemented (#71). When the fix lands, remove the Skip and the assertion
+// should pass: ["a","x","y"] after conversion + flatten per HOCON L1210.
+func TestSpec_S15_3_ConversionInConcatenation_Spec(t *testing.T) {
 	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
-	// {"0":"x"} ++ ["y"] should produce ["x","y"]
-	cfg := mustParseCfg(t, `arr: [{"0": "x"}, "y"]`)
+	cfg := mustParseCfg(t, `
+obj = {"0": "x", "1": "y"}
+arr = [a] ${obj}
+`)
 	got := cfg.GetStringSlice("arr")
-	// The object {"0":"x"} at the start of the concatenation should be converted.
-	if len(got) < 2 {
-		t.Fatalf("expected at least 2 elements, got %d: %v", len(got), got)
+	want := []string{"a", "x", "y"}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d want %d; got %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d]=%q want %q", i, got[i], want[i])
+		}
 	}
 }
 
@@ -1100,18 +1129,19 @@ func TestSpec_S15_7_SortedByIntegerKey(t *testing.T) {
 	}
 }
 
-// TestSpec_S17_5_NullStringToNull verifies that the string "null" is treated as the
-// literal null value when null is specifically requested (HOCON spec L1244).
-// In go.hocon there is no dedicated "get null" API; GetStringOption returns
-// Some("null") for the quoted string, which is correct for string access.
-// The null literal itself causes GetStringOption to return None (conformant).
-func TestSpec_S17_5_NullStringConversion(t *testing.T) {
-	// Actual null → GetStringOption returns None (correct: null is not a string).
+// TestSpec_S17_5_NullStorageSanity is a sanity check that quoted "null" is
+// stored as a string scalar and the unquoted null literal is stored as null,
+// not that any type-conversion path is exercised. S17.5 itself is marked ➖
+// out-of-scope (see docs/spec-compliance.md): spec L1244 describes conversion
+// when the null type is explicitly requested, but go.hocon's API surface has
+// no "request null" accessor — GetStringOption naturally returns None for null
+// values based on stored type, with no conversion from the string "null".
+// Aligns with ts.hocon#90 and rs.hocon#81's identical determinations.
+func TestSpec_S17_5_NullStorageSanity(t *testing.T) {
 	cfgNull := mustParseCfg(t, `k: null`)
 	if opt := cfgNull.GetStringOption("k"); opt.IsSome() {
 		t.Errorf("null literal: expected GetStringOption=None, got Some(%v)", opt)
 	}
-	// Quoted "null" string → GetStringOption returns Some("null") (correct for string access).
 	cfgStr := mustParseCfg(t, `k: "null"`)
 	opt, ok := cfgStr.GetStringOption("k").Get()
 	if !ok || opt != "null" {
@@ -1212,18 +1242,21 @@ func TestSpec_S21_4_SingleLetterByteAbbreviations(t *testing.T) {
 	}
 }
 
-// TestSpec_S21_5_FractionalByteValues verifies that fractional byte values such as
-// "0.5M" or "1.5K" are supported (HOCON spec L1281–L1294 + L1335–L1342).
-// Currently not implemented — see issue #74.
+// TestSpec_S21_5_FractionalByteValues isolates S21.5 (fractional values) from
+// S21.4 (single-letter unit abbreviations). Cases here use units already supported
+// by parseBytes (MB / MiB / KB / KiB) so that a future fix for S21.5 alone makes
+// these pass — independent of whether single-letter K/M/G ever lands.
+// Fractional+single-letter combinations are covered by TestSpec_S21_4 (#73).
 func TestSpec_S21_5_FractionalByteValues(t *testing.T) {
 	tests := []struct {
 		src  string
 		want int64
 	}{
-		{`v: "0.5K"`, 512},
-		{`v: "1.5K"`, 1536},
-		{`v: "0.5M"`, 512 * 1024},
+		{`v: "0.5KB"`, 500},
+		{`v: "1.5KB"`, 1500},
 		{`v: "0.5MB"`, 500_000},
+		{`v: "0.5MiB"`, 512 * 1024},
+		{`v: "0.5KiB"`, 512},
 	}
 	for _, tc := range tests {
 		tc := tc

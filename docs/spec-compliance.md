@@ -702,9 +702,9 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   note: conversion not implemented at all; see issue #71.
 
 - **S15.3** Conversion in concatenation when list expected — §Conversion (L1210)
-  tests: config_test.go (TestSpec_S15_3_ConversionInConcatenation)
+  tests: config_test.go (TestSpec_S15_3_ConversionInConcatenation_Pin); config_test.go (TestSpec_S15_3_ConversionInConcatenation_Spec)
   status: ❌
-  note: conversion not implemented at all; see issue #71.
+  note: real concat context `arr = [a] ${obj}` (with `obj = {"0":"x","1":"y"}`) parses, but the object is inserted un-converted as an element — `GetStringSlice` panics and `GetStringSliceOption` returns None. Spec L1210 requires conversion + flatten to `["a","x","y"]`. Pin asserts the Option-None outcome. Tracked in #71.
 
 - **S15.4** Empty object NOT converted — §Conversion (L1212)
   tests: config_test.go (TestSpec_S15_4_EmptyObjectNotConverted)
@@ -752,9 +752,9 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S17.5** `"null"` → null when null requested — §Automatic type conversions (L1244)
-  tests: config_test.go (TestSpec_S17_5_NullStringConversion)
-  status: ⚠️
-  note: go.hocon has no dedicated "get null" API. The null literal returns None from all Option accessors (conformant). The quoted string "null" returns Some("null") from GetStringOption (correct for string access). The spec clause only applies when an app specifically requests a null value — an uncommon scenario with no Go-idiomatic equivalent; considered partially conformant.
+  out-of-scope: spec L1244 describes conversion when **null type is explicitly requested** via a typed accessor. go.hocon's API surface has no "request null" accessor — `GetStringOption` returns None for null values naturally based on stored type, with no conversion path from the string `"null"`. The spec clause is structurally inapplicable to go.hocon's API model. Aligns with [ts.hocon#90](https://github.com/o3co/ts.hocon/pull/90) and [rs.hocon#81](https://github.com/o3co/rs.hocon/pull/81)'s identical determinations.
+  tests: config_test.go (TestSpec_S17_5_NullStorageSanity) — sanity check that quoted `"null"` is stored as a string scalar and unquoted `null` as the null scalar; no type-conversion is exercised.
+  status: ➖
 
 - **S17.6** null → other type: error — §Automatic type conversions (L1252)
   tests: config_test.go:40 (TestConfig_GetString_Null_Panics)
