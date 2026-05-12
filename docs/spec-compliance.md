@@ -13,8 +13,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S1. Unchanged from JSON
 
 - **S1.1** Files must be valid UTF-8 — §Unchanged from JSON (L117)
-  tests: —
-  status: ➖ — Go's `string` type is inherently valid UTF-8; ParseString/ParseBytes receive a Go string, so invalid-UTF-8 input is structurally unreachable at the API boundary. The encoding invariant is enforced by the language, not the parser.
+  tests: spec_phase5_test.go (TestSpec_S1_1_InvalidUTF8_Pin, TestSpec_S1_1_InvalidUTF8_Spec)
+  status: ❌ — Go's `string` is a `[]byte` that is **not** guaranteed to be valid UTF-8 (arbitrary bytes are reachable via `ParseString(string([]byte{0xff}))` and via `ParseFile` reading non-UTF-8 files). The current impl silently substitutes invalid byte sequences with U+FFFD (REPLACEMENT CHARACTER) instead of rejecting them per spec L117. Pinned via `_Pin` test asserting current substitution behavior, with `_Spec` skipped until the parse boundary rejects invalid UTF-8.
 
 - **S1.2.1** Quoted strings accept valid JSON escape sequences (`\" \\ \/ \b \f \n \r \t`) — §Unchanged from JSON (L118)
   tests: internal/lexer/lexer_test.go:212 (TestUnicodeEscape); testdata/hocon/subst-tokenize/st10-escape-newline.conf (fixture); testdata/hocon/subst-tokenize/st12-escape-backslash.conf (fixture); testdata/hocon/subst-tokenize/st13-escape-quote.conf (fixture); testdata/hocon/subst-tokenize/st20-quoted-escape-backspace-formfeed.conf (fixture)
@@ -67,7 +67,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S3.1** Empty file is invalid — §Omit root braces (L130)
   tests: spec_phase5_test.go (TestSpec_S3_1_EmptyFileInvalid_Pin, TestSpec_S3_1_EmptyFileInvalid_Spec)
-  status: ❌ ([#75](https://github.com/o3co/go.hocon/issues/75)) — same underlying bug as S1.1; ParseString("") returns nil error
+  status: ❌ (tracked alongside [PR #75](https://github.com/o3co/go.hocon/pull/75)) — `ParseString("")` returns `nil` error instead of rejecting an empty document. Spec L130 requires empty files to be invalid (the omitted-braces rule applies only when there is content). Distinct from S1.1 (which is about UTF-8 validity, not empty input).
 
 - **S3.2** Root non-object/non-array is invalid (when explicitly enclosed) — §Omit root braces (L131)
   tests: internal/parser/parser_test.go:532 (TestSpecS3_2_RootNonObjectNonArrayInvalid)

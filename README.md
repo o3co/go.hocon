@@ -269,7 +269,7 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 | Metric | Status |
 | --- | --- |
 | Spec total (incl. out-of-scope) | **71.8%** |
-| In-scope only | **81.1%** |
+| In-scope only | **80.2%** |
 | Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 passing |
 | [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | 77/77 passing |
 

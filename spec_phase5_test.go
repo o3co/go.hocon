@@ -16,9 +16,11 @@ import (
 
 // ── issue constants ────────────────────────────────────────────────────────────
 
-// specIssueS1_S3_Empty is the GitHub issue number for S1.1 / S3.1:
-// empty file should be invalid but is silently accepted.
-const specIssueS1_S3_Empty = 75
+// specIssueS3_1_EmptyFile is the GitHub issue/PR number tracking S3.1:
+// empty file should be invalid but is silently accepted by ParseString("").
+// (References PR #75 where the violation was first surfaced; a follow-up
+// issue may be filed in Phase 6.)
+const specIssueS3_1_EmptyFile = 75
 
 // specIssueS8_2_SlashSlash is the GitHub issue number for S8.2:
 // "//" inside an unquoted string should start a comment, but the lexer
@@ -66,9 +68,40 @@ const specIssueS10_15_QuotedWS = 83
 const specIssueS23_4_ObjectWins = 84
 
 // ── S1.1: files must be valid UTF-8 ──────────────────────────────────────────
-// S1.1 is ➖ out-of-scope: Go's string type is inherently valid UTF-8, so
-// invalid-UTF-8 input is structurally unreachable at the ParseString API boundary.
-// No test needed for this item.
+// Go `string` is a `[]byte` that is NOT guaranteed to be valid UTF-8 — arbitrary
+// bytes (e.g. `string([]byte{0xff})`) reach the parser via ParseString, and
+// non-UTF-8 file contents reach it via ParseFile. Spec HOCON.md L117 requires
+// invalid UTF-8 to be rejected; the current impl silently substitutes invalid
+// byte sequences with U+FFFD (REPLACEMENT CHARACTER) instead. Pinned ❌.
+
+// TestSpec_S1_1_InvalidUTF8_Pin pins the current (non-conformant) behaviour:
+// invalid UTF-8 bytes are silently replaced with U+FFFD instead of producing a
+// parse error. The probed input `key = " hello<0xff>world "` parses without
+// error and yields key = "hello�world".
+func TestSpec_S1_1_InvalidUTF8_Pin(t *testing.T) {
+	// pin: see spec L117 — impl currently accepts and replaces invalid UTF-8
+	input := "key = \"hello" + string([]byte{0xff}) + "world\""
+	cfg, err := hocon.ParseString(input)
+	if err != nil {
+		t.Errorf("[pin] expected current impl to accept invalid UTF-8 (silent replacement), got err: %v", err)
+		return
+	}
+	got := cfg.GetString("key")
+	want := "hello�world"
+	if got != want {
+		t.Errorf("[pin] expected silently-replaced value %q, got %q", want, got)
+	}
+}
+
+// TestSpec_S1_1_InvalidUTF8_Spec is the spec-correct assertion: invalid UTF-8
+// in the input must be rejected with a parse error.
+func TestSpec_S1_1_InvalidUTF8_Spec(t *testing.T) {
+	t.Skipf("[skip] spec violation per S1.1 (HOCON.md L117) — invalid UTF-8 is currently accepted with U+FFFD substitution; should be rejected at the parse boundary")
+	input := "key = \"hello" + string([]byte{0xff}) + "world\""
+	if _, err := hocon.ParseString(input); err == nil {
+		t.Error("expected parse error for invalid UTF-8 input, got nil")
+	}
+}
 
 // ── S3.1: empty file is invalid ──────────────────────────────────────────────
 
@@ -77,7 +110,7 @@ const specIssueS23_4_ObjectWins = 84
 // requires empty files to be invalid documents.
 func TestSpec_S3_1_EmptyFileInvalid_Pin(t *testing.T) {
 	// pin: see #75 — ParseString("") currently returns no error
-	_ = specIssueS1_S3_Empty
+	_ = specIssueS3_1_EmptyFile
 	_, err := hocon.ParseString("")
 	if err != nil {
 		t.Errorf("[pin] empty file currently parses without error, but got: %v", err)
@@ -86,7 +119,7 @@ func TestSpec_S3_1_EmptyFileInvalid_Pin(t *testing.T) {
 
 // TestSpec_S3_1_EmptyFileInvalid_Spec is the spec-correct assertion: empty file must error.
 func TestSpec_S3_1_EmptyFileInvalid_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S3.1 — ParseString(\"\") returns nil error; see #%d", specIssueS1_S3_Empty)
+	t.Skipf("[skip] spec violation per S3.1 — ParseString(\"\") returns nil error; see #%d", specIssueS3_1_EmptyFile)
 	_, err := hocon.ParseString("")
 	if err == nil {
 		t.Error("expected error for empty file, got nil")
@@ -181,15 +214,27 @@ func TestSpec_S10_12_SingleValuePreservesType(t *testing.T) {
 // the arrays are merged. Spec HOCON.md L442 requires this to be an error.
 func TestSpec_S10_15_QuotedWSBetweenArraySubsts_Pin(t *testing.T) {
 	// pin: see #83 — quoted " " between two array substs produces merged array [1,2]
+	// Tight pin: assert the precise length and contents so the test reliably
+	// detects behavior changes (e.g. if the impl starts erroring as the spec
+	// requires, or if the merge logic changes the output shape).
 	_ = specIssueS10_15_QuotedWS
 	cfg := mustParseCfg(t, `
 a = [1]
 b = [2]
 c = ${a} " " ${b}
 `)
-	opt := cfg.GetStringSliceOption("c")
-	if !opt.IsSome() {
-		t.Error("[pin] expected Some (current impl merges arrays), got None")
+	got, ok := cfg.GetInt64SliceOption("c").Get()
+	if !ok {
+		t.Fatal("[pin] expected Some (current impl merges arrays), got None")
+	}
+	want := []int64{1, 2}
+	if len(got) != len(want) {
+		t.Fatalf("[pin] expected merged array length %d, got %d (%v)", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[pin] expected got[%d]=%d, got %d", i, want[i], got[i])
+		}
 	}
 }
 
