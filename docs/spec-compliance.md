@@ -120,11 +120,11 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S6. Whitespace
 
 - **S6.1** Unicode Zs/Zl/Zp category characters are whitespace — §Whitespace (L170)
-  tests: internal/lexer/lexer_test.go:439 (TestSpecS6_1_UnicodeCategoryZsIsWhitespace); internal/lexer/lexer_test.go:459 (TestSpecS6_1_UnicodeCategoryZlIsWhitespace)
-  status: ❌ ([#59](https://github.com/o3co/go.hocon/issues/59)) — lexer rejects Zs/Zl chars with "unexpected character" instead of treating them as whitespace separators
+  tests: internal/lexer/lexer_test.go:439 (TestSpecS6_1_UnicodeCategoryZsIsWhitespace); internal/lexer/lexer_test.go:459 (TestSpecS6_1_UnicodeCategoryZlIsWhitespace); internal/lexer/lexer_test.go:478 (TestSpecS6_1_UnicodeCategoryZpIsWhitespace)
+  status: ❌ ([#59](https://github.com/o3co/go.hocon/issues/59)) — lexer rejects Zs/Zl/Zp chars with "unexpected character" instead of treating them as whitespace separators
 
 - **S6.2** Non-breaking spaces (0x00A0, 0x2007, 0x202F) are whitespace — §Whitespace (L171)
-  tests: internal/lexer/lexer_test.go:477 (TestSpecS6_2_NBSPIsWhitespace); internal/lexer/lexer_test.go:494 (TestSpecS6_2_FigureSpaceIsWhitespace); internal/lexer/lexer_test.go:511 (TestSpecS6_2_NarrowNBSPIsWhitespace)
+  tests: internal/lexer/lexer_test.go:496 (TestSpecS6_2_NBSPIsWhitespace); internal/lexer/lexer_test.go:513 (TestSpecS6_2_FigureSpaceIsWhitespace); internal/lexer/lexer_test.go:530 (TestSpecS6_2_NarrowNBSPIsWhitespace)
   status: ❌ ([#59](https://github.com/o3co/go.hocon/issues/59)) — NBSP / figure space / narrow NBSP are rejected with "unexpected character" instead of acting as whitespace
 
 - **S6.3** BOM (0xFEFF) treated as whitespace — §Whitespace (L173)
@@ -132,7 +132,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S6.4** ASCII control whitespace (tab, vtab, FF, CR, FS, GS, RS, US) — §Whitespace (L174)
-  tests: internal/lexer/lexer_test.go:528 (TestSpecS6_4_TabIsWhitespace); internal/lexer/lexer_test.go:544 (TestSpecS6_4_CRIsWhitespace); internal/lexer/lexer_test.go:561 (TestSpecS6_4_VtabIsWhitespace); internal/lexer/lexer_test.go:579 (TestSpecS6_4_FFIsWhitespace); internal/lexer/lexer_test.go:597 (TestSpecS6_4_SeparatorsAreWhitespace)
+  tests: internal/lexer/lexer_test.go:547 (TestSpecS6_4_TabIsWhitespace); internal/lexer/lexer_test.go:563 (TestSpecS6_4_CRIsWhitespace); internal/lexer/lexer_test.go:580 (TestSpecS6_4_VtabIsWhitespace); internal/lexer/lexer_test.go:598 (TestSpecS6_4_FFIsWhitespace); internal/lexer/lexer_test.go:616 (TestSpecS6_4_SeparatorsAreWhitespace)
   status: ⚠️ ([#59](https://github.com/o3co/go.hocon/issues/59)) — 2 of 8 sub-rules pass: tab (0x09) and CR (0x0D) are recognized; vtab (0x0B) and FF (0x0C) emit "unexpected character"; FS–US (0x1C–0x1F) are absorbed into unquoted string runs
 
 - **S6.5** "newline" means specifically 0x000A (LF) — §Whitespace (L183)
@@ -188,15 +188,15 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S8.6** Unquoted string cannot begin with `0-9` or `-` — §Unquoted strings (L270)
-  tests: internal/lexer/lexer_test.go:619 (TestSpecS8_6_DigitStartUnquotedRejected); internal/lexer/lexer_test.go:633 (TestSpecS8_6_HyphenStartUnquotedRejected)
+  tests: internal/lexer/lexer_test.go:638 (TestSpecS8_6_DigitStartUnquotedRejected); internal/lexer/lexer_test.go:652 (TestSpecS8_6_HyphenStartUnquotedRejected)
   status: ❌ ([#60](https://github.com/o3co/go.hocon/issues/60)) — lexer dispatches digit/hyphen to readNumber then emits TokenInt for the prefix; non-numeric suffix "123abc" → TokenInt("123") + TokenString("abc") instead of error
 
 - **S8.7** No escape sequences in unquoted strings — §Unquoted strings (L253)
-  tests: internal/lexer/lexer_test.go:646 (TestSpecS8_7_BackslashRejectedInUnquoted)
+  tests: internal/lexer/lexer_test.go:665 (TestSpecS8_7_BackslashRejectedInUnquoted)
   status: ✅
 
 - **S8.8** Unquoted strings allow control characters except forbidden set — §Unquoted strings (L280)
-  tests: internal/lexer/lexer_test.go:658 (TestSpecS8_8_ControlCharsAllowedInUnquoted)
+  tests: internal/lexer/lexer_test.go:677 (TestSpecS8_8_ControlCharsAllowedInUnquoted)
   status: ✅
 
 ## S9. Multi-line strings

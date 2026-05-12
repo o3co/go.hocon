@@ -440,7 +440,7 @@ func TestSpecS6_1_UnicodeCategoryZsIsWhitespace(t *testing.T) {
 	t.Skipf("spec violation, see #59")
 	// Em space (U+2003, Zs) between two unquoted tokens should act as a
 	// separator, producing two separate TokenString tokens.
-	src := "a b"
+	src := "a\u2003b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
@@ -459,7 +459,26 @@ func TestSpecS6_1_UnicodeCategoryZsIsWhitespace(t *testing.T) {
 func TestSpecS6_1_UnicodeCategoryZlIsWhitespace(t *testing.T) {
 	t.Skipf("spec violation, see #59")
 	// Line separator (U+2028, Zl) should separate two unquoted tokens.
-	src := "a b"
+	src := "a\u2028b"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("src=%q: got string tokens %v, want [a b]", src, strings_)
+	}
+}
+
+// TestSpecS6_1_UnicodeCategoryZpIsWhitespace verifies that paragraph separator
+// (U+2029, Zp) is treated as whitespace. Spec L170 covers Zs/Zl/Zp; this is the
+// Zp half. Status: ❌ spec violation — see issue #59.
+func TestSpecS6_1_UnicodeCategoryZpIsWhitespace(t *testing.T) {
+	t.Skipf("spec violation, see #59")
+	// Paragraph separator (U+2029, Zp) should separate two unquoted tokens.
+	src := "a\u2029b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
@@ -476,7 +495,7 @@ func TestSpecS6_1_UnicodeCategoryZlIsWhitespace(t *testing.T) {
 // Spec L171. Status: ❌ spec violation — see issue #59.
 func TestSpecS6_2_NBSPIsWhitespace(t *testing.T) {
 	t.Skipf("spec violation, see #59")
-	src := "a b"
+	src := "a\u00a0b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
@@ -493,7 +512,7 @@ func TestSpecS6_2_NBSPIsWhitespace(t *testing.T) {
 // Spec L171. Status: ❌ spec violation — see issue #59.
 func TestSpecS6_2_FigureSpaceIsWhitespace(t *testing.T) {
 	t.Skipf("spec violation, see #59")
-	src := "a b"
+	src := "a\u2007b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
@@ -510,7 +529,7 @@ func TestSpecS6_2_FigureSpaceIsWhitespace(t *testing.T) {
 // Spec L171. Status: ❌ spec violation — see issue #59.
 func TestSpecS6_2_NarrowNBSPIsWhitespace(t *testing.T) {
 	t.Skipf("spec violation, see #59")
-	src := "a b"
+	src := "a\u202fb"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
