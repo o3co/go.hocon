@@ -206,7 +206,7 @@ max-size  = "512MiB"
 
 | 指標 | 状況 |
 | --- | --- |
-| 仕様全体（out-of-scope を含む） | **63.1%** |
+| 仕様全体（out-of-scope を含む） | **63.4%** |
 | In-scope のみ | **70.1%** |
 | Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 合格 |
 | [hocon2](https://github.com/o3co/hocon2) 準拠テスト（JSON/YAML/TOML/Properties 出力） | 77/77 合格 |

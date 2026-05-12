@@ -734,9 +734,19 @@ func TestSpecS13_5_NoSubstInQuotedString(t *testing.T) {
 	if len(ast.Fields) == 0 {
 		t.Fatal("expected 1 field")
 	}
-	// The field value must be a plain string literal, not a substitution node.
-	if _, isSubst := ast.Fields[0].Value.(*parser.SubstNode); isSubst {
-		t.Error("expected StringNode, got SubstNode: substitutions inside quoted strings must not be parsed")
+	// The field value must be a string-typed scalar carrying the literal `${foo}`
+	// — assert shape AND contents to rule out wrapped/concat encodings (e.g.
+	// ConcatNode{[ScalarNode("${foo}")]}, or ScalarNode with the wrong type tag)
+	// that would also pass a bare "not SubstNode" check.
+	sc, ok := ast.Fields[0].Value.(*parser.ScalarNode)
+	if !ok {
+		t.Fatalf("expected *parser.ScalarNode, got %T", ast.Fields[0].Value)
+	}
+	if sc.Raw != "${foo}" {
+		t.Errorf("expected scalar raw = %q, got %q", "${foo}", sc.Raw)
+	}
+	if sc.ValueType != "string" {
+		t.Errorf("expected scalar value type = %q, got %q", "string", sc.ValueType)
 	}
 }
 

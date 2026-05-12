@@ -492,7 +492,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S13a.13** `a = ${?a}foo` resolves to `"foo"` (look-back undefined) — §Self-Referential (L841)
-  tests: internal/resolver/resolver_test.go:1147 (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty — skipped, spec violation)
+  tests: internal/resolver/resolver_test.go:1147 (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty)
   status: ❌ (see [#68](https://github.com/o3co/go.hocon/issues/68))
 
 - **S13a.14** Mutually-referring object fields (`bar.a = ${foo.d}; foo.c = ${bar.b}`) resolve lazily without false cycle — §Self-Referential (L825-834)
