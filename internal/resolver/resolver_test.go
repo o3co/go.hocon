@@ -1164,21 +1164,20 @@ func TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty(t *testing.T) {
 // root is an array (not an object), it is rejected as a resolve error.
 // Spec HOCON.md L993. Status: ✅
 func TestSpecS14b_1_ArrayRootIncludeIsError(t *testing.T) {
-	f, err := os.CreateTemp("", "array-root-*.conf")
-	if err != nil {
-		t.Fatalf("create temp file: %v", err)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "array-root.conf")
+	if err := os.WriteFile(path, []byte("[1, 2, 3]"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
 	}
-	_, _ = f.WriteString("[1, 2, 3]")
-	name := f.Name()
-	_ = f.Close()
-	defer os.Remove(name)
 
-	src := `include "` + name + `"`
+	// HOCON strings use '/' as a path separator across platforms; convert
+	// Windows backslashes so the include argument parses correctly.
+	src := `include "` + filepath.ToSlash(path) + `"`
 	ast, err := parser.Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	_, resolveErr := resolver.Resolve(ast, resolver.Options{BaseDir: os.TempDir()})
+	_, resolveErr := resolver.Resolve(ast, resolver.Options{BaseDir: dir})
 	if resolveErr == nil {
 		t.Error("expected error when included file has array root, got nil")
 	}
