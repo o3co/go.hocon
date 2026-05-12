@@ -711,14 +711,13 @@ func TestSpecS13_3_OptionalSubstNoWhitespaceBeforeQ(t *testing.T) {
 	if _, err := parser.Parse(`x = ${?foo}`); err != nil {
 		t.Fatalf("expected ${?foo} to parse OK, got: %v", err)
 	}
-	// ${ ?foo} must NOT parse as an optional substitution; the parser may
-	// return an error or treat it differently, but it must NOT be equivalent.
-	_, err2 := parser.Parse(`x = ${ ?foo}`)
-	// The parser must either reject it or treat the ? as part of the path
-	// (not as the optional marker). Either way err2 != nil is acceptable, but
-	// the key requirement is that the two inputs are NOT semantically identical.
-	// We verify by checking that ${ ?foo} actually errors (current impl behaviour).
-	if err2 == nil {
+	// ${ ?foo} must NOT be semantically equivalent to ${?foo}. Pin the current
+	// impl behaviour (parse error) directly — the comment used to permit a
+	// "parses differently" outcome but the assertion required err != nil, which
+	// was inconsistent. If the parser later starts accepting ${ ?foo}, this test
+	// must be revisited: confirm the parsed shape is NOT an optional substitution
+	// (e.g. ? became part of the path) before relaxing the error check.
+	if _, err := parser.Parse(`x = ${ ?foo}`); err == nil {
 		t.Error("expected parse error for ${ ?foo} (whitespace before ?), got nil")
 	}
 }
