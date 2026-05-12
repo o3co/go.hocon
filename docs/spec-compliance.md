@@ -13,8 +13,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S1. Unchanged from JSON
 
 - **S1.1** Files must be valid UTF-8 — §Unchanged from JSON (L117)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S1_1_EmptyFile_Pin, TestSpec_S1_1_EmptyFile_Spec)
+  status: ❌ ([#75](https://github.com/o3co/go.hocon/issues/75)) — ParseString("") returns nil error; empty file should be invalid per HOCON.md L130
 
 - **S1.2.1** Quoted strings accept valid JSON escape sequences (`\" \\ \/ \b \f \n \r \t`) — §Unchanged from JSON (L118)
   tests: internal/lexer/lexer_test.go:212 (TestUnicodeEscape); testdata/hocon/subst-tokenize/st10-escape-newline.conf (fixture); testdata/hocon/subst-tokenize/st12-escape-backslash.conf (fixture); testdata/hocon/subst-tokenize/st13-escape-quote.conf (fixture); testdata/hocon/subst-tokenize/st20-quoted-escape-backspace-formfeed.conf (fixture)
@@ -66,8 +66,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S3. Omit root braces
 
 - **S3.1** Empty file is invalid — §Omit root braces (L130)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S3_1_EmptyFileInvalid_Pin, TestSpec_S3_1_EmptyFileInvalid_Spec)
+  status: ❌ ([#75](https://github.com/o3co/go.hocon/issues/75)) — same underlying bug as S1.1; ParseString("") returns nil error
 
 - **S3.2** Root non-object/non-array is invalid (when explicitly enclosed) — §Omit root braces (L131)
   tests: internal/parser/parser_test.go:532 (TestSpecS3_2_RootNonObjectNonArrayInvalid)
@@ -136,8 +136,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ⚠️ ([#59](https://github.com/o3co/go.hocon/issues/59)) — 2 of 8 sub-rules pass: tab (0x09) and CR (0x0D) are recognized; vtab (0x0B) and FF (0x0C) emit "unexpected character"; FS–US (0x1C–0x1F) are absorbed into unquoted string runs
 
 - **S6.5** "newline" means specifically 0x000A (LF) — §Whitespace (L183)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S6_5_NewlineMeansLF)
+  status: ✅
 
 ## S7. Duplicate keys and object merging
 
@@ -172,8 +172,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S8.2** `//` inside an unquoted string starts a comment — §Unquoted strings (L248)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S8_2_SlashSlashInUnquoted_Pin, TestSpec_S8_2_SlashSlashInUnquoted_Spec)
+  status: ❌ ([#76](https://github.com/o3co/go.hocon/issues/76)) — `foo = bar//baz` produces "bar//baz" instead of "bar"; `//` inside an unquoted token run is not treated as comment start
 
 - **S8.3** Initial token `true`/`false`/`null` parsed as keyword — §Unquoted strings (L250)
   tests: internal/parser/parser_test.go:148 (TestParser_NullBoolNumbers)
@@ -260,16 +260,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.10** `null` stringifies to `"null"` in concat — §String value concatenation (L364)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S10_10_NullStringifiesInConcat)
+  status: ✅
 
 - **S10.11** Numbers stringify as written in the source file — §String value concatenation (L366)
   tests: config_test.go:813 (TestConfig_GetString_ReturnsRawTextForNumber); config_test.go:827 (TestConfig_GetString_DotPrefixedFloat); config_test.go:852 (TestConfig_GetString_OctalLikePreserved)
   status: ✅
 
 - **S10.12** A single non-string value is NOT stringified (type preserved) — §String value concatenation (L376)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S10_12_SingleValuePreservesType)
+  status: ✅
 
 - **S10.13** Array/object appearing in string concat is an error — §String value concatenation (L373)
   tests: internal/resolver/resolver_test.go:567 (TestResolver_ArrayConcatenationPermissive); internal/resolver/resolver_test.go:1027 (TestSpecS10_13_ArrayInStringConcatPermissivePinned)
@@ -280,12 +280,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.15** Quoted whitespace between obj/array substitutions is an error — §Concatenation with whitespace (L442)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S10_15_QuotedWSBetweenArraySubsts_Pin, TestSpec_S10_15_QuotedWSBetweenArraySubsts_Spec)
+  status: ❌ ([#83](https://github.com/o3co/go.hocon/issues/83)) — `${a} " " ${b}` where a, b are arrays is silently accepted and arrays are merged; spec requires error
 
 - **S10.16** Non-newline whitespace in arrays is concat, not separator — §Arrays without commas or newlines (L447)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S10_16_WhitespaceInArrayIsConcat)
+  status: ✅
 
 - **S10.17** Substitution resolving to an array participates in array concat (`${arr} [x]`) — §Array and object concatenation (L387)
   tests: config_test.go:394 (TestConfig_StringConcat_ArraySelfRef); internal/resolver/resolver_test.go:100 (TestResolver_PlusEquals)
@@ -310,8 +310,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S11.3** Numbers retain original string representation in paths — §Path expressions (L489)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S11_3_NumbersInPaths_Pin, TestSpec_S11_3_NumbersInPaths_Spec)
+  status: ❌ ([#77](https://github.com/o3co/go.hocon/issues/77)) — `1.2.3 = x` is rejected with parse error; spec requires the numeric root to be accepted and split on `.`
 
 - **S11.4** `10.0foo` → path `[10, 0foo]` — §Path expressions (L496)
   tests: internal/parser/parser_test.go:617 (TestSpecS11_4_TokenFloatKeyRejected)
@@ -402,16 +402,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13.10** Required substitution undefined → error — §Substitutions (L627)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13_10_RequiredSubstUndefined)
+  status: ✅
 
 - **S13.11** Optional undefined in field value → field not created — §Substitutions (L632)
   tests: internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); config_test.go:274 (TestUnsetEnvVarOptional)
   status: ⚠️ ([#45](https://github.com/o3co/go.hocon/issues/45))
 
 - **S13.12** Optional undefined in array element → element not added — §Substitutions (L635)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13_12_OptionalUndefinedInArrayElementSkipped)
+  status: ✅
 
 - **S13.13** Optional undefined in string concat → empty string — §Substitutions (L636)
   tests: internal/resolver/resolver_test.go:1119 (TestSpecS13_13_OptionalUndefinedInStringConcatBecomesEmpty)
@@ -422,8 +422,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13.15** `foo : ${?bar}${?baz}` skipped only when BOTH undefined — §Substitutions (L640)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13_15_BothUndefined_Pin, TestSpec_S13_15_BothUndefined_Spec, TestSpec_S13_15_OneDefinedCreatesField)
+  status: ❌ ([#78](https://github.com/o3co/go.hocon/issues/78)) — `foo = ${?bar}${?baz}` creates field with value "" when both undefined; spec requires field to be omitted entirely
 
 - **S13.16** Substitutions only in field values / array elements — §Substitutions (L644)
   tests: internal/parser/parser_test.go:746 (TestSpecS13_16_SubstOnlyInFieldValuesNotKeys)
@@ -452,52 +452,52 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13a.3** Self-ref before any prior value → undefined → error — §Self-Referential (L767)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13a_3_SelfRefNoPriorValue)
+  status: ✅
 
 - **S13a.4** Optional self-ref `${?foo}` disappears silently — §Self-Referential (L776)
   tests: config_test.go:228 (TestConfig_OptionalSubstitutionFallback); internal/resolver/resolver_test.go:68 (TestResolver_OptionalSubstitutionFallback)
   status: ✅
 
 - **S13a.5** Substitution hidden by later non-object → no error — §Self-Referential (L780)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13a_5_SubstHiddenByLaterValue)
+  status: ✅
 
 - **S13a.6** Cycle inside object `a : { b : ${a} }` → error — §Self-Referential (L688)
   tests: internal/resolver/resolver_test.go:82 (TestResolver_CircularRef); testdata/hocon/cycle.conf (fixture)
   status: ✅
 
 - **S13a.7** Cycle inside array `a : [${a}]` → error — §Self-Referential (L689)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13a_7_CycleInsideArray)
+  status: ✅
 
 - **S13a.8** Two-step cycle `bar : ${foo}; foo : ${bar}` → error — §Self-Referential (L857)
   tests: internal/resolver/resolver_test.go:82 (TestResolver_CircularRef)
   status: ✅
 
 - **S13a.9** Multi-step cycle `a→b→c→a` → error — §Self-Referential (L862)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13a_9_MultiStepCycle)
+  status: ✅
 
 - **S13a.10** Substitution memoized by instance, not by path — §Self-Referential (L885)
-  tests: internal/resolver/resolver_test.go:1139 (TestSpecS13a_10_SubstMemoizedByInstance — skipped; not externally observable)
-  status: 🤷 — internal invariant; no public-API observable test possible
+  tests: internal/resolver/resolver_test.go:1139 (TestSpecS13a_10_SubstMemoizedByInstance — skipped; not externally observable); spec_phase5_test.go (TestSpec_S13a_10_MemoizedByInstance — skipped placeholder)
+  status: ➖ — internal invariant; no public-API observable test possible; structurally equivalent to rs.hocon S13a.10 ➖ determination
 
 - **S13a.11** Object can refer to its own descendant (`bar : { foo : 42, baz : ${bar.foo} }`) — §Self-Referential (L806)
   tests: config_test.go:947 (TestConfig_DelayedMergeNestedSubstitution)
   status: ✅
 
 - **S13a.12** Self-ref in path expression `${foo.a}` resolves to "below" — §Self-Referential (L791)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13a_12_SelfRefInPathResolvesBelow_Pin, TestSpec_S13a_12_SelfRefInPathResolvesBelow_Spec)
+  status: ❌ ([#79](https://github.com/o3co/go.hocon/issues/79)) — spec example `foo:{a:{c:1}};foo:${foo.a};foo:{a:2}` should yield {a:2,c:1} but c is lost in the merge
 
 - **S13a.13** `a = ${?a}foo` resolves to `"foo"` (look-back undefined) — §Self-Referential (L841)
   tests: internal/resolver/resolver_test.go:1147 (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty)
   status: ❌ (see [#68](https://github.com/o3co/go.hocon/issues/68))
 
 - **S13a.14** Mutually-referring object fields (`bar.a = ${foo.d}; foo.c = ${bar.b}`) resolve lazily without false cycle — §Self-Referential (L825-834)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S13a_14_MutualRefNoCycle)
+  status: ✅
 
 ### S13b. `+=` field separator
 
@@ -578,8 +578,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S14a.10** Include argument must be quoted string — §Include syntax (L958)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S14a_10_UnquotedIncludeArg_Pin, TestSpec_S14a_10_UnquotedIncludeArg_Spec, TestSpec_S14a_10_QuotedIncludeArgAccepted)
+  status: ❌ ([#80](https://github.com/o3co/go.hocon/issues/80)) — parser accepts unquoted strings as include path (e.g. `include foo.conf`) instead of requiring a quoted string; silently treated as optional include that is not found
 
 - **S14a.11** `"include"` (quoted) is just a normal key — §Include syntax (L977)
   tests: internal/parser/parser_test.go:356 (TestParser_IncludeQuotedUrlNotError)
@@ -781,22 +781,22 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S18.3** Unit name letters-only (Unicode L* / `isLetter`) — §Units format (L1287)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S18_3_UnitNameLettersOnly)
+  status: ✅
 
 - **S18.4** String with no unit → interpreted with default unit — §Units format (L1290)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S18_4_StringNoUnit_Pin, TestSpec_S18_4_StringNoUnit_Spec)
+  status: ❌ ([#81](https://github.com/o3co/go.hocon/issues/81)) — parseDuration requires a unit name after the number; bare-number strings like "100" return None instead of 100ms
 
 ## S19. Duration format
 
 - **S19.1** `ns` / `nano` / `nanos` / `nanosecond` / `nanoseconds` — §Duration format (L1307)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S19_1_Nanoseconds_Pin, TestSpec_S19_1_Nanoseconds_Spec)
+  status: ⚠️ — `ns`, `nanosecond`, `nanoseconds` pass; `nano` and `nanos` aliases are absent from parseDuration and return None
 
 - **S19.2** `us` / `micro` / `micros` / `microsecond` / `microseconds` — §Duration format (L1308)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S19_2_Microseconds_Pin, TestSpec_S19_2_Microseconds_Spec)
+  status: ❌ ([#82](https://github.com/o3co/go.hocon/issues/82)) — all five microsecond duration aliases are absent from parseDuration; GetDurationOption returns None for all of them
 
 - **S19.3** `ms` / `milli` / `millis` / `millisecond` / `milliseconds` — §Duration format (L1309)
   tests: config_test.go:78 (TestConfig_GetDuration)
@@ -807,8 +807,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S19.5** `m` / `minute` / `minutes` — §Duration format (L1311)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S19_5_Minutes)
+  status: ✅
 
 - **S19.6** `h` / `hour` / `hours` — §Duration format (L1312)
   tests: config_test.go:78 (TestConfig_GetDuration)
@@ -819,8 +819,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S19.8** Duration unit names are case sensitive (lowercase only) — §Duration format (L1304)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S19_8_DurationCaseSensitive)
+  status: ✅
 
 ## S20. Period format
 
@@ -889,16 +889,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S23.2** Empty path elements (leading/trailing) preserved — §Java properties (L1456)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S23_2_EmptyPathElementsPreserved)
+  status: ✅
 
 - **S23.3** Properties values are always strings — §Java properties (L1471)
   tests: internal/resolver/resolver_test.go:354 (TestResolver_IncludePropertiesValuesAreStrings); internal/resolver/resolver_test.go:391 (TestResolver_IncludePropertiesExplicitExtension); config_test.go:732 (TestIncludePropertiesFile)
   status: ✅
 
 - **S23.4** Object wins over string on conflicting key — §Java properties (L1485)
-  tests: —
-  status: 🤷
+  tests: spec_phase5_test.go (TestSpec_S23_4_ObjectWinsOverString_Pin, TestSpec_S23_4_ObjectWinsOverString_Spec)
+  status: ❌ ([#84](https://github.com/o3co/go.hocon/issues/84)) — propsToObjectVal breaks when a scalar is already set for a path segment that later needs to be a parent; string leaf "wins" and the object branch is discarded
 
 - **S23.5** Multi-line values (backslash continuation) — §Note on Java properties similarity (L1587)
   out-of-scope: declared in each implementation's README — the `.properties` reader supports only basic `key=value` syntax to avoid pulling a full Java properties parser into a non-JVM library.

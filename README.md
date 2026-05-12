@@ -264,12 +264,12 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 
 ## Spec Compliance
 
-Conformance against the [Lightbend HOCON specification](https://github.com/lightbend/config/blob/main/HOCON.md) is tracked at item granularity in [`docs/spec-compliance.md`](docs/spec-compliance.md). The table below is a snapshot as of 2026-05-12; see [`xx.hocon/docs/compliance-matrix.md`](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) for live cross-impl values.
+Conformance against the [Lightbend HOCON specification](https://github.com/lightbend/config/blob/main/HOCON.md) is tracked at item granularity in [`docs/spec-compliance.md`](docs/spec-compliance.md). The table below is a snapshot as of 2026-05-13; see [`xx.hocon/docs/compliance-matrix.md`](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) for live cross-impl values.
 
 | Metric | Status |
 | --- | --- |
-| Spec total (incl. out-of-scope) | **64.4%** |
-| In-scope only | **71.5%** |
+| Spec total (incl. out-of-scope) | **71.8%** |
+| In-scope only | **80.6%** |
 | Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 passing |
 | [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | 77/77 passing |
 
