@@ -965,3 +965,275 @@ func TestConfig_DelayedMergeNestedSubstitution(t *testing.T) {
 		t.Errorf("expected c.e.c=3, got %d", got)
 	}
 }
+
+// ── Spec compliance Phase 4: S15, S17.5, S17.7, S17.8, S21.4, S21.5 ──────────────
+
+// specIssueS15 is the GitHub issue number for the S15 spec violation.
+// go.hocon does not convert numerically-indexed objects to arrays.
+const specIssueS15 = 71
+
+// specIssueS17_7_8 is the GitHub issue number for the S17.7/S17.8 spec violation.
+// Option accessors return None instead of an error for object/array type mismatches.
+const specIssueS17_7_8 = 72
+
+// specIssueS21_4 is the GitHub issue number for the S21.4 spec violation.
+// Single-letter byte abbreviations (K, k, M, m, …) are not recognised.
+const specIssueS21_4 = 73
+
+// specIssueS21_5 is the GitHub issue number for the S21.5 spec violation.
+// Fractional byte values (e.g. 0.5M) are not supported.
+const specIssueS21_5 = 74
+
+// TestSpec_S15_1_NumericObjectToArray verifies that an object with integer keys
+// {"0":"a","1":"b"} is converted to ["a","b"] when array access is requested.
+// Currently not implemented — see issue #71.
+func TestSpec_S15_1_NumericObjectToArray(t *testing.T) {
+	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+	cfg := mustParseCfg(t, `arr: {"0": "a", "1": "b"}`)
+	got := cfg.GetStringSlice("arr")
+	want := []string{"a", "b"}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d, want %d; got %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d]=%q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestSpec_S15_2_ConversionIsLazy verifies that numeric-key objects are not converted
+// eagerly; they remain objects until array access is attempted.
+// Currently not implemented — see issue #71.
+func TestSpec_S15_2_ConversionIsLazy(t *testing.T) {
+	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+	// Object with numeric keys should still be accessible as an object (lazy).
+	cfg := mustParseCfg(t, `arr: {"0": "a", "1": "b"}`)
+	// String access should still return "a" for key "arr.0"
+	if got := cfg.GetString("arr.0"); got != "a" {
+		t.Errorf("arr.0=%q, want %q", got, "a")
+	}
+	// Array access triggers conversion.
+	got := cfg.GetStringSlice("arr")
+	if len(got) != 2 {
+		t.Errorf("expected 2 elements, got %d", len(got))
+	}
+}
+
+// TestSpec_S15_3_ConversionInConcatenation verifies that an object with integer keys
+// is converted to an array when it appears in a list concatenation context.
+// Currently not implemented — see issue #71.
+func TestSpec_S15_3_ConversionInConcatenation(t *testing.T) {
+	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+	// {"0":"x"} ++ ["y"] should produce ["x","y"]
+	cfg := mustParseCfg(t, `arr: [{"0": "x"}, "y"]`)
+	got := cfg.GetStringSlice("arr")
+	// The object {"0":"x"} at the start of the concatenation should be converted.
+	if len(got) < 2 {
+		t.Fatalf("expected at least 2 elements, got %d: %v", len(got), got)
+	}
+}
+
+// TestSpec_S15_4_EmptyObjectNotConverted verifies that an empty object {} is NOT
+// converted to an array even in array context.
+// Currently not implemented — see issue #71.
+func TestSpec_S15_4_EmptyObjectNotConverted(t *testing.T) {
+	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+	cfg := mustParseCfg(t, `arr: {}`)
+	opt := cfg.GetStringSliceOption("arr")
+	if opt.IsSome() {
+		t.Errorf("expected None for empty object in array context, got Some(%v)", opt)
+	}
+}
+
+// TestSpec_S15_5_NonIntegerKeysIgnored verifies that non-integer keys are skipped
+// during object-to-array conversion; only integer-keyed entries appear in the result.
+// Currently not implemented — see issue #71.
+func TestSpec_S15_5_NonIntegerKeysIgnored(t *testing.T) {
+	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+	cfg := mustParseCfg(t, `arr: {"0": "a", "foo": "ignored", "1": "b"}`)
+	got := cfg.GetStringSlice("arr")
+	want := []string{"a", "b"}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d, want %d; got %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d]=%q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestSpec_S15_6_MissingIndicesCompacted verifies that gaps in integer keys are
+// eliminated: {"0":"a","2":"c"} → ["a","c"] (not ["a",<nil>,"c"]).
+// Currently not implemented — see issue #71.
+func TestSpec_S15_6_MissingIndicesCompacted(t *testing.T) {
+	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+	cfg := mustParseCfg(t, `arr: {"0": "a", "2": "c"}`)
+	got := cfg.GetStringSlice("arr")
+	want := []string{"a", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d, want %d; got %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d]=%q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestSpec_S15_7_SortedByIntegerKey verifies that the resulting array is sorted by
+// the integer value of each key, not by insertion order.
+// Currently not implemented — see issue #71.
+func TestSpec_S15_7_SortedByIntegerKey(t *testing.T) {
+	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+	cfg := mustParseCfg(t, `arr: {"1": "b", "0": "a"}`)
+	got := cfg.GetStringSlice("arr")
+	want := []string{"a", "b"}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d, want %d; got %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d]=%q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestSpec_S17_5_NullStringToNull verifies that the string "null" is treated as the
+// literal null value when null is specifically requested (HOCON spec L1244).
+// In go.hocon there is no dedicated "get null" API; GetStringOption returns
+// Some("null") for the quoted string, which is correct for string access.
+// The null literal itself causes GetStringOption to return None (conformant).
+func TestSpec_S17_5_NullStringConversion(t *testing.T) {
+	// Actual null → GetStringOption returns None (correct: null is not a string).
+	cfgNull := mustParseCfg(t, `k: null`)
+	if opt := cfgNull.GetStringOption("k"); opt.IsSome() {
+		t.Errorf("null literal: expected GetStringOption=None, got Some(%v)", opt)
+	}
+	// Quoted "null" string → GetStringOption returns Some("null") (correct for string access).
+	cfgStr := mustParseCfg(t, `k: "null"`)
+	opt, ok := cfgStr.GetStringOption("k").Get()
+	if !ok || opt != "null" {
+		t.Errorf(`"null" string: expected GetStringOption=Some("null"), got ok=%v val=%q`, ok, opt)
+	}
+}
+
+// TestSpec_S17_7_ObjectToOtherTypeErrorViaPanic verifies that requesting a scalar
+// type from an object path panics (error), as required by HOCON spec L1254.
+func TestSpec_S17_7_ObjectToOtherTypePanics(t *testing.T) {
+	cfg := mustParseCfg(t, `obj: {a: 1}`)
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic when calling GetString on an object value")
+		}
+	}()
+	cfg.GetString("obj")
+}
+
+// TestSpec_S17_7_ObjectToOtherTypeOptionReturnsNone documents that Option accessors
+// return None (not an error) for object→scalar mismatches — a partial violation of
+// HOCON spec L1254 (should be an error, not silently absent).
+// pin: see #72
+func TestSpec_S17_7_ObjectToOtherTypeOptionReturnsNone(t *testing.T) {
+	// pin: see #72 — Option accessors should return an error, not None
+	_ = specIssueS17_7_8
+	cfg := mustParseCfg(t, `obj: {a: 1}`)
+	if cfg.GetStringOption("obj").IsSome() {
+		t.Error("GetStringOption(object) should not return Some — expected None (pinned current behaviour)")
+	}
+	if cfg.GetInt64Option("obj").IsSome() {
+		t.Error("GetInt64Option(object) should not return Some — expected None (pinned current behaviour)")
+	}
+	if cfg.GetBoolOption("obj").IsSome() {
+		t.Error("GetBoolOption(object) should not return Some — expected None (pinned current behaviour)")
+	}
+}
+
+// TestSpec_S17_8_ArrayToOtherTypeErrorViaPanic verifies that requesting a scalar
+// type from an array path panics (error), as required by HOCON spec L1255.
+func TestSpec_S17_8_ArrayToOtherTypePanics(t *testing.T) {
+	cfg := mustParseCfg(t, `arr: [1,2,3]`)
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic when calling GetString on an array value")
+		}
+	}()
+	cfg.GetString("arr")
+}
+
+// TestSpec_S17_8_ArrayToOtherTypeOptionReturnsNone documents that Option accessors
+// return None (not an error) for array→scalar mismatches — a partial violation of
+// HOCON spec L1255 (should be an error, not silently absent).
+// pin: see #72
+func TestSpec_S17_8_ArrayToOtherTypeOptionReturnsNone(t *testing.T) {
+	// pin: see #72 — Option accessors should return an error, not None
+	cfg := mustParseCfg(t, `arr: [1,2,3]`)
+	if cfg.GetStringOption("arr").IsSome() {
+		t.Error("GetStringOption(array) should not return Some — expected None (pinned current behaviour)")
+	}
+	if cfg.GetInt64Option("arr").IsSome() {
+		t.Error("GetInt64Option(array) should not return Some — expected None (pinned current behaviour)")
+	}
+}
+
+// TestSpec_S21_4_SingleLetterByteAbbreviations verifies that single-letter byte
+// abbreviations (K, k, M, m, G, g, T, t, P, p, E, e) map to powers of two,
+// following the java -Xmx convention (HOCON spec L1385).
+// Currently not implemented — see issue #73.
+func TestSpec_S21_4_SingleLetterByteAbbreviations(t *testing.T) {
+	tests := []struct {
+		src  string
+		want int64
+	}{
+		{`v: "1K"`, 1024},
+		{`v: "1k"`, 1024},
+		{`v: "2M"`, 2 * 1024 * 1024},
+		{`v: "2m"`, 2 * 1024 * 1024},
+		{`v: "1G"`, 1024 * 1024 * 1024},
+		{`v: "1g"`, 1024 * 1024 * 1024},
+		{`v: "1T"`, 1024 * 1024 * 1024 * 1024},
+		{`v: "1t"`, 1024 * 1024 * 1024 * 1024},
+		{`v: "1P"`, 1024 * 1024 * 1024 * 1024 * 1024},
+		{`v: "1p"`, 1024 * 1024 * 1024 * 1024 * 1024},
+		{`v: "1E"`, 1024 * 1024 * 1024 * 1024 * 1024 * 1024},
+		{`v: "1e"`, 1024 * 1024 * 1024 * 1024 * 1024 * 1024},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.src, func(t *testing.T) {
+			t.Skipf("spec violation: single-letter byte abbreviations not supported, see #%d", specIssueS21_4)
+			cfg := mustParseCfg(t, tc.src)
+			got := cfg.GetBytes("v")
+			if got != tc.want {
+				t.Errorf("src=%q: got %d, want %d", tc.src, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSpec_S21_5_FractionalByteValues verifies that fractional byte values such as
+// "0.5M" or "1.5K" are supported (HOCON spec L1281–L1294 + L1335–L1342).
+// Currently not implemented — see issue #74.
+func TestSpec_S21_5_FractionalByteValues(t *testing.T) {
+	tests := []struct {
+		src  string
+		want int64
+	}{
+		{`v: "0.5K"`, 512},
+		{`v: "1.5K"`, 1536},
+		{`v: "0.5M"`, 512 * 1024},
+		{`v: "0.5MB"`, 500_000},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.src, func(t *testing.T) {
+			t.Skipf("spec violation: fractional byte values not supported, see #%d", specIssueS21_5)
+			cfg := mustParseCfg(t, tc.src)
+			got := cfg.GetBytes("v")
+			if got != tc.want {
+				t.Errorf("src=%q: got %d, want %d", tc.src, got, tc.want)
+			}
+		})
+	}
+}
