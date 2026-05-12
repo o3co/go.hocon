@@ -698,3 +698,90 @@ func TestSpecS12_5_IncludeDotFooRejected(t *testing.T) {
 		t.Error("expected parse error: 'include.foo' begins with reserved 'include', must be rejected")
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Spec compliance Phase 3: substitutions & includes (S13, S13a, S14a, S14b).
+// -----------------------------------------------------------------------------
+
+// TestSpecS13_3_OptionalSubstNoWhitespaceBeforeQ verifies that `${?` is exactly
+// 3 chars with no whitespace before `?`; `${ ?foo}` must NOT behave like
+// `${?foo}`. Spec HOCON.md L584. Status: ✅
+func TestSpecS13_3_OptionalSubstNoWhitespaceBeforeQ(t *testing.T) {
+	// ${?foo} must parse successfully as an optional substitution.
+	if _, err := parser.Parse(`x = ${?foo}`); err != nil {
+		t.Fatalf("expected ${?foo} to parse OK, got: %v", err)
+	}
+	// ${ ?foo} must NOT parse as an optional substitution; the parser may
+	// return an error or treat it differently, but it must NOT be equivalent.
+	_, err2 := parser.Parse(`x = ${ ?foo}`)
+	// The parser must either reject it or treat the ? as part of the path
+	// (not as the optional marker). Either way err2 != nil is acceptable, but
+	// the key requirement is that the two inputs are NOT semantically identical.
+	// We verify by checking that ${ ?foo} actually errors (current impl behaviour).
+	if err2 == nil {
+		t.Error("expected parse error for ${ ?foo} (whitespace before ?), got nil")
+	}
+}
+
+// TestSpecS13_5_NoSubstInQuotedString verifies that substitutions are NOT
+// parsed inside quoted strings; `x = "${foo}"` has a string value of `${foo}`.
+// Spec HOCON.md L593. Status: ✅
+func TestSpecS13_5_NoSubstInQuotedString(t *testing.T) {
+	ast, err := parser.Parse(`x = "${foo}"`)
+	if err != nil {
+		t.Fatalf("expected no parse error for x = \"${foo}\", got: %v", err)
+	}
+	if len(ast.Fields) == 0 {
+		t.Fatal("expected 1 field")
+	}
+	// The field value must be a plain string literal, not a substitution node.
+	if _, isSubst := ast.Fields[0].Value.(*parser.SubstNode); isSubst {
+		t.Error("expected StringNode, got SubstNode: substitutions inside quoted strings must not be parsed")
+	}
+}
+
+// TestSpecS13_16_SubstOnlyInFieldValuesNotKeys verifies that a substitution
+// cannot appear in key position; `${foo} = 1` must be a parse error.
+// Spec HOCON.md L644. Status: ✅
+func TestSpecS13_16_SubstOnlyInFieldValuesNotKeys(t *testing.T) {
+	if _, err := parser.Parse(`${foo} = 1`); err == nil {
+		t.Error("expected parse error for substitution in key position, got nil")
+	}
+}
+
+// TestSpecS14a_6_UnquotedIncludeNonStartOfKeyIsLiteral verifies that when
+// `include` appears after a dot (i.e. it is NOT the start of a key path), it
+// is treated as a normal identifier, not a directive keyword.
+// Spec HOCON.md L962. Status: ✅
+func TestSpecS14a_6_UnquotedIncludeNonStartOfKeyIsLiteral(t *testing.T) {
+	ast, err := parser.Parse(`x.include = 1`)
+	if err != nil {
+		t.Fatalf("expected no parse error for x.include = 1, got: %v", err)
+	}
+	if len(ast.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(ast.Fields))
+	}
+	// Key must be ["x", "include"] — two path segments.
+	key := ast.Fields[0].Key
+	if len(key) != 2 || key[0] != "x" || key[1] != "include" {
+		t.Errorf("expected key [x include], got %v", key)
+	}
+}
+
+// TestSpecS14a_8_NoValueConcatOnIncludeArg verifies that value concatenation is
+// not allowed on an include argument; `include "a.conf" "b.conf"` must be a
+// parse error. Spec HOCON.md L957. Status: ✅
+func TestSpecS14a_8_NoValueConcatOnIncludeArg(t *testing.T) {
+	if _, err := parser.Parse(`include "a.conf" "b.conf"`); err == nil {
+		t.Error("expected parse error for include with multiple filenames, got nil")
+	}
+}
+
+// TestSpecS14a_9_NoSubstInIncludeArg verifies that substitutions are not
+// allowed as the include argument; `include ${path}` must be a parse error.
+// Spec HOCON.md L959. Status: ✅
+func TestSpecS14a_9_NoSubstInIncludeArg(t *testing.T) {
+	if _, err := parser.Parse(`include ${path}`); err == nil {
+		t.Error("expected parse error for include with substitution argument, got nil")
+	}
+}

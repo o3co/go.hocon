@@ -374,16 +374,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13.3** `${?` is exactly 3 chars (no whitespace before `?`) — §Substitutions (L584)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:709 (TestSpecS13_3_OptionalSubstNoWhitespaceBeforeQ)
+  status: ✅
 
 - **S13.4** Resolver MAY consult external sources (env vars, system properties) for unresolved substitutions — §Substitutions (L588) (concrete env behavior → S26)
   tests: config_test.go:204 (TestConfig_EnvVarInt); config_test.go:212 (TestConfig_EnvVarFloat); config_test.go:220 (TestConfig_EnvVarBool)
   status: ✅
 
 - **S13.5** Substitutions are NOT parsed inside quoted strings — §Substitutions (L593)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:729 (TestSpecS13_5_NoSubstInQuotedString)
+  status: ✅
 
 - **S13.6** Substitution paths are absolute (rooted at config root) — §Substitutions (L603)
   tests: internal/resolver/resolver_test.go:52 (TestResolver_Substitution)
@@ -414,8 +414,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S13.13** Optional undefined in string concat → empty string — §Substitutions (L636)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:1119 (TestSpecS13_13_OptionalUndefinedInStringConcatBecomesEmpty)
+  status: ✅
 
 - **S13.14** Optional undefined in obj/array concat → empty obj/array — §Substitutions (L637)
   tests: testdata/hocon/equiv04/missing-substitutions.conf (fixture)
@@ -426,8 +426,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S13.16** Substitutions only in field values / array elements — §Substitutions (L644)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:746 (TestSpecS13_16_SubstOnlyInFieldValuesNotKeys)
+  status: ✅
 
 - **S13.17** Single-substitution value preserves type — §Substitutions (L648)
   tests: internal/resolver/resolver_test.go:52 (TestResolver_Substitution)
@@ -480,8 +480,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S13a.10** Substitution memoized by instance, not by path — §Self-Referential (L885)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:1139 (TestSpecS13a_10_SubstMemoizedByInstance — skipped; not externally observable)
+  status: 🤷 — internal invariant; no public-API observable test possible
 
 - **S13a.11** Object can refer to its own descendant (`bar : { foo : 42, baz : ${bar.foo} }`) — §Self-Referential (L806)
   tests: config_test.go:947 (TestConfig_DelayedMergeNestedSubstitution)
@@ -492,8 +492,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S13a.13** `a = ${?a}foo` resolves to `"foo"` (look-back undefined) — §Self-Referential (L841)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:1147 (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty — skipped, spec violation)
+  status: ❌ (see [#68](https://github.com/o3co/go.hocon/issues/68))
 
 - **S13a.14** Mutually-referring object fields (`bar.a = ${foo.d}; foo.c = ${bar.b}`) resolve lazily without false cycle — §Self-Referential (L825-834)
   tests: —
@@ -562,20 +562,20 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S14a.6** Unquoted `include` at non-start-of-key is literal — §Include syntax (L962)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:756 (TestSpecS14a_6_UnquotedIncludeNonStartOfKeyIsLiteral)
+  status: ✅
 
 - **S14a.7** Whitespace allowed between `include` and resource name (incl. newlines) — §Include syntax (L952)
   tests: testdata/hocon/test03.conf (fixture)
   status: ✅
 
 - **S14a.8** No value concatenation on include argument — §Include syntax (L957)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:774 (TestSpecS14a_8_NoValueConcatOnIncludeArg)
+  status: ✅
 
 - **S14a.9** No substitutions in include argument — §Include syntax (L959)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:783 (TestSpecS14a_9_NoSubstInIncludeArg)
+  status: ✅
 
 - **S14a.10** Include argument must be quoted string — §Include syntax (L958)
   tests: —
@@ -588,8 +588,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ### S14b. Include semantics: merging
 
 - **S14b.1** Included root must be an object (array → error) — §Include semantics: merging (L993)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:1166 (TestSpecS14b_1_ArrayRootIncludeIsError)
+  status: ✅
 
 - **S14b.2** Included keys merge per duplicate-key rules — §Include semantics: merging (L997)
   tests: internal/resolver/resolver_test.go:286 (TestResolver_IncludeMergeAll); testdata/hocon/test03.conf (fixture)

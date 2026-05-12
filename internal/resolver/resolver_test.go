@@ -1107,3 +1107,83 @@ func resolveErr(src string) (*resolver.Result, error) {
 	}
 	return resolver.Resolve(ast, resolver.Options{})
 }
+
+// -----------------------------------------------------------------------------
+// Spec compliance Phase 3: substitutions & includes (S13, S13a, S14a, S14b).
+// -----------------------------------------------------------------------------
+
+// TestSpecS13_13_OptionalUndefinedInStringConcatBecomesEmpty verifies that an
+// optional substitution that is undefined contributes an empty string when used
+// inside a string concatenation. Spec HOCON.md L636.
+// e.g. `x = "pre"${?missing}"post"` → x == "prepost". Status: ✅
+func TestSpecS13_13_OptionalUndefinedInStringConcatBecomesEmpty(t *testing.T) {
+	res := resolve(t, `x = "pre"${?missing}"post"`)
+	v, ok := res.Root.Get("x")
+	if !ok {
+		t.Fatal("x not found in resolved config")
+	}
+	sv, ok := v.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("expected ScalarVal for x, got %T", v)
+	}
+	if sv.Raw != "prepost" {
+		t.Errorf("expected x == %q, got %q", "prepost", sv.Raw)
+	}
+}
+
+// TestSpecS13a_10_SubstMemoizedByInstance notes that memoization by instance
+// (not by path) is an internal resolver property that cannot be observed from
+// the public API without implementation-specific hooks. This test is left as a
+// documentation placeholder; the behavior cannot be black-box verified.
+// Spec HOCON.md L885. Status: 🤷 — not externally observable.
+func TestSpecS13a_10_SubstMemoizedByInstance(t *testing.T) {
+	t.Skip("S13a.10: memoization-by-instance is an internal invariant not observable via the public API")
+}
+
+// TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty verifies that
+// `a = ${?a}foo` resolves to "foo" when `a` has no prior value; the
+// look-back substitution ${?a} is undefined and contributes nothing.
+// Spec HOCON.md L841. Status: ❌ — impl resolves to "foofoo" (see #68).
+func TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty(t *testing.T) {
+	t.Skipf("spec violation, see #%d", specIssueS13a13)
+	res := resolve(t, `a = ${?a}foo`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found in resolved config")
+	}
+	sv, ok := v.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("expected ScalarVal for a, got %T", v)
+	}
+	if sv.Raw != "foo" {
+		t.Errorf("expected a == %q, got %q", "foo", sv.Raw)
+	}
+}
+
+// TestSpecS14b_1_ArrayRootIncludeIsError verifies that when an included file's
+// root is an array (not an object), it is rejected as a resolve error.
+// Spec HOCON.md L993. Status: ✅
+func TestSpecS14b_1_ArrayRootIncludeIsError(t *testing.T) {
+	f, err := os.CreateTemp("", "array-root-*.conf")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	_, _ = f.WriteString("[1, 2, 3]")
+	name := f.Name()
+	_ = f.Close()
+	defer os.Remove(name)
+
+	src := `include "` + name + `"`
+	ast, err := parser.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, resolveErr := resolver.Resolve(ast, resolver.Options{BaseDir: os.TempDir()})
+	if resolveErr == nil {
+		t.Error("expected error when included file has array root, got nil")
+	}
+}
+
+// specIssueS13a13 is the GitHub issue number for the S13a.13 spec violation.
+// Filed as: resolver incorrectly evaluates `a = ${?a}foo` to "foofoo" instead of "foo".
+const specIssueS13a13 = 68
