@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/o3co/go.hocon/branch/main/graph/badge.svg)](https://codecov.io/gh/o3co/go.hocon)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-[Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) 仕様に完全準拠した Go ライブラリ。
+[Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) 仕様の Go パーサー。現在の準拠率は [仕様準拠](#仕様準拠) を参照。
 
 > **[Claude](https://claude.ai/)（Anthropic）による実装** — 設計・実装のすべてを Claude Code が担当。
 > [GitHub Copilot](https://github.com/features/copilot) および [OpenAI Codex](https://openai.com/index/openai-codex/) によるレビュー。
@@ -202,9 +202,16 @@ max-size  = "512MiB"
 
 ## 仕様準拠
 
-[Lightbend 公式テストスイート](https://github.com/lightbend/config/tree/main/config/src/test/resources) で検証済み：**13/13 グループ PASS**（equiv01-equiv05 + test01-test13）。
+[Lightbend HOCON 仕様](https://github.com/lightbend/config/blob/main/HOCON.md) への準拠状況は [`docs/spec-compliance.md`](docs/spec-compliance.md) に項目単位で記載しています。
 
-[hocon2](https://github.com/o3co/hocon2) の準拠テスト（JSON, YAML, TOML, Properties 出力で 77/77 PASS）でも検証済み。
+| 指標 | 状況 |
+| --- | --- |
+| 仕様全体（out-of-scope を含む） | **52.6%** |
+| In-scope のみ | **58.2%** |
+| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 合格 |
+| [hocon2](https://github.com/o3co/hocon2) 準拠テスト（JSON/YAML/TOML/Properties 出力） | 77/77 合格 |
+
+ts/rs/go 横断のロールアップ: [`xx.hocon/docs/compliance-matrix.md`](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md)。
 
 ## 関連プロジェクト
 
@@ -214,7 +221,7 @@ max-size  = "512MiB"
 | [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/o3co-hocon) | Rust 向け HOCON パーサー |
 | [hocon2](https://github.com/o3co/hocon2) | Go | [pkg.go.dev](https://pkg.go.dev/github.com/o3co/hocon2) | HOCON → JSON/YAML/TOML/Properties 変換 CLI |
 
-すべての実装が Lightbend HOCON 仕様に完全準拠しています。
+3 実装はすべて同じ Lightbend HOCON 仕様で追跡されています — 実装ごとの準拠率は [横断ロールアップ](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) を参照してください。
 
 ## ベストプラクティス
 
