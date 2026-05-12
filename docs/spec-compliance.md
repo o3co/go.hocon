@@ -1,6 +1,6 @@
 # HOCON Spec Compliance — go.hocon
 
-This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-checklist.md) with go.hocon-specific status and test references. It inherits all 209 items in the same order; description lines are verbatim from the template and must not be edited here.
+This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx.hocon/blob/main/docs/spec-checklist.md) with go.hocon-specific status and test references. It inherits all 209 items in the same order; description lines are verbatim from the template and must not be edited here.
 
 - **`tests:`** records the test or fixture exercising each item, or `—` if no test covers it (test debt).
 - **`status:`** meanings follow the legend in the template (✅ ⚠️ ❌ 🤷 ➖).
