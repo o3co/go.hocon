@@ -570,17 +570,11 @@ func TestSpecS10_7_ConcatSameLineOK(t *testing.T) {
 	}
 }
 
-// TestSpecS10_8_StringConcatInFieldKeys verifies that unquoted key segments
-// separated by whitespace form a single key (no dot split). Spec L317.
-// Note: HOCON L317 says concat is allowed in keys via unquoted strings; the
-// parser currently treats "foo bar" as two tokens → parse error.
-// Status: ✅ — quoted multi-word key works; unquoted-with-space is handled by
-// the lexer splitting on whitespace (key is first token, space → next token is
-// treated as start of value without separator → parse error). This matches the
-// spec because L317 refers to adjacent unquoted segments separated by the path
-// concat mechanism, not bare space. This test documents the correct behaviour.
-func TestSpecS10_8_StringConcatInFieldKeysQuoted(t *testing.T) {
-	// Quoted key with embedded space is a valid single-element path.
+// TestSpecS10_8_QuotedKeyWithSpaceAllowed verifies the trivial baseline:
+// quoted keys with embedded whitespace are accepted as a single-element path.
+// (This does NOT exercise the S10.8 spec rule itself; see
+// TestSpecS10_8_UnquotedConcatInKey below.)
+func TestSpecS10_8_QuotedKeyWithSpaceAllowed(t *testing.T) {
 	obj, err := parser.Parse(`"foo bar" = 42`)
 	if err != nil {
 		t.Fatalf("expected no error for quoted key, got: %v", err)
@@ -595,10 +589,31 @@ func TestSpecS10_8_StringConcatInFieldKeysQuoted(t *testing.T) {
 	}
 }
 
+// TestSpecS10_8_UnquotedConcatInKey pins the S10.8 spec rule: unquoted
+// adjacent tokens separated by whitespace form a single concatenated key.
+// Per HOCON L317/L556: `a b c : 42` is equivalent to `"a b c" : 42`.
+// Status: ❌ — parser rejects unquoted multi-token keys (see #65).
+func TestSpecS10_8_UnquotedConcatInKey(t *testing.T) {
+	t.Skipf("spec violation, see #65")
+	// Spec example (L556): `a b c : 42` must parse as key "a b c" → 42.
+	obj, err := parser.Parse(`a b = 1`)
+	if err != nil {
+		t.Fatalf("spec L317/L556: 'a b = 1' must be accepted as key 'a b', got error: %v", err)
+	}
+	if len(obj.Fields) != 1 || obj.Fields[0].Key[0] != "a b" {
+		t.Errorf("expected key ['a b'], got %v", func() interface{} {
+			if len(obj.Fields) > 0 {
+				return obj.Fields[0].Key
+			}
+			return nil
+		}())
+	}
+}
+
 // TestSpecS11_4_TokenFloatKeyRejected pins the current ❌ spec violation:
 // a key like "10.0foo" should parse as path [10, 0foo] per spec L496, but the
 // parser rejects it because parseKey only accepts TokenString and TokenInt.
-// Status: ❌ spec violation — see #<ISSUE>.
+// Status: ❌ spec violation — see #62.
 func TestSpecS11_4_TokenFloatKeyRejected(t *testing.T) {
 	t.Skipf("spec violation, see #62") // filed as S11.4 violation
 	// Spec L496: "10.0foo" → path segments ["10", "0foo"]
@@ -631,17 +646,25 @@ func TestSpecS11_5_Foo10DotZeroPathSplit(t *testing.T) {
 	}
 }
 
-// TestSpecS11_8_PathExpressionAlwaysStringifies verifies that a boolean literal
-// used as a key is treated as its string form "true" / "false". Spec L504.
-// Status: ✅ — parser currently rejects TokenBool as key (expected key, got 4),
-// which aligns with the spec: the only path-eligible tokens are strings and
-// numbers; boolean literals are not valid path expressions.
-// (The spec says path expressions are always string-valued, meaning the parser
-// must not interpret them as typed booleans. Rejecting them is the safe choice.)
-func TestSpecS11_8_BoolLiteralAsKeyRejected(t *testing.T) {
-	// A bare `true` used as a key is not a valid path expression.
-	if _, err := parser.Parse(`true = x`); err == nil {
-		t.Error("expected parse error for bool literal as key, got nil")
+// TestSpecS11_8_BoolLiteralKeyStringifies pins the S11.8 spec rule: a boolean
+// literal in key position must be stringified to its string form ("true" /
+// "false"). Per HOCON L504: "if you have a path expression then it must always
+// be converted to a string, so `true` becomes the string \"true\"."
+// Status: ❌ — parser rejects TokenBool as key (stricter than spec, see #66).
+func TestSpecS11_8_BoolLiteralKeyStringifies(t *testing.T) {
+	t.Skipf("spec violation, see #66")
+	// Spec L504: `true = 42` must parse as key "true" → 42.
+	obj, err := parser.Parse(`true = 42`)
+	if err != nil {
+		t.Fatalf("spec L504: boolean literal in key must be stringified, got error: %v", err)
+	}
+	if len(obj.Fields) != 1 || obj.Fields[0].Key[0] != "true" {
+		t.Errorf("expected key [\"true\"], got %v", func() interface{} {
+			if len(obj.Fields) > 0 {
+				return obj.Fields[0].Key
+			}
+			return nil
+		}())
 	}
 }
 
@@ -663,22 +686,15 @@ func TestSpecS12_5_IncludeReservedAsKeyStart(t *testing.T) {
 	}
 }
 
-// TestSpecS12_5_IncludeDotFooAllowedAsKey verifies that `include.foo` (where
-// `include` is the first segment of a dot-path) is accepted as a regular key.
-// Spec L570 reserves `include` only when it stands alone as the full first
-// identifier before the assignment operator, not when it is the prefix of a
-// path expression.
-// Status: ✅
-func TestSpecS12_5_IncludeDotFooAllowedAsKey(t *testing.T) {
-	obj, err := parser.Parse(`include.foo = x`)
-	if err != nil {
-		t.Fatalf("expected no error for include.foo key, got: %v", err)
-	}
-	if len(obj.Fields) != 1 {
-		t.Fatalf("expected 1 field, got %d", len(obj.Fields))
-	}
-	want := []string{"include", "foo"}
-	if len(obj.Fields[0].Key) != 2 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
-		t.Errorf("expected key path %v, got %v", want, obj.Fields[0].Key)
+// TestSpecS12_5_IncludeDotFooRejected pins the S12.5 spec rule: `include` may
+// NOT begin a path expression in a key, regardless of whether it stands alone
+// or is the prefix of a dotted path. Per HOCON L570.
+// Status: ❌ — parser currently accepts `include.foo = x` and stores key
+// ["include", "foo"] (see #67). Identified by Codex review on PR #64.
+func TestSpecS12_5_IncludeDotFooRejected(t *testing.T) {
+	t.Skipf("spec violation, see #67")
+	// Spec L570: `include` reserved as start of a path expression.
+	if _, err := parser.Parse(`include.foo = x`); err == nil {
+		t.Error("expected parse error: 'include.foo' begins with reserved 'include', must be rejected")
 	}
 }
