@@ -2,7 +2,7 @@
 
 This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-checklist.md) with go.hocon-specific status and test references. It inherits all 209 items in the same order; description lines are verbatim from the template and must not be edited here.
 
-- **`tests:`** is a placeholder (`—`) throughout. Actual test-path mapping is a separate later phase.
+- **`tests:`** records the test or fixture exercising each item, or `—` if no test covers it (test debt).
 - **`status:`** meanings follow the legend in the template (✅ ⚠️ ❌ 🤷 ➖).
 - **Compliance rate formula:** `(✅ + ⚠️·0.5) / total` (spec-total) and `(✅ + ⚠️·0.5) / (total − ➖)` (in-scope). See the template for the full convention.
 - Items marked `out-of-scope:` in the template keep that line verbatim and are set `status: ➖`.
@@ -70,8 +70,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S3.2** Root non-object/non-array is invalid (when explicitly enclosed) — §Omit root braces (L131)
-  tests: internal/parser/parser_test.go:427 (TestBracedRootTrailingGarbage)
-  status: ✅
+  tests: —
+  status: 🤷
 
 - **S3.3** Implicit `{}` when file does not start with `[` or `{` — §Omit root braces (L134)
   tests: internal/parser/parser_test.go:188 (TestBracedRootWithTrailingFields); testdata/hocon/equiv01/no-root-braces.conf (fixture)
@@ -228,8 +228,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ✅
 
 - **S10.2** All arrays → array concatenation — §Value concatenation (L312)
-  tests: config_test.go:394 (TestConfig_StringConcat_ArraySelfRef); internal/resolver/resolver_test.go:567 (TestResolver_ArrayConcatenationPermissive)
-  status: ⚠️ (permissive extension — test allows array + scalar concat; spec requires error per §Array and object concatenation L385)
+  tests: config_test.go:394 (TestConfig_StringConcat_ArraySelfRef)
+  status: ✅
 
 - **S10.3** All objects → object merge (concatenation) — §Value concatenation (L314)
   tests: internal/resolver/resolver_test.go:542 (TestResolver_ObjectConcatenation); internal/resolver/resolver_test.go:594 (TestResolver_ObjectConcatenationDeepMerge)
@@ -272,8 +272,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S10.13** Array/object appearing in string concat is an error — §String value concatenation (L373)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:567 (TestResolver_ArrayConcatenationPermissive)
+  status: ⚠️ — permissive extension: test asserts `a = [1, 2] 3` → `[1, 2, 3]` (array followed by scalar in concat); spec L373 says arrays/objects in string concat must error
 
 - **S10.14** Whitespace around obj/array substitutions is ignored — §Concatenation with whitespace (L440)
   tests: —
@@ -314,8 +314,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S11.4** `10.0foo` → path `[10, 0foo]` — §Path expressions (L496)
-  tests: config_test.go:835 (TestConfig_DotPrefixedFloat_ToObject)
-  status: ✅
+  tests: —
+  status: ❌ — impl violates spec: cited test only covers `.33`, not `10.0foo`. Parser key types accept TokenString/TokenInt but not TokenFloat (internal/parser/parser.go:248), so `10.0foo = x` is rejected rather than producing the spec-defined path split
 
 - **S11.5** `foo10.0` → path `[foo10, 0]` — §Path expressions (L498)
   tests: —
@@ -402,8 +402,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ✅
 
 - **S13.10** Required substitution undefined → error — §Substitutions (L627)
-  tests: internal/resolver/resolver_test.go:82 (TestResolver_CircularRef)
-  status: ✅
+  tests: —
+  status: 🤷
 
 - **S13.11** Optional undefined in field value → field not created — §Substitutions (L632)
   tests: internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); config_test.go:274 (TestUnsetEnvVarOptional)
@@ -488,16 +488,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ✅
 
 - **S13a.12** Self-ref in path expression `${foo.a}` resolves to "below" — §Self-Referential (L791)
-  tests: config_test.go:237 (TestConfig_OptionalSubstitutionFallback_SubstPrior)
-  status: ✅
+  tests: —
+  status: 🤷
 
 - **S13a.13** `a = ${?a}foo` resolves to `"foo"` (look-back undefined) — §Self-Referential (L841)
   tests: —
   status: 🤷
 
 - **S13a.14** Mutually-referring object fields (`bar.a = ${foo.d}; foo.c = ${bar.b}`) resolve lazily without false cycle — §Self-Referential (L825-834)
-  tests: config_test.go:947 (TestConfig_DelayedMergeNestedSubstitution)
-  status: ✅
+  tests: —
+  status: 🤷
 
 ### S13b. `+=` field separator
 
@@ -516,24 +516,24 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ### S13c. List values from environment variables
 
 - **S13c.1** `${X[]}` looks up `X_0`, `X_1`, ... env vars — §List values from env (L900)
-  tests: testdata/hocon/env-variables.conf (fixture)
-  status: 🤷
+  tests: —
+  status: ❌ — not implemented; internal/lexer/lexer.go:397 rejects `[` / `]` inside `${...}` body, so `${X[]}` is unparseable
 
 - **S13c.2** Stops at first missing index — §List values from env (L905)
-  tests: testdata/hocon/env-variables.conf (fixture)
-  status: 🤷
+  tests: —
+  status: ❌ — not implemented (see S13c.1)
 
 - **S13c.3** `${X[]}` no elements → required error — §List values from env (L910)
-  tests: testdata/hocon/env-variables.conf (fixture)
-  status: 🤷
+  tests: —
+  status: ❌ — not implemented (see S13c.1)
 
 - **S13c.4** `${?X[]}` no elements → undefined / removed — §List values from env (L912)
-  tests: testdata/hocon/env-variables.conf (fixture)
-  status: 🤷
+  tests: —
+  status: ❌ — not implemented (see S13c.1)
 
 - **S13c.5** `[]` suffix supported only for env vars (not config / sys props) — §List values from env (L902)
   tests: —
-  status: 🤷
+  status: ❌ — not implemented (see S13c.1); the constraint is moot when the `[]` suffix itself is rejected by the lexer
 
 ## S14. Includes
 
