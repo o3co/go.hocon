@@ -22,7 +22,7 @@ import (
 // v must be a non-nil pointer to a struct or map[string]any.
 func (c *Config) Unmarshal(v any) error {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("hocon: Unmarshal requires a non-nil pointer")
 	}
 	return unmarshalVal(c.root, rv.Elem())
@@ -30,7 +30,7 @@ func (c *Config) Unmarshal(v any) error {
 
 func unmarshalVal(val resolver.Val, target reflect.Value) error {
 	// dereference pointer
-	if target.Kind() == reflect.Ptr {
+	if target.Kind() == reflect.Pointer {
 		if val == nil {
 			return nil
 		}
