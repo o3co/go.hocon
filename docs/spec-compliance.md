@@ -692,32 +692,39 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S15. Numerically-indexed objects to arrays
 
 - **S15.1** `{"0":"a","1":"b"}` → `["a","b"]` when array context — §Conversion (L1191)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S15_1_NumericObjectToArray)
+  status: ❌
+  note: numerically-indexed object-to-array conversion not implemented; see issue #71.
 
 - **S15.2** Conversion is lazy (only on type-required access) — §Conversion (L1204)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S15_2_ConversionIsLazy)
+  status: ❌
+  note: conversion not implemented at all; see issue #71.
 
 - **S15.3** Conversion in concatenation when list expected — §Conversion (L1210)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S15_3_ConversionInConcatenation_Pin); config_test.go (TestSpec_S15_3_ConversionInConcatenation_Spec)
+  status: ❌
+  note: real concat context `arr = [a] ${obj}` (with `obj = {"0":"x","1":"y"}`) parses, but the object is inserted un-converted as an element — `GetStringSlice` panics and `GetStringSliceOption` returns None. Spec L1210 requires conversion + flatten to `["a","x","y"]`. Pin asserts the Option-None outcome. Tracked in #71.
 
 - **S15.4** Empty object NOT converted — §Conversion (L1212)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S15_4_EmptyObjectNotConverted)
+  status: ✅ (incidental)
+  note: passes today because no conversion runs at all — `arr: {}` stays an object and `GetStringSliceOption` returns None. When #71 lands, the test must continue to pass via an explicit empty-object guard before the conversion path, not by its absence. Aligns with rs.hocon's identical determination.
 
 - **S15.5** Non-integer keys ignored during conversion — §Conversion (L1214)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S15_5_NonIntegerKeysIgnored)
+  status: ❌
+  note: conversion not implemented at all; see issue #71.
 
 - **S15.6** Missing indices compacted in resulting array — §Conversion (L1216)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S15_6_MissingIndicesCompacted)
+  status: ❌
+  note: conversion not implemented at all; see issue #71.
 
 - **S15.7** Sorted by integer key value — §Conversion (L1216)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S15_7_SortedByIntegerKey)
+  status: ❌
+  note: conversion not implemented at all; see issue #71.
 
 ## S16. MIME Type
 
@@ -745,20 +752,23 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S17.5** `"null"` → null when null requested — §Automatic type conversions (L1244)
-  tests: —
-  status: 🤷
+  out-of-scope: spec L1244 describes conversion when **null type is explicitly requested** via a typed accessor. go.hocon's API surface has no "request null" accessor — `GetStringOption` returns None for null values naturally based on stored type, with no conversion path from the string `"null"`. The spec clause is structurally inapplicable to go.hocon's API model. Aligns with [ts.hocon#90](https://github.com/o3co/ts.hocon/pull/90) and [rs.hocon#81](https://github.com/o3co/rs.hocon/pull/81)'s identical determinations.
+  tests: config_test.go (TestSpec_S17_5_NullStorageSanity) — sanity check that quoted `"null"` is stored as a string scalar and unquoted `null` as the null scalar; no type-conversion is exercised.
+  status: ➖
 
 - **S17.6** null → other type: error — §Automatic type conversions (L1252)
   tests: config_test.go:40 (TestConfig_GetString_Null_Panics)
   status: ✅
 
 - **S17.7** object → other type: error — §Automatic type conversions (L1254)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S17_7_ObjectToOtherTypePanics); config_test.go (TestSpec_S17_7_ObjectToOtherTypeOptionReturnsNone)
+  status: ⚠️
+  note: non-Option accessors panic (conformant). Option accessors return None instead of an error, indistinguishable from a missing key — partial violation; see issue #72.
 
 - **S17.8** array → other (except numeric-indexed): error — §Automatic type conversions (L1255)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S17_8_ArrayToOtherTypePanics); config_test.go (TestSpec_S17_8_ArrayToOtherTypeOptionReturnsNone)
+  status: ⚠️
+  note: non-Option accessors panic (conformant). Option accessors return None instead of an error, indistinguishable from a missing key — partial violation; see issue #72.
 
 ## S18. Units format
 
@@ -849,12 +859,14 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S21.4** Single-letter abbreviations → powers of 2 (java -Xmx convention) — §Size in bytes format (L1385)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S21_4_SingleLetterByteAbbreviations)
+  status: ❌
+  note: K, k, M, m, G, g, T, t, P, p, E, e are not in the parseBytes multiplier map; see issue #73.
 
 - **S21.5** Fractional values supported (`0.5M`) — §Units format (L1281-1294) + §Size in bytes (L1335-1342)
-  tests: —
-  status: 🤷
+  tests: config_test.go (TestSpec_S21_5_FractionalByteValues)
+  status: ❌
+  note: parseBytes uses strconv.ParseInt which rejects fractional values; see issue #74.
 
 ## S22. Config object merging API
 
