@@ -70,7 +70,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S3.2** Root non-object/non-array is invalid (when explicitly enclosed) — §Omit root braces (L131)
-  tests: internal/parser/parser_test.go (TestSpecS3_2_RootNonObjectNonArrayInvalid)
+  tests: internal/parser/parser_test.go:532 (TestSpecS3_2_RootNonObjectNonArrayInvalid)
   status: ✅
 
 - **S3.3** Implicit `{}` when file does not start with `[` or `{` — §Omit root braces (L134)
@@ -236,7 +236,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.4** Mixing arrays + objects in concat is an error — §Array and object concatenation (L385)
-  tests: internal/resolver/resolver_test.go (TestSpecS10_4_MixingArrayAndObjectInConcatIsError — skipped)
+  tests: internal/resolver/resolver_test.go:1009 (TestSpecS10_4_MixingArrayAndObjectInConcatIsError)
   status: ❌ — resolver allows array+object concat silently; see #63
 
 - **S10.5** Inner whitespace between simple values preserved — §String value concatenation (L332)
@@ -248,12 +248,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.7** Concatenation does not span a newline — §String value concatenation (L335)
-  tests: internal/parser/parser_test.go (TestSpecS10_7_ConcatDoesNotSpanNewline, TestSpecS10_7_ConcatSameLineOK)
+  tests: internal/parser/parser_test.go:552 (TestSpecS10_7_ConcatDoesNotSpanNewline); internal/parser/parser_test.go:563 (TestSpecS10_7_ConcatSameLineOK)
   status: ✅
 
 - **S10.8** String concat allowed in field keys — §Value concatenation (L317)
-  tests: internal/parser/parser_test.go (TestSpecS10_8_StringConcatInFieldKeysQuoted)
-  status: ✅
+  tests: internal/parser/parser_test.go:577 (TestSpecS10_8_QuotedKeyWithSpaceAllowed); internal/parser/parser_test.go:596 (TestSpecS10_8_UnquotedConcatInKey)
+  status: ❌ (see #65) — parser rejects unquoted concat `a b = 1` per L317/L556 (spec requires acceptance as key 'a b')
 
 - **S10.9** `true`/`false` stringify to `"true"`/`"false"` in concat — §String value concatenation (L363)
   tests: config_test.go:820 (TestConfig_GetString_ReturnsRawTextForBool)
@@ -272,11 +272,11 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S10.13** Array/object appearing in string concat is an error — §String value concatenation (L373)
-  tests: internal/resolver/resolver_test.go:567 (TestResolver_ArrayConcatenationPermissive); internal/resolver/resolver_test.go (TestSpecS10_13_ArrayInStringConcatPermissivePinned)
+  tests: internal/resolver/resolver_test.go:567 (TestResolver_ArrayConcatenationPermissive); internal/resolver/resolver_test.go:1027 (TestSpecS10_13_ArrayInStringConcatPermissivePinned)
   status: ⚠️ — permissive extension: test asserts `a = [1, 2] 3` → `[1, 2, 3]` (array followed by scalar in concat); spec L373 says arrays/objects in string concat must error. Pin test added in Phase 2.
 
 - **S10.14** Whitespace around obj/array substitutions is ignored — §Concatenation with whitespace (L440)
-  tests: internal/resolver/resolver_test.go (TestSpecS10_14_WhitespaceAroundSubstitutionIsIgnored)
+  tests: internal/resolver/resolver_test.go:1046 (TestSpecS10_14_WhitespaceAroundSubstitutionIsIgnored)
   status: ✅
 
 - **S10.15** Quoted whitespace between obj/array substitutions is an error — §Concatenation with whitespace (L442)
@@ -296,7 +296,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.19** Mixing a substitution-resolved object with a literal array (or vice versa) is an error — §Array and object concatenation (L385-389)
-  tests: internal/resolver/resolver_test.go (TestSpecS10_19_SubstResolvedObjectPlusLiteralArrayIsError — skipped)
+  tests: internal/resolver/resolver_test.go:1066 (TestSpecS10_19_SubstResolvedObjectPlusLiteralArrayIsError)
   status: ❌ — resolver silently accepts; see #63
 
 ## S11. Path expressions
@@ -314,11 +314,11 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: 🤷
 
 - **S11.4** `10.0foo` → path `[10, 0foo]` — §Path expressions (L496)
-  tests: internal/parser/parser_test.go (TestSpecS11_4_TokenFloatKeyRejected — skipped)
+  tests: internal/parser/parser_test.go:617 (TestSpecS11_4_TokenFloatKeyRejected)
   status: ❌ — impl violates spec: parseKey only accepts TokenString/TokenInt, not TokenFloat; `10.0foo = x` is rejected instead of producing path [10, 0foo]; see #62
 
 - **S11.5** `foo10.0` → path `[foo10, 0]` — §Path expressions (L498)
-  tests: internal/parser/parser_test.go (TestSpecS11_5_Foo10DotZeroPathSplit)
+  tests: internal/parser/parser_test.go:635 (TestSpecS11_5_Foo10DotZeroPathSplit)
   status: ✅
 
 - **S11.6** Empty path element must be quoted (`a."".b` ok) — §Path expressions (L515)
@@ -330,11 +330,11 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S11.8** Path expression always stringifies (single `true` → `"true"`) — §Path expressions (L504)
-  tests: internal/parser/parser_test.go (TestSpecS11_8_BoolLiteralAsKeyRejected)
-  status: ✅ — parser rejects bool/null literals as path starts (spec-safe: only strings and numbers are path-eligible)
+  tests: internal/parser/parser_test.go:654 (TestSpecS11_8_BoolLiteralKeyStringifies)
+  status: ❌ (see #66) — parser rejects TokenBool in key position (stricter than spec L504, which requires stringification to 'true'/'false')
 
 - **S11.9** Substitutions not allowed inside path expressions — §Path expressions (L479)
-  tests: internal/parser/parser_test.go (TestSpecS11_9_SubstitutionNotAllowedInPathExpr)
+  tests: internal/parser/parser_test.go:673 (TestSpecS11_9_SubstitutionNotAllowedInPathExpr)
   status: ✅
 
 - **S11.10** Quoted path segments respected in getter API (e.g. `config.get("foo.\"bar.baz\"")`) — §Path expressions (L485)
@@ -360,8 +360,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S12.5** `include` may NOT begin a path expression in a key — §Paths as keys (L570)
-  tests: internal/parser/parser_test.go (TestSpecS12_5_IncludeReservedAsKeyStart, TestSpecS12_5_IncludeDotFooAllowedAsKey)
-  status: ✅
+  tests: internal/parser/parser_test.go:683 (TestSpecS12_5_IncludeReservedAsKeyStart); internal/parser/parser_test.go:694 (TestSpecS12_5_IncludeDotFooRejected)
+  status: ❌ (see #67) — `include = x` correctly rejected, but `include.foo = x` is accepted (parser does not reject dotted paths beginning with reserved 'include' per L570)
 
 ## S13. Substitutions
 
@@ -506,7 +506,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13b.2** `+=` on non-array prior value → error — §`+=` field separator (L732)
-  tests: internal/resolver/resolver_test.go (TestSpecS13b_2_PlusEqualsOnStringPriorValueIsError, TestSpecS13b_2_PlusEqualsOnIntPriorValueIsError, TestSpecS13b_2_PlusEqualsOnObjectPriorValueIsError)
+  tests: internal/resolver/resolver_test.go:1077 (TestSpecS13b_2_PlusEqualsOnStringPriorValueIsError); internal/resolver/resolver_test.go:1086 (TestSpecS13b_2_PlusEqualsOnIntPriorValueIsError); internal/resolver/resolver_test.go:1095 (TestSpecS13b_2_PlusEqualsOnObjectPriorValueIsError)
   status: ✅
 
 - **S13b.3** `+=` works on first mention of key (no prior `=`) — §`+=` field separator (L734)
