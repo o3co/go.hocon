@@ -17,24 +17,24 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S1.2.1** Quoted strings accept valid JSON escape sequences (`\" \\ \/ \b \f \n \r \t`) — §Unchanged from JSON (L118)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:212 (TestUnicodeEscape); testdata/hocon/subst-tokenize/st10-escape-newline.conf (fixture); testdata/hocon/subst-tokenize/st12-escape-backslash.conf (fixture); testdata/hocon/subst-tokenize/st13-escape-quote.conf (fixture); testdata/hocon/subst-tokenize/st20-quoted-escape-backspace-formfeed.conf (fixture)
+  status: ✅
 
 - **S1.2.2** Unknown / invalid escape sequence (e.g. `\q`, `\x`) is rejected — §Unchanged from JSON (L118)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:375 (TestUnknownEscapeError); internal/lexer/lexer_test.go:329 (TestErrorPositionInsideSubstBody); testdata/hocon/subst-tokenize/st-err01-invalid-escape-x.conf (fixture); testdata/hocon/subst-tokenize/st-err02-invalid-escape-q.conf (fixture)
+  status: ✅
 
 - **S1.2.3** Malformed `\uXXXX` (short / non-hex) is rejected — §Unchanged from JSON (L118)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:225 (TestUnicodeEscapeInvalid); testdata/hocon/subst-tokenize/st-err03-invalid-unicode-short.conf (fixture); testdata/hocon/subst-tokenize/st-err04-invalid-unicode-nonhex.conf (fixture)
+  status: ✅
 
 - **S1.2.4** Unescaped control char / raw newline in quoted string is rejected — §Unchanged from JSON (L118)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/subst-tokenize/st-err07-newline-in-string.conf (fixture)
+  status: ✅
 
 - **S1.2.5** Unterminated quoted string is rejected — §Unchanged from JSON (L118)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:149 (TestUnterminatedString); internal/parser/parser_test.go:245 (TestParserUnterminatedString); testdata/hocon/subst-tokenize/st-err06-unterminated-string.conf (fixture)
+  status: ✅
 
 - **S1.2.6** Unpaired UTF-16 surrogate codepoint in `\uXXXX` escape — §Unchanged from JSON (L118)
   out-of-scope: intentional language-natural divergence. Java (Lightbend reference) silently accepts unpaired surrogates because Java strings are 16-bit code-unit sequences; Rust `char` and Go `rune` cannot represent them and reject. xx.hocon conformance fixtures cannot cover this case (the Java generator fails to encode unpaired surrogates as UTF-8 when writing expected JSON). Each implementation follows its language's string-type constraints. Documented in xx.hocon commit 86bd82e.
@@ -42,22 +42,22 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ➖
 
 - **S1.3** Value types: string, number, object, array, boolean, null — §Unchanged from JSON (L119)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:148 (TestParser_NullBoolNumbers); testdata/hocon/equiv01/original.json (fixture)
+  status: ✅
 
 - **S1.4** Number formats match JSON (no NaN, no Infinity) — §Unchanged from JSON (L120)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:71 (TestLexer_Numbers); internal/lexer/lexer_test.go:88 (TestReadNumberScientific)
+  status: ✅
 
 ## S2. Comments
 
 - **S2.1** `//` line comment — §Comments (L125)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:43 (TestLexer_Comment); testdata/hocon/equiv01/comments.conf (fixture)
+  status: ✅
 
 - **S2.2** `#` line comment — §Comments (L125)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:43 (TestLexer_Comment); testdata/hocon/equiv01/comments.conf (fixture)
+  status: ✅
 
 - **S2.3** Comment markers inside quoted strings are literal — §Comments (L126)
   tests: —
@@ -70,32 +70,32 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S3.2** Root non-object/non-array is invalid (when explicitly enclosed) — §Omit root braces (L131)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:427 (TestBracedRootTrailingGarbage)
+  status: ✅
 
 - **S3.3** Implicit `{}` when file does not start with `[` or `{` — §Omit root braces (L134)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:188 (TestBracedRootWithTrailingFields); testdata/hocon/equiv01/no-root-braces.conf (fixture)
+  status: ✅
 
 - **S3.4** Unbalanced trailing `}` without opening `{` is invalid — §Omit root braces (L138)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:427 (TestBracedRootTrailingGarbage)
+  status: ✅
 
 ## S4. Key-value separator
 
 - **S4.1** `=` is interchangeable with `:` — §Key-value separator (L143)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:23 (TestLexer_BraceColon); testdata/hocon/equiv01/equals.conf (fixture)
+  status: ✅
 
 - **S4.2** `:` / `=` may be omitted before `{` — §Key-value separator (L146)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:46 (TestParser_NestedObject); testdata/hocon/equiv01/omit-colons.conf (fixture)
+  status: ✅
 
 ## S5. Commas
 
 - **S5.1** Newline acts as element/field separator — §Commas (L152)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/equiv01/no-commas.conf (fixture)
+  status: ✅
 
 - **S5.2** Single trailing comma is allowed and ignored — §Commas (L155)
   tests: —
@@ -128,8 +128,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S6.3** BOM (0xFEFF) treated as whitespace — §Whitespace (L173)
-  tests: —
-  status: 🤷
+  tests: config_test.go:408 (TestConfig_BOM_ParseFile); config_test.go:422 (TestConfig_BOM_ParseString); testdata/hocon/bom.conf (fixture)
+  status: ✅
 
 - **S6.4** ASCII control whitespace (tab, vtab, FF, CR, FS, GS, RS, US) — §Whitespace (L174)
   tests: —
@@ -142,50 +142,50 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S7. Duplicate keys and object merging
 
 - **S7.1** Later non-object key overrides earlier — §Duplicate keys (L189)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:121 (TestResolver_DuplicateScalarLastWins)
+  status: ✅
 
 - **S7.2** Two object values are merged recursively — §Duplicate keys (L191)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:37 (TestResolver_DuplicateKeyMerge); internal/resolver/resolver_test.go:136 (TestResolver_ObjectBracesMerge); internal/resolver/resolver_test.go:152 (TestResolver_ObjectEqualsObjectMerges)
+  status: ✅
 
 - **S7.3** Merge: fields in only one object are kept — §Duplicate keys (L199)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:37 (TestResolver_DuplicateKeyMerge); internal/resolver/resolver_test.go:136 (TestResolver_ObjectBracesMerge)
+  status: ✅
 
 - **S7.4** Merge: non-object field in both → second wins — §Duplicate keys (L201)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:121 (TestResolver_DuplicateScalarLastWins)
+  status: ✅
 
 - **S7.5** Merge: object field in both → recursive merge — §Duplicate keys (L203)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:152 (TestResolver_ObjectEqualsObjectMerges); internal/resolver/resolver_test.go:594 (TestResolver_ObjectConcatenationDeepMerge)
+  status: ✅
 
 - **S7.6** Intermediate non-object value breaks merge with later object — §Duplicate keys (L207)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:185 (TestResolver_ObjectEqualsReplacesWithScalar)
+  status: ✅
 
 ## S8. Unquoted strings
 
 - **S8.1** Forbidden characters rejected (``$ " { } [ ] : = , + # ` ^ ? ! @ * & \``) and whitespace — §Unquoted strings (L245)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:261 (TestUnquotedStarForbidden)
+  status: ✅
 
 - **S8.2** `//` inside an unquoted string starts a comment — §Unquoted strings (L248)
   tests: —
   status: 🤷
 
 - **S8.3** Initial token `true`/`false`/`null` parsed as keyword — §Unquoted strings (L250)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:148 (TestParser_NullBoolNumbers)
+  status: ✅
 
 - **S8.4** Initial number characters parse as number — §Unquoted strings (L250)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:71 (TestLexer_Numbers); internal/parser/parser_test.go:148 (TestParser_NullBoolNumbers)
+  status: ✅
 
 - **S8.5** Embedded `true`/`false`/`null`/number become string content — §Unquoted strings (L266)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/equiv01/unquoted.conf (fixture)
+  status: ✅
 
 - **S8.6** Unquoted string cannot begin with `0-9` or `-` — §Unquoted strings (L270)
   tests: —
@@ -202,50 +202,50 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S9. Multi-line strings
 
 - **S9.1** `"""..."""` triple-quoted string — §Multi-line strings (L291)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:122 (TestLexer_TripleQuoted); testdata/hocon/equiv05/triple-quotes.conf (fixture)
+  status: ✅
 
 - **S9.2** Newlines and whitespace preserved literally — §Multi-line strings (L293)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:122 (TestLexer_TripleQuoted); testdata/hocon/equiv05/triple-quotes.conf (fixture)
+  status: ✅
 
 - **S9.3** Unicode escapes NOT interpreted inside triple-quoted — §Multi-line strings (L294)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:122 (TestLexer_TripleQuoted); testdata/hocon/equiv05/triple-quotes.conf (fixture)
+  status: ✅
 
 - **S9.4** Scala-style trailing extra quotes are part of string — §Multi-line strings (L300)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/equiv05/triple-quotes.conf (fixture)
+  status: ✅
 
 - **S9.5** Unterminated `"""` raises an error — §Multi-line strings (L291-293, by analogy with quoted strings)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:183 (TestUnterminatedTripleQuotedString); internal/parser/parser_test.go:265 (TestParserUnterminatedTripleQuote)
+  status: ✅
 
 ## S10. Value concatenation
 
 - **S10.1** Simple values + non-newline whitespace → string concat — §Value concatenation (L310)
-  tests: —
-  status: 🤷
+  tests: config_test.go:357 (TestConfig_StringConcat_AdjacentStringsPreservesSpace); config_test.go:376 (TestConfig_StringConcat_UnquotedWords)
+  status: ✅
 
 - **S10.2** All arrays → array concatenation — §Value concatenation (L312)
-  tests: —
-  status: 🤷
+  tests: config_test.go:394 (TestConfig_StringConcat_ArraySelfRef); internal/resolver/resolver_test.go:567 (TestResolver_ArrayConcatenationPermissive)
+  status: ⚠️ (permissive extension — test allows array + scalar concat; spec requires error per §Array and object concatenation L385)
 
 - **S10.3** All objects → object merge (concatenation) — §Value concatenation (L314)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:542 (TestResolver_ObjectConcatenation); internal/resolver/resolver_test.go:594 (TestResolver_ObjectConcatenationDeepMerge)
+  status: ✅
 
 - **S10.4** Mixing arrays + objects in concat is an error — §Array and object concatenation (L385)
   tests: —
   status: 🤷
 
 - **S10.5** Inner whitespace between simple values preserved — §String value concatenation (L332)
-  tests: —
-  status: 🤷
+  tests: config_test.go:357 (TestConfig_StringConcat_AdjacentStringsPreservesSpace)
+  status: ✅
 
 - **S10.6** Leading/trailing whitespace around concat discarded — §String value concatenation (L346)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/equiv01/unquoted.conf (fixture)
+  status: ✅
 
 - **S10.7** Concatenation does not span a newline — §String value concatenation (L335)
   tests: —
@@ -256,16 +256,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S10.9** `true`/`false` stringify to `"true"`/`"false"` in concat — §String value concatenation (L363)
-  tests: —
-  status: 🤷
+  tests: config_test.go:820 (TestConfig_GetString_ReturnsRawTextForBool)
+  status: ✅
 
 - **S10.10** `null` stringifies to `"null"` in concat — §String value concatenation (L364)
   tests: —
   status: 🤷
 
 - **S10.11** Numbers stringify as written in the source file — §String value concatenation (L366)
-  tests: —
-  status: 🤷
+  tests: config_test.go:813 (TestConfig_GetString_ReturnsRawTextForNumber); config_test.go:827 (TestConfig_GetString_DotPrefixedFloat); config_test.go:852 (TestConfig_GetString_OctalLikePreserved)
+  status: ✅
 
 - **S10.12** A single non-string value is NOT stringified (type preserved) — §String value concatenation (L376)
   tests: —
@@ -288,12 +288,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S10.17** Substitution resolving to an array participates in array concat (`${arr} [x]`) — §Array and object concatenation (L387)
-  tests: —
-  status: 🤷
+  tests: config_test.go:394 (TestConfig_StringConcat_ArraySelfRef); internal/resolver/resolver_test.go:100 (TestResolver_PlusEquals)
+  status: ✅
 
 - **S10.18** Substitution resolving to an object participates in object merge (`${obj} {x:1}`) — §Array and object concatenation (L388)
-  tests: —
-  status: 🤷
+  tests: config_test.go:919 (TestConfig_DelayedMergeObjectWithSubstitution)
+  status: ✅
 
 - **S10.19** Mixing a substitution-resolved object with a literal array (or vice versa) is an error — §Array and object concatenation (L385-389)
   tests: —
@@ -302,32 +302,32 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S11. Path expressions
 
 - **S11.1** `.` outside quoted is a path separator — §Path expressions (L483)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:38 (TestParser_DotNotation); config_test.go:152 (TestConfig_NestedPath); testdata/hocon/subst-tokenize/st05-unquoted-dot-chain.conf (fixture)
+  status: ✅
 
 - **S11.2** `.` inside quoted is literal — §Path expressions (L484)
-  tests: —
-  status: 🤷
+  tests: config_test.go:302 (TestQuotedPathLookup); testdata/hocon/subst-tokenize/st03-quoted-dot-in-key.conf (fixture)
+  status: ✅
 
 - **S11.3** Numbers retain original string representation in paths — §Path expressions (L489)
   tests: —
   status: 🤷
 
 - **S11.4** `10.0foo` → path `[10, 0foo]` — §Path expressions (L496)
-  tests: —
-  status: 🤷
+  tests: config_test.go:835 (TestConfig_DotPrefixedFloat_ToObject)
+  status: ✅
 
 - **S11.5** `foo10.0` → path `[foo10, 0]` — §Path expressions (L498)
   tests: —
   status: 🤷
 
 - **S11.6** Empty path element must be quoted (`a."".b` ok) — §Path expressions (L515)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/subst-tokenize/st09-empty-quoted-key.conf (fixture)
+  status: ✅
 
 - **S11.7** `a..b` and paths starting/ending with `.` are errors — §Path expressions (L517)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/subst-tokenize/st-err08-empty-path.conf (fixture); testdata/hocon/subst-tokenize/st-err09-empty-segment-leading-dot.conf (fixture); testdata/hocon/subst-tokenize/st-err10-empty-segment-trailing-dot.conf (fixture); testdata/hocon/subst-tokenize/st-err11-empty-segment-double-dot.conf (fixture)
+  status: ✅
 
 - **S11.8** Path expression always stringifies (single `true` → `"true"`) — §Path expressions (L504)
   tests: —
@@ -338,26 +338,26 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S11.10** Quoted path segments respected in getter API (e.g. `config.get("foo.\"bar.baz\"")`) — §Path expressions (L485)
-  tests: —
-  status: 🤷
+  tests: config_test.go:302 (TestQuotedPathLookup); config_test.go:315 (TestNestedQuotedPathLookup); config_test.go:325 (TestEscapedQuoteInPath)
+  status: ✅
 
 ## S12. Paths as keys
 
 - **S12.1** `foo.bar : 42` expands to `foo { bar : 42 }` — §Paths as keys (L530)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:38 (TestParser_DotNotation); testdata/hocon/equiv01/path-keys.conf (fixture)
+  status: ✅
 
 - **S12.2** Multi-element keys expand to nested objects — §Paths as keys (L538)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:38 (TestParser_DotNotation); testdata/hocon/equiv02/path-keys.conf (fixture)
+  status: ✅
 
 - **S12.3** Path keys merge per duplicate-key rules — §Paths as keys (L544)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/equiv02/path-keys.conf (fixture)
+  status: ✅
 
 - **S12.4** Whitespace in keys: `a b c : 42` = `"a b c" : 42` — §Paths as keys (L553)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/equiv02/path-keys-weird-whitespace.conf (fixture)
+  status: ✅
 
 - **S12.5** `include` may NOT begin a path expression in a key — §Paths as keys (L570)
   tests: —
@@ -366,47 +366,47 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S13. Substitutions
 
 - **S13.1** `${path}` is a required substitution — §Substitutions (L579)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:71 (TestParser_Substitution); internal/lexer/lexer_test.go:53 (TestLexer_Substitution); internal/resolver/resolver_test.go:52 (TestResolver_Substitution); testdata/hocon/equiv01/substitutions.conf (fixture)
+  status: ✅
 
 - **S13.2** `${?path}` is an optional substitution — §Substitutions (L579)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:82 (TestParser_OptionalSubstitution); internal/lexer/lexer_test.go:60 (TestLexer_OptSubstitution); internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); testdata/hocon/subst-tokenize/st15-optional-subst.conf (fixture)
+  status: ✅
 
 - **S13.3** `${?` is exactly 3 chars (no whitespace before `?`) — §Substitutions (L584)
   tests: —
   status: 🤷
 
 - **S13.4** Resolver MAY consult external sources (env vars, system properties) for unresolved substitutions — §Substitutions (L588) (concrete env behavior → S26)
-  tests: —
-  status: 🤷
+  tests: config_test.go:204 (TestConfig_EnvVarInt); config_test.go:212 (TestConfig_EnvVarFloat); config_test.go:220 (TestConfig_EnvVarBool)
+  status: ✅
 
 - **S13.5** Substitutions are NOT parsed inside quoted strings — §Substitutions (L593)
   tests: —
   status: 🤷
 
 - **S13.6** Substitution paths are absolute (rooted at config root) — §Substitutions (L603)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:52 (TestResolver_Substitution)
+  status: ✅
 
 - **S13.7** Substitution resolution is last step (can look forward) — §Substitutions (L607)
-  tests: —
-  status: 🤷
+  tests: config_test.go:935 (TestConfig_LastAssignmentWinsForSubstitution)
+  status: ✅
 
 - **S13.8** Substitution sees the latest-assigned (merged) value — §Substitutions (L612)
-  tests: —
-  status: 🤷
+  tests: config_test.go:935 (TestConfig_LastAssignmentWinsForSubstitution); testdata/hocon/test06.conf (fixture)
+  status: ✅
 
 - **S13.9** `null` in config blocks env var lookup — §Substitutions (L618)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:109 (TestResolver_NullValue)
+  status: ✅
 
 - **S13.10** Required substitution undefined → error — §Substitutions (L627)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:82 (TestResolver_CircularRef)
+  status: ✅
 
 - **S13.11** Optional undefined in field value → field not created — §Substitutions (L632)
-  tests: —
+  tests: internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); config_test.go:274 (TestUnsetEnvVarOptional)
   status: ⚠️ ([#45](https://github.com/o3co/go.hocon/issues/45))
 
 - **S13.12** Optional undefined in array element → element not added — §Substitutions (L635)
@@ -418,8 +418,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S13.14** Optional undefined in obj/array concat → empty obj/array — §Substitutions (L637)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/equiv04/missing-substitutions.conf (fixture)
+  status: ✅
 
 - **S13.15** `foo : ${?bar}${?baz}` skipped only when BOTH undefined — §Substitutions (L640)
   tests: —
@@ -430,50 +430,50 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S13.17** Single-substitution value preserves type — §Substitutions (L648)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:52 (TestResolver_Substitution)
+  status: ✅
 
 - **S13.18** Substitution in multi-value concat becomes string — §Substitutions (L650)
-  tests: —
-  status: 🤷
+  tests: config_test.go:365 (TestConfig_StringConcat_NoSpace); config_test.go:384 (TestConfig_StringConcat_SubstitutionAndLiteral)
+  status: ✅
 
 - **S13.19** Unterminated `${...}` (missing closing `}`) is rejected — §Substitutions syntax requires closing `}` (L579)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:170 (TestUnterminatedSubstitution); internal/parser/parser_test.go:255 (TestParserUnterminatedSubstitution); testdata/hocon/subst-tokenize/st-err05-unterminated-subst.conf (fixture)
+  status: ✅
 
 ### S13a. Self-referential substitutions
 
 - **S13a.1** `path : ${path}` resolves to prior `path` value — §Self-Referential (L666)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:90 (TestResolver_SelfReference); config_test.go:919 (TestConfig_DelayedMergeObjectWithSubstitution)
+  status: ✅
 
 - **S13a.2** Self-ref to overridden field works in merge — §Self-Referential (L748)
-  tests: —
-  status: 🤷
+  tests: config_test.go:919 (TestConfig_DelayedMergeObjectWithSubstitution); testdata/hocon/test06.conf (fixture); testdata/hocon/test09.conf (fixture)
+  status: ✅
 
 - **S13a.3** Self-ref before any prior value → undefined → error — §Self-Referential (L767)
   tests: —
   status: 🤷
 
 - **S13a.4** Optional self-ref `${?foo}` disappears silently — §Self-Referential (L776)
-  tests: —
-  status: 🤷
+  tests: config_test.go:228 (TestConfig_OptionalSubstitutionFallback); internal/resolver/resolver_test.go:68 (TestResolver_OptionalSubstitutionFallback)
+  status: ✅
 
 - **S13a.5** Substitution hidden by later non-object → no error — §Self-Referential (L780)
   tests: —
   status: 🤷
 
 - **S13a.6** Cycle inside object `a : { b : ${a} }` → error — §Self-Referential (L688)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:82 (TestResolver_CircularRef); testdata/hocon/cycle.conf (fixture)
+  status: ✅
 
 - **S13a.7** Cycle inside array `a : [${a}]` → error — §Self-Referential (L689)
   tests: —
   status: 🤷
 
 - **S13a.8** Two-step cycle `bar : ${foo}; foo : ${bar}` → error — §Self-Referential (L857)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:82 (TestResolver_CircularRef)
+  status: ✅
 
 - **S13a.9** Multi-step cycle `a→b→c→a` → error — §Self-Referential (L862)
   tests: —
@@ -484,51 +484,51 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S13a.11** Object can refer to its own descendant (`bar : { foo : 42, baz : ${bar.foo} }`) — §Self-Referential (L806)
-  tests: —
-  status: 🤷
+  tests: config_test.go:947 (TestConfig_DelayedMergeNestedSubstitution)
+  status: ✅
 
 - **S13a.12** Self-ref in path expression `${foo.a}` resolves to "below" — §Self-Referential (L791)
-  tests: —
-  status: 🤷
+  tests: config_test.go:237 (TestConfig_OptionalSubstitutionFallback_SubstPrior)
+  status: ✅
 
 - **S13a.13** `a = ${?a}foo` resolves to `"foo"` (look-back undefined) — §Self-Referential (L841)
   tests: —
   status: 🤷
 
 - **S13a.14** Mutually-referring object fields (`bar.a = ${foo.d}; foo.c = ${bar.b}`) resolve lazily without false cycle — §Self-Referential (L825-834)
-  tests: —
-  status: 🤷
+  tests: config_test.go:947 (TestConfig_DelayedMergeNestedSubstitution)
+  status: ✅
 
 ### S13b. `+=` field separator
 
 - **S13b.1** `a += b` expands to `a = ${?a} [b]` — §`+=` field separator (L725)
-  tests: —
-  status: 🤷
+  tests: internal/lexer/lexer_test.go:115 (TestLexer_PlusEquals); internal/parser/parser_test.go:141 (TestParser_PlusEquals); internal/resolver/resolver_test.go:100 (TestResolver_PlusEquals); internal/resolver/resolver_test.go:198 (TestResolver_ObjectPlusEqualsAppendsArray)
+  status: ✅
 
 - **S13b.2** `+=` on non-array prior value → error — §`+=` field separator (L732)
   tests: —
   status: 🤷
 
 - **S13b.3** `+=` works on first mention of key (no prior `=`) — §`+=` field separator (L734)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:100 (TestResolver_PlusEquals)
+  status: ✅
 
 ### S13c. List values from environment variables
 
 - **S13c.1** `${X[]}` looks up `X_0`, `X_1`, ... env vars — §List values from env (L900)
-  tests: —
+  tests: testdata/hocon/env-variables.conf (fixture)
   status: 🤷
 
 - **S13c.2** Stops at first missing index — §List values from env (L905)
-  tests: —
+  tests: testdata/hocon/env-variables.conf (fixture)
   status: 🤷
 
 - **S13c.3** `${X[]}` no elements → required error — §List values from env (L910)
-  tests: —
+  tests: testdata/hocon/env-variables.conf (fixture)
   status: 🤷
 
 - **S13c.4** `${?X[]}` no elements → undefined / removed — §List values from env (L912)
-  tests: —
+  tests: testdata/hocon/env-variables.conf (fixture)
   status: 🤷
 
 - **S13c.5** `[]` suffix supported only for env vars (not config / sys props) — §List values from env (L902)
@@ -540,8 +540,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ### S14a. Include syntax
 
 - **S14a.1** `include "filename"` (heuristic) — §Include syntax (L925)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:93 (TestParser_Include); config_test.go:441 (TestOptionalIncludeMissingFile); testdata/hocon/test03.conf (fixture)
+  status: ✅
 
 - **S14a.2** `include url("...")` — §Include syntax (L927)
   out-of-scope: URL fetching is unsupported by design; declared as a Known Limitation in each implementation's README. HOCON.md L1175-1177 permits this: "Implementations need not support files, Java resources, or URLs."
@@ -549,8 +549,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ➖
 
 - **S14a.3** `include file("...")` — §Include syntax (L927)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:110 (TestParser_IncludeFileIsFile); internal/resolver/resolver_test.go:903 (TestResolver_FileIncludeResolvesFromCWD); testdata/hocon/file-include.conf (fixture)
+  status: ✅
 
 - **S14a.4** `include classpath("...")` — §Include syntax (L927)
   out-of-scope: classpath resources are a JVM-only concept; non-JVM implementations have no equivalent loader.
@@ -558,16 +558,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ➖
 
 - **S14a.5** `include required(...)` — §Include syntax (L930)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:289 (TestParser_IncludeRequired); internal/parser/parser_test.go:306 (TestParser_IncludeRequiredFile); config_test.go:434 (TestRequiredIncludeMissingFile); internal/resolver/resolver_test.go:466 (TestResolver_IncludeRequiredExplicitExtensionNotFound)
+  status: ✅
 
 - **S14a.6** Unquoted `include` at non-start-of-key is literal — §Include syntax (L962)
   tests: —
   status: 🤷
 
 - **S14a.7** Whitespace allowed between `include` and resource name (incl. newlines) — §Include syntax (L952)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/test03.conf (fixture)
+  status: ✅
 
 - **S14a.8** No value concatenation on include argument — §Include syntax (L957)
   tests: —
@@ -582,8 +582,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S14a.11** `"include"` (quoted) is just a normal key — §Include syntax (L977)
-  tests: —
-  status: 🤷
+  tests: internal/parser/parser_test.go:356 (TestParser_IncludeQuotedUrlNotError)
+  status: ✅
 
 ### S14b. Include semantics: merging
 
@@ -592,54 +592,54 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S14b.2** Included keys merge per duplicate-key rules — §Include semantics: merging (L997)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:286 (TestResolver_IncludeMergeAll); testdata/hocon/test03.conf (fixture)
+  status: ✅
 
 - **S14b.3** Earlier-in-including value + included → merged/overridden — §Include semantics: merging (L1000)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/test03.conf (fixture)
+  status: ✅
 
 - **S14b.4** Later-in-including value overrides included — §Include semantics: merging (L1004)
-  tests: —
-  status: 🤷
+  tests: testdata/hocon/test03.conf (fixture)
+  status: ✅
 
 ### S14c. Include semantics: substitution
 
 - **S14c.1** Substitutions in included file are relativized to including scope — §Include semantics: substitution (L1019)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:698 (TestResolver_IncludeRelativizeSubstitutions); internal/resolver/resolver_test.go:734 (TestResolver_IncludeRelativizeDeepNesting); internal/resolver/resolver_test.go:763 (TestResolver_IncludeRelativizeMultiSegmentKey); testdata/hocon/test10.conf (fixture)
+  status: ✅
 
 - **S14c.2** Original (non-relativized) path also tried as fallback — §Include semantics: substitution (L1048)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:800 (TestResolver_IncludeRelativizeFallbackToParent)
+  status: ✅
 
 ### S14d. Include semantics: missing / required
 
 - **S14d.1** Missing optional include silently ignored — §Include semantics: missing files (L1053)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:453 (TestResolver_IncludeExplicitExtensionNotFound); internal/resolver/resolver_test.go:479 (TestResolver_IncludeProbeNotFound); config_test.go:441 (TestOptionalIncludeMissingFile); internal/resolver/resolver_test.go:964 (TestResolver_FileIncludeMissingSilentlySkipped)
+  status: ✅
 
 - **S14d.2** Missing `required(...)` include → error — §Include semantics: missing files (L1057)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:466 (TestResolver_IncludeRequiredExplicitExtensionNotFound); internal/resolver/resolver_test.go:492 (TestResolver_IncludeRequiredProbeNotFound); config_test.go:434 (TestRequiredIncludeMissingFile)
+  status: ✅
 
 - **S14d.3** Non-missing IO errors NOT swallowed — §Include semantics: missing files (L1069)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:508 (TestResolver_IncludeOptionalNonEnoentErrorPropagates); internal/resolver/resolver_test.go:526 (TestResolver_IncludeProbingPropagatesParseError)
+  status: ✅
 
 ### S14e. Include semantics: file formats & extensions
 
 - **S14e.1** Extensionless basename probes multiple extensions — §Include semantics: file formats (L1080)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:231 (TestResolver_IncludeProbeConf); internal/resolver/resolver_test.go:249 (TestResolver_IncludeProbeJSON); internal/resolver/resolver_test.go:267 (TestResolver_IncludeProbeProperties)
+  status: ✅
 
 - **S14e.2** Multiple matching extensions all loaded — §Include semantics: file formats (L1088)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:286 (TestResolver_IncludeMergeAll); internal/resolver/resolver_test.go:313 (TestResolver_IncludeMergeAllWithProperties)
+  status: ✅
 
 - **S14e.3** Load order: `.properties` → `.json` → `.conf` — §Include semantics: file formats (L1091)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:286 (TestResolver_IncludeMergeAll)
+  status: ✅
 
 - **S14e.4** URL include: no extension probing (exact URL only) — §Include semantics: file formats (L1103)
   out-of-scope: URL include unsupported; see S14a.2.
@@ -659,16 +659,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ➖
 
 - **S14f.2** Otherwise treated as file/resource adjacent to including — §Include semantics: locating (L1117)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:231 (TestResolver_IncludeProbeConf); testdata/hocon/test03.conf (fixture)
+  status: ✅
 
 - **S14f.3** Filesystem: relative path = relative to including dir (NOT cwd) — §Include semantics: locating (L1154)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:903 (TestResolver_FileIncludeResolvesFromCWD); testdata/hocon/file-include.conf (fixture)
+  status: ✅
 
 - **S14f.4** Filesystem: absolute path preserved — §Include semantics: locating (L1152)
-  tests: —
-  status: 🤷
+  tests: config_test.go:732 (TestIncludePropertiesFile)
+  status: ✅
 
 - **S14f.5** Filesystem: fall back to classpath on not-found — §Include semantics: locating (L1158)
   out-of-scope: classpath is JVM-only; see S14a.4.
@@ -681,8 +681,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ➖
 
 - **S14f.7** `url()`/`file()`/`classpath()` arguments NOT relativized — §Include semantics: locating (L1179)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:903 (TestResolver_FileIncludeResolvesFromCWD)
+  status: ✅
 
 - **S14f.8** `file:` URLs follow plain-filename filesystem semantics — §Include semantics: locating (L1171-1172)
   out-of-scope: URL include unsupported; see S14a.2. `file:` URLs are reachable only via `include url()`, which is not implemented.
@@ -729,28 +729,28 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S17. Automatic type conversions
 
 - **S17.1** number → string (JSON-valid form) — §Automatic type conversions (L1235)
-  tests: —
-  status: 🤷
+  tests: config_test.go:813 (TestConfig_GetString_ReturnsRawTextForNumber); unmarshal_test.go:84 (TestUnmarshal_EnvVarStringCoercion)
+  status: ✅
 
 - **S17.2** boolean → string ("true" / "false") — §Automatic type conversions (L1237)
-  tests: —
-  status: 🤷
+  tests: config_test.go:820 (TestConfig_GetString_ReturnsRawTextForBool); unmarshal_test.go:84 (TestUnmarshal_EnvVarStringCoercion)
+  status: ✅
 
 - **S17.3** string → number (JSON rules) — §Automatic type conversions (L1238)
-  tests: —
-  status: 🤷
+  tests: config_test.go:204 (TestConfig_EnvVarInt); config_test.go:212 (TestConfig_EnvVarFloat); unmarshal_test.go:84 (TestUnmarshal_EnvVarStringCoercion)
+  status: ✅
 
 - **S17.4** string → bool: `true`/`yes`/`on`/`false`/`no`/`off` — §Automatic type conversions (L1239)
-  tests: —
-  status: 🤷
+  tests: config_test.go:862 (TestConfig_GetBool_YesNoOnOff); config_test.go:891 (TestConfig_GetBoolOption_YesNoOnOff); config_test.go:220 (TestConfig_EnvVarBool)
+  status: ✅
 
 - **S17.5** `"null"` → null when null requested — §Automatic type conversions (L1244)
   tests: —
   status: 🤷
 
 - **S17.6** null → other type: error — §Automatic type conversions (L1252)
-  tests: —
-  status: 🤷
+  tests: config_test.go:40 (TestConfig_GetString_Null_Panics)
+  status: ✅
 
 - **S17.7** object → other type: error — §Automatic type conversions (L1254)
   tests: —
@@ -763,12 +763,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S18. Units format
 
 - **S18.1** Number value taken as default unit — §Units format (L1279)
-  tests: —
-  status: 🤷
+  tests: config_test.go:78 (TestConfig_GetDuration); config_test.go:97 (TestConfig_GetBytes)
+  status: ✅
 
 - **S18.2** String parsed as: optional ws + number + ws + unit + ws — §Units format (L1281-1294)
-  tests: —
-  status: 🤷
+  tests: config_test.go:78 (TestConfig_GetDuration); config_test.go:97 (TestConfig_GetBytes)
+  status: ✅
 
 - **S18.3** Unit name letters-only (Unicode L* / `isLetter`) — §Units format (L1287)
   tests: —
@@ -789,24 +789,24 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: 🤷
 
 - **S19.3** `ms` / `milli` / `millis` / `millisecond` / `milliseconds` — §Duration format (L1309)
-  tests: —
-  status: 🤷
+  tests: config_test.go:78 (TestConfig_GetDuration)
+  status: ✅
 
 - **S19.4** `s` / `second` / `seconds` — §Duration format (L1310)
-  tests: —
-  status: 🤷
+  tests: config_test.go:78 (TestConfig_GetDuration); config_test.go:556 (TestConfig_GetDurationOption_Some)
+  status: ✅
 
 - **S19.5** `m` / `minute` / `minutes` — §Duration format (L1311)
   tests: —
   status: 🤷
 
 - **S19.6** `h` / `hour` / `hours` — §Duration format (L1312)
-  tests: —
-  status: 🤷
+  tests: config_test.go:78 (TestConfig_GetDuration)
+  status: ✅
 
 - **S19.7** `d` / `day` / `days` — §Duration format (L1313)
-  tests: —
-  status: 🤷
+  tests: config_test.go:78 (TestConfig_GetDuration)
+  status: ✅
 
 - **S19.8** Duration unit names are case sensitive (lowercase only) — §Duration format (L1304)
   tests: —
@@ -833,16 +833,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S21. Size in bytes format
 
 - **S21.1** `B` / `b` / `byte` / `bytes` — §Size in bytes format (L1361)
-  tests: —
-  status: 🤷
+  tests: config_test.go:97 (TestConfig_GetBytes)
+  status: ✅
 
 - **S21.2** Powers of 10 (kB, MB, GB, TB, PB, EB, ZB, YB + long forms) — §Size in bytes format (L1365)
-  tests: —
-  status: 🤷
+  tests: config_test.go:97 (TestConfig_GetBytes); config_test.go:575 (TestConfig_GetBytesOption_Some)
+  status: ✅
 
 - **S21.3** Powers of 2 (K/Ki/KiB, M/Mi/MiB, ...) — §Size in bytes format (L1376)
-  tests: —
-  status: 🤷
+  tests: config_test.go:97 (TestConfig_GetBytes)
+  status: ✅
 
 - **S21.4** Single-letter abbreviations → powers of 2 (java -Xmx convention) — §Size in bytes format (L1385)
   tests: —
@@ -855,30 +855,30 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S22. Config object merging API
 
 - **S22.1** `merge(A, B)` semantics = duplicate-key behavior — §Config object merging (L1402)
-  tests: —
-  status: 🤷
+  tests: config_test.go:340 (TestConfig_WithFallback)
+  status: ✅
 
 - **S22.2** Intermediate non-object hides earlier object across files — §Config object merging (L1406)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:185 (TestResolver_ObjectEqualsReplacesWithScalar)
+  status: ✅
 
 - **S22.3** Setting key to null clears earlier object value — §Config object merging (L1436)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:109 (TestResolver_NullValue)
+  status: ✅
 
 ## S23. Java properties mapping
 
 - **S23.1** Split key on `.` preserving empty strings — §Java properties (L1450)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:405 (TestResolver_IncludePropertiesNestedObject)
+  status: ✅
 
 - **S23.2** Empty path elements (leading/trailing) preserved — §Java properties (L1456)
   tests: —
   status: 🤷
 
 - **S23.3** Properties values are always strings — §Java properties (L1471)
-  tests: —
-  status: 🤷
+  tests: internal/resolver/resolver_test.go:354 (TestResolver_IncludePropertiesValuesAreStrings); internal/resolver/resolver_test.go:391 (TestResolver_IncludePropertiesExplicitExtension); config_test.go:732 (TestIncludePropertiesFile)
+  status: ✅
 
 - **S23.4** Object wins over string on conflicting key — §Java properties (L1485)
   tests: —
@@ -916,12 +916,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
 ## S26. Substitution fallback to environment variables
 
 - **S26.1** Env var lookup when substitution not in config tree — §Substitution fallback (L1536)
-  tests: —
-  status: 🤷
+  tests: config_test.go:204 (TestConfig_EnvVarInt); config_test.go:212 (TestConfig_EnvVarFloat); config_test.go:220 (TestConfig_EnvVarBool); internal/resolver/resolver_test.go:891 (TestResolver_EnvFallbackQuotedKeyPrefix)
+  status: ✅
 
 - **S26.2** Empty env var preserved as empty string (not undefined) — §Substitution fallback (L1558)
-  tests: —
-  status: 🤷
+  tests: config_test.go:262 (TestEmptyEnvVar); config_test.go:287 (TestEmptyEnvVarOptional)
+  status: ✅
 
 - **S26.3** Env var SecurityException → treated as not present — §Substitution fallback (L1560)
   out-of-scope: `SecurityException` is a JVM-specific exception type; non-JVM runtimes have no equivalent guard at this layer.
@@ -929,5 +929,5 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](../../xx.hocon/docs/spec-c
   status: ➖
 
 - **S26.4** Env vars always become strings (with auto type conversion) — §Substitution fallback (L1563)
-  tests: —
-  status: 🤷
+  tests: config_test.go:204 (TestConfig_EnvVarInt); config_test.go:212 (TestConfig_EnvVarFloat); config_test.go:220 (TestConfig_EnvVarBool); unmarshal_test.go:84 (TestUnmarshal_EnvVarStringCoercion)
+  status: ✅
