@@ -708,8 +708,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S15.4** Empty object NOT converted — §Conversion (L1212)
   tests: config_test.go (TestSpec_S15_4_EmptyObjectNotConverted)
-  status: ❌
-  note: conversion not implemented at all; see issue #71.
+  status: ✅ (incidental)
+  note: passes today because no conversion runs at all — `arr: {}` stays an object and `GetStringSliceOption` returns None. When #71 lands, the test must continue to pass via an explicit empty-object guard before the conversion path, not by its absence. Aligns with rs.hocon's identical determination.
 
 - **S15.5** Non-integer keys ignored during conversion — §Conversion (L1214)
   tests: config_test.go (TestSpec_S15_5_NonIntegerKeysIgnored)

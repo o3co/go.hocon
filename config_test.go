@@ -1064,10 +1064,11 @@ arr = [a] ${obj}
 }
 
 // TestSpec_S15_4_EmptyObjectNotConverted verifies that an empty object {} is NOT
-// converted to an array even in array context.
-// Currently not implemented — see issue #71.
+// converted to an array. Currently passes incidentally: go.hocon has no conversion
+// path at all, so `arr: {}` stays an object and GetStringSliceOption returns None.
+// When #71 lands, this test must continue to pass — the implementation needs an
+// explicit empty-object guard before the conversion path, not rely on its absence.
 func TestSpec_S15_4_EmptyObjectNotConverted(t *testing.T) {
-	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
 	cfg := mustParseCfg(t, `arr: {}`)
 	opt := cfg.GetStringSliceOption("arr")
 	if opt.IsSome() {
@@ -1149,7 +1150,7 @@ func TestSpec_S17_5_NullStorageSanity(t *testing.T) {
 	}
 }
 
-// TestSpec_S17_7_ObjectToOtherTypeErrorViaPanic verifies that requesting a scalar
+// TestSpec_S17_7_ObjectToOtherTypePanics verifies that requesting a scalar
 // type from an object path panics (error), as required by HOCON spec L1254.
 func TestSpec_S17_7_ObjectToOtherTypePanics(t *testing.T) {
 	cfg := mustParseCfg(t, `obj: {a: 1}`)
@@ -1180,7 +1181,7 @@ func TestSpec_S17_7_ObjectToOtherTypeOptionReturnsNone(t *testing.T) {
 	}
 }
 
-// TestSpec_S17_8_ArrayToOtherTypeErrorViaPanic verifies that requesting a scalar
+// TestSpec_S17_8_ArrayToOtherTypePanics verifies that requesting a scalar
 // type from an array path panics (error), as required by HOCON spec L1255.
 func TestSpec_S17_8_ArrayToOtherTypePanics(t *testing.T) {
 	cfg := mustParseCfg(t, `arr: [1,2,3]`)
