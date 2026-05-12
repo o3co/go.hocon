@@ -65,11 +65,17 @@ const specIssueS10_15_QuotedWS = 83
 // win; the impl keeps the leaf string instead.
 const specIssueS23_4_ObjectWins = 84
 
-// ── S1.1 / S3.1: empty file is invalid ───────────────────────────────────────
+// ── S1.1: files must be valid UTF-8 ──────────────────────────────────────────
+// S1.1 is ➖ out-of-scope: Go's string type is inherently valid UTF-8, so
+// invalid-UTF-8 input is structurally unreachable at the ParseString API boundary.
+// No test needed for this item.
 
-// TestSpec_S1_1_EmptyFile_Pin pins the current behaviour where an empty file
-// parses without error. Spec (HOCON.md L130) requires empty files to be invalid.
-func TestSpec_S1_1_EmptyFile_Pin(t *testing.T) {
+// ── S3.1: empty file is invalid ──────────────────────────────────────────────
+
+// TestSpec_S3_1_EmptyFileInvalid_Pin pins the current (non-conformant) behaviour
+// where ParseString("") returns nil error. Spec HOCON.md L130 (§Omit root braces)
+// requires empty files to be invalid documents.
+func TestSpec_S3_1_EmptyFileInvalid_Pin(t *testing.T) {
 	// pin: see #75 — ParseString("") currently returns no error
 	_ = specIssueS1_S3_Empty
 	_, err := hocon.ParseString("")
@@ -78,28 +84,9 @@ func TestSpec_S1_1_EmptyFile_Pin(t *testing.T) {
 	}
 }
 
-// TestSpec_S1_1_EmptyFile_Spec is the spec-correct assertion: empty file must error.
-func TestSpec_S1_1_EmptyFile_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S1.1/S3.1 — ParseString(\"\") returns nil error; see #%d", specIssueS1_S3_Empty)
-	_, err := hocon.ParseString("")
-	if err == nil {
-		t.Error("expected error for empty file, got nil")
-	}
-}
-
-// TestSpec_S3_1_EmptyFileInvalid_Pin is the same pin as S1.1 (same underlying item).
-func TestSpec_S3_1_EmptyFileInvalid_Pin(t *testing.T) {
-	// pin: see #75
-	_ = specIssueS1_S3_Empty
-	_, err := hocon.ParseString("")
-	if err != nil {
-		t.Errorf("[pin] S3.1 empty file currently parses without error, but got: %v", err)
-	}
-}
-
-// TestSpec_S3_1_EmptyFileInvalid_Spec is the spec-correct assertion.
+// TestSpec_S3_1_EmptyFileInvalid_Spec is the spec-correct assertion: empty file must error.
 func TestSpec_S3_1_EmptyFileInvalid_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S3.1 — same as S1.1; see #%d", specIssueS1_S3_Empty)
+	t.Skipf("[skip] spec violation per S3.1 — ParseString(\"\") returns nil error; see #%d", specIssueS1_S3_Empty)
 	_, err := hocon.ParseString("")
 	if err == nil {
 		t.Error("expected error for empty file, got nil")

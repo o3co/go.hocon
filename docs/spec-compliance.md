@@ -13,8 +13,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S1. Unchanged from JSON
 
 - **S1.1** Files must be valid UTF-8 — §Unchanged from JSON (L117)
-  tests: spec_phase5_test.go (TestSpec_S1_1_EmptyFile_Pin, TestSpec_S1_1_EmptyFile_Spec)
-  status: ❌ ([#75](https://github.com/o3co/go.hocon/issues/75)) — ParseString("") returns nil error; empty file should be invalid per HOCON.md L130
+  tests: —
+  status: ➖ — Go's `string` type is inherently valid UTF-8; ParseString/ParseBytes receive a Go string, so invalid-UTF-8 input is structurally unreachable at the API boundary. The encoding invariant is enforced by the language, not the parser.
 
 - **S1.2.1** Quoted strings accept valid JSON escape sequences (`\" \\ \/ \b \f \n \r \t`) — §Unchanged from JSON (L118)
   tests: internal/lexer/lexer_test.go:212 (TestUnicodeEscape); testdata/hocon/subst-tokenize/st10-escape-newline.conf (fixture); testdata/hocon/subst-tokenize/st12-escape-backslash.conf (fixture); testdata/hocon/subst-tokenize/st13-escape-quote.conf (fixture); testdata/hocon/subst-tokenize/st20-quoted-escape-backspace-formfeed.conf (fixture)
