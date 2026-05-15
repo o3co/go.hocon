@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode"
 )
 
 // TokenType identifies the type of a lexed token.
@@ -203,10 +202,10 @@ func (l *Lexer) skipWhitespaceAndComments() {
 		if !ok {
 			return
 		}
-		if ch == '\n' {
-			return // newlines are significant tokens
+		if isHoconNewline(ch) {
+			return // newlines are significant tokens; emitted by Next() caller
 		}
-		if ch == ' ' || ch == '\t' || ch == '\r' {
+		if isHoconWhitespace(ch) {
 			l.skippedSpace = true
 			l.advance()
 			continue
@@ -496,11 +495,13 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 			hasLastDot = true
 			l.advance()
 
-		case ch == ' ' || ch == '\t':
+		case isHoconWhitespace(ch) && !isHoconNewline(ch):
+			// Non-newline whitespace inside ${...} is accumulated as pending
+			// inter-segment whitespace. col advances; line is unchanged.
 			pendingWs += string(ch)
 			l.advance()
 
-		case ch == '\n' || ch == '\r':
+		case isHoconNewline(ch), ch == '\r':
 			return Token{Type: TokenError, Value: "unterminated substitution", Line: startLine, Col: startCol}
 
 		default:
@@ -589,6 +590,46 @@ func (l *Lexer) readNumber(line, col int) Token {
 	return Token{Type: tt, Value: sb.String(), Line: line, Col: col}
 }
 
+// isHoconWhitespace reports whether r is a HOCON whitespace character per
+// HOCON.md §Whitespace (L165-184). The set is:
+//
+//	ASCII control whitespace: HT VT FF CR FS GS RS US (0x09, 0x0B-0x0D, 0x1C-0x1F)
+//	Unicode Zs category:      SP NBSP and all other Zs members
+//	Unicode Zl (line sep):    U+2028
+//	Unicode Zp (para sep):    U+2029
+//	BOM:                      U+FEFF
+//
+// Note: LF (0x0A) is also in HOCON_WS but is the ONLY newline character and
+// must be handled before this predicate in the main lexer loop. See isHoconNewline.
+//
+// Note: Go's unicode.IsSpace includes U+0085 (NEL) which HOCON does not, and
+// excludes U+001C-U+001F which HOCON does include. Do not substitute IsSpace here.
+func isHoconWhitespace(r rune) bool {
+	switch {
+	case r == '\t', r == '\n', r == '\v', r == '\f', r == '\r':
+		return true
+	case r >= 0x1C && r <= 0x1F:
+		return true
+	case r == ' ', r == 0xA0, r == 0xFEFF:
+		return true
+	case r == 0x1680:
+		return true
+	case r >= 0x2000 && r <= 0x200A:
+		return true
+	case r == 0x2028, r == 0x2029, r == 0x202F, r == 0x205F:
+		return true
+	case r == 0x3000:
+		return true
+	}
+	return false
+}
+
+// isHoconNewline reports whether r is the HOCON newline character.
+// Per HOCON.md L182-184, "newline" means exclusively ASCII LF (0x000A).
+// Unicode line separator (U+2028) and paragraph separator (U+2029) are
+// whitespace but NOT newlines in HOCON.
+func isHoconNewline(r rune) bool { return r == '\n' }
+
 // unquotedForbidden are characters that terminate an unquoted string.
 // Per spec: $"{}[]:=,+#\^?!@*& plus all whitespace.
 // Parentheses are not in the spec but are included so that
@@ -596,7 +637,7 @@ func (l *Lexer) readNumber(line, col int) Token {
 const unquotedForbidden = `$"{}[]:=,+#\^?!@*&()`
 
 func isUnquotedForbidden(ch rune) bool {
-	return unicode.IsSpace(ch) || strings.ContainsRune(unquotedForbidden, ch)
+	return isHoconWhitespace(ch) || strings.ContainsRune(unquotedForbidden, ch)
 }
 
 func isHexDigit(ch rune) bool {
