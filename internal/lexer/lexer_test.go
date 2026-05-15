@@ -710,6 +710,23 @@ func TestSpecS6_3_BOMMidstreamIsWhitespace(t *testing.T) {
 	}
 }
 
+// TestSpecS6_LFStillEmitsNewline is a regression guard verifying that after
+// predicate centralization, LF (U+000A) still emits a TokenNewline token and
+// is NOT silently consumed as inter-token whitespace. Spec L183.
+func TestSpecS6_LFStillEmitsNewline(t *testing.T) {
+	toks := tokenize("a\nb")
+	var sawNewline bool
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenNewline {
+			sawNewline = true
+			break
+		}
+	}
+	if !sawNewline {
+		t.Fatal("expected TokenNewline for LF but none found")
+	}
+}
+
 func TestSpecS8_8_ControlCharsAllowedInUnquoted(t *testing.T) {
 	cases := []struct {
 		name string
