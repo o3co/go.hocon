@@ -508,10 +508,15 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 			l.advance()
 
 		case isHoconNewline(ch):
-			// LF terminates a substitution (unterminated). CR (U+000D) is whitespace
-			// per isHoconWhitespace, not a newline per isHoconNewline, so it is
-			// consumed by the preceding whitespace case — the former `ch == '\r'` arm
-			// here was unreachable.
+			// LF terminates a substitution (unterminated).
+			//
+			// History: before fix/s6-whitespace-expansion, the subst-body whitespace
+			// case matched only ' ' and '\t', so CR (U+000D) fell through to a dedicated
+			// `case ch == '\n' || ch == '\r'` arm and was rejected as "unterminated
+			// substitution". After the fix, the whitespace case matches all of
+			// isHoconWhitespace && !isHoconNewline, which includes CR. CR is now
+			// consumed there before this case is reached, making the old explicit CR
+			// arm dead code — which is why it was removed.
 			return Token{Type: TokenError, Value: "unterminated substitution", Line: startLine, Col: startCol}
 
 		default:

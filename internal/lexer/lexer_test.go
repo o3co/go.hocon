@@ -751,10 +751,48 @@ func TestSpecS8_8_ControlCharsAllowedInUnquoted(t *testing.T) {
 	}
 }
 
+// TestSpecS8_8_NELAllowedInUnquoted verifies that NEL (U+0085) is treated as an
+// ordinary character — not as whitespace — in unquoted string tokens.
+//
+// Before fix/s6-whitespace-expansion, isUnquotedForbidden delegated to Go's
+// unicode.IsSpace(), which includes U+0085. That caused "foo<NEL>bar" to be split
+// into two tokens: "foo" and "bar". After the fix, isHoconWhitespace (which does
+// not include NEL per HOCON spec L165-184) is used instead, so NEL is absorbed
+// into the unquoted string and produces a single token. Spec S8.8: control chars
+// not in the forbidden set are permitted in unquoted strings. Status: ✅
+func TestSpecS8_8_NELAllowedInUnquoted(t *testing.T) {
+	nel := string(rune(0x0085))
+	src := "foo" + nel + "bar"
+	want := "foo" + nel + "bar"
+
+	toks := tokenize(src)
+	if len(toks) == 0 {
+		t.Fatal("NEL in unquoted: no tokens produced")
+	}
+	tok := toks[0]
+	if tok.Type != lexer.TokenString {
+		t.Errorf("NEL in unquoted: type=%v, want TokenString", tok.Type)
+	}
+	if tok.Value != want {
+		t.Errorf("NEL in unquoted: value=%q, want %q", tok.Value, want)
+	}
+	// Ensure only one token was produced (NEL did not split the unquoted string).
+	// Ignore any trailing EOF/Newline tokens.
+	meaningful := 0
+	for _, tk := range toks {
+		if tk.Type == lexer.TokenString {
+			meaningful++
+		}
+	}
+	if meaningful != 1 {
+		t.Errorf("NEL in unquoted: got %d TokenString tokens, want 1 (NEL must not split token)", meaningful)
+	}
+}
+
 // TestSpecS6_SubstBodyNBSPBeforeDot verifies that NBSP (U+00A0) inside ${...}
 // before a dot acts as inter-segment whitespace (discarded) rather than being
 // absorbed into the segment text. Spec §D: all three whitespace sites must route
-// through isHoconWhitespace. Status: RED — isUnquotedSubstChar uses hardcoded set.
+// through isHoconWhitespace. Status: ✅ (fixed in fix/s6-whitespace-expansion)
 func TestSpecS6_SubstBodyNBSPBeforeDot(t *testing.T) {
 	nbsp := string(rune(0x00A0))
 	input := "${foo" + nbsp + ".bar}"
