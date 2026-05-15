@@ -685,14 +685,11 @@ func TestSpecS8_7_BackslashRejectedInUnquoted(t *testing.T) {
 	}
 }
 
-// TestSpecS8_8_ControlCharsAllowedInUnquoted verifies that control characters
-// not in the forbidden set (e.g. SOH 0x01, BEL 0x07) are allowed inside
-// unquoted strings. Spec L280. Status: ✅
 // TestSpecS6_3_BOMMidstreamIsWhitespace verifies that BOM (U+FEFF) appearing
 // mid-stream acts as a whitespace separator rather than leaking into an unquoted
 // string run or producing an error. Spec §Whitespace (L173): BOM must be treated
 // as whitespace anywhere, not only at start-of-input.
-// Status: RED — BOM mid-stream currently produces "unexpected character" error.
+// Status: ✅ fixed in fix/s6-whitespace-expansion
 func TestSpecS6_3_BOMMidstreamIsWhitespace(t *testing.T) {
 	src := "a\uFEFFb"
 	toks := tokenize(src)
@@ -727,6 +724,9 @@ func TestSpecS6_LFStillEmitsNewline(t *testing.T) {
 	}
 }
 
+// TestSpecS8_8_ControlCharsAllowedInUnquoted verifies that control characters
+// not in the forbidden set (e.g. SOH 0x01, BEL 0x07) are allowed inside
+// unquoted strings. Spec L280. Status: ✅
 func TestSpecS8_8_ControlCharsAllowedInUnquoted(t *testing.T) {
 	cases := []struct {
 		name string
