@@ -507,7 +507,11 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 			pendingWs += string(ch)
 			l.advance()
 
-		case isHoconNewline(ch), ch == '\r':
+		case isHoconNewline(ch):
+			// LF terminates a substitution (unterminated). CR (U+000D) is whitespace
+			// per isHoconWhitespace, not a newline per isHoconNewline, so it is
+			// consumed by the preceding whitespace case — the former `ch == '\r'` arm
+			// here was unreachable.
 			return Token{Type: TokenError, Value: "unterminated substitution", Line: startLine, Col: startCol}
 
 		default:

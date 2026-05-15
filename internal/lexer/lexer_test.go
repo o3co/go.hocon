@@ -825,3 +825,26 @@ func TestSpecS6_SubstBodyBOMBeforeDot(t *testing.T) {
 		t.Errorf("BOM before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
 	}
 }
+
+// TestSpecS6_CR_InsideSubstBody pins the behavior that CR (U+000D) inside
+// ${...} is consumed as inter-segment whitespace, not as a newline that would
+// terminate the substitution with an error. CR satisfies isHoconWhitespace but
+// NOT isHoconNewline, so it is handled by the non-newline whitespace case.
+//
+// Effective behavior: ${foo\rbar} produces one segment with text "foo\rbar"
+// (CR is accumulated as pending whitespace and concatenated into the segment).
+// 3-way convergent with ts.hocon and rs.hocon per spec §F.
+//
+// This test also pins that the refactor removing the dead `ch == '\r'` arm
+// from the isHoconNewline case (commit 3) did not regress CR handling.
+func TestSpecS6_CR_InsideSubstBody(t *testing.T) {
+	// ${foo\rbar}: no dot, CR is whitespace, produces one segment "foo\rbar".
+	segs := substSegments(t, "${foo\rbar}")
+	if len(segs) != 1 {
+		t.Fatalf("CR inside subst: got %d segments, want 1: %v", len(segs), segs)
+	}
+	want := "foo\rbar"
+	if segs[0].Text != want {
+		t.Errorf("CR inside subst: seg[0].Text=%q, want %q", segs[0].Text, want)
+	}
+}
