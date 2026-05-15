@@ -128,12 +128,17 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅ (fixed in fix/s6-whitespace-expansion — was ❌ #59)
 
 - **S6.3** BOM (0xFEFF) treated as whitespace — §Whitespace (L173)
-  tests: config_test.go:408 (TestConfig_BOM_ParseFile); config_test.go:422 (TestConfig_BOM_ParseString); testdata/hocon/bom.conf (fixture); internal/lexer/lexer_test.go:696 (TestSpecS6_3_BOMMidstreamIsWhitespace)
+  tests: config_test.go:408 (TestConfig_BOM_ParseFile); config_test.go:422 (TestConfig_BOM_ParseString); testdata/hocon/bom.conf (fixture); internal/lexer/lexer_test.go:693 (TestSpecS6_3_BOMMidstreamIsWhitespace)
   status: ✅ (broadened in fix/s6-whitespace-expansion — BOM now recognized as whitespace anywhere, not only at start-of-input)
 
 - **S6.4** ASCII control whitespace (tab, vtab, FF, CR, FS, GS, RS, US) — §Whitespace (L174)
   tests: internal/lexer/lexer_test.go:558 (TestSpecS6_4_TabIsWhitespace); internal/lexer/lexer_test.go:574 (TestSpecS6_4_CRIsWhitespace); internal/lexer/lexer_test.go:590 (TestSpecS6_4_VtabIsWhitespace); internal/lexer/lexer_test.go:609 (TestSpecS6_4_FFIsWhitespace); internal/lexer/lexer_test.go:628 (TestSpecS6_4_SeparatorsAreWhitespace)
   status: ✅ (fixed in fix/s6-whitespace-expansion — was ⚠️ #59)
+  behavior-change (fix/s6-whitespace-expansion): CR (U+000D) inside \${...} was previously rejected with "unterminated substitution" error; it is now consumed as inter-segment whitespace per spec §F. CR satisfies isHoconWhitespace but not isHoconNewline, so only LF terminates a substitution. 3-way convergent with ts.hocon and rs.hocon. Pinned by TestSpecS6_CR_InsideSubstBody.
+
+- **S6.6** NEL (U+0085) is not in HOCON_WS and is not a newline — §Whitespace (L165-184)
+  status: ✅ (clarified in fix/s6-whitespace-expansion)
+  behavior-change (fix/s6-whitespace-expansion): previously, unquoted string tokenization used Go's unicode.IsSpace() which includes U+0085 (NEL), causing NEL to be treated as a whitespace separator and excluded from unquoted string tokens. The new isHoconWhitespace predicate does not include NEL (per HOCON spec L165-184). NEL is now allowed in unquoted strings per S8.8 (control chars not in the forbidden set are permitted). Intentional divergence from Go stdlib unicode.IsSpace.
 
 - **S6.5** "newline" means specifically 0x000A (LF) — §Whitespace (L183)
   tests: spec_phase5_test.go (TestSpec_S6_5_NewlineMeansLF)
