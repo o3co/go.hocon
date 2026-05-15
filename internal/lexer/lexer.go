@@ -393,10 +393,16 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 
 // isUnquotedSubstChar returns true if ch is allowed inside a ${...} body
 // as an unquoted character. Mirrors rs.hocon's is_unquoted_subst_char.
+//
+// Whitespace is delegated to isHoconWhitespace so that all three
+// whitespace-check sites in the subst-body path machine route through the
+// same predicate (the main loop, parseSubstBody skip, and this function).
 func isUnquotedSubstChar(ch rune) bool {
+	if isHoconWhitespace(ch) {
+		return false
+	}
 	switch ch {
-	case ' ', '\t', '\n', '\r',
-		'"', '\\',
+	case '"', '\\',
 		'{', '}', '[', ']',
 		':', '=', ',', '+', '#',
 		'`', '^', '?', '!', '@', '*', '&',
