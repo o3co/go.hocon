@@ -497,13 +497,15 @@ func TestSpecS6_1_UnicodeCategoryZpIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_2_NBSPIsWhitespace verifies that NBSP (U+00A0) is whitespace.
-// Spec L171. Status: ❌ spec violation — see issue #59.
+// Spec L171. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_2_NBSPIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\u00a0b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("NBSP: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -514,13 +516,15 @@ func TestSpecS6_2_NBSPIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_2_FigureSpaceIsWhitespace verifies figure space (U+2007).
-// Spec L171. Status: ❌ spec violation — see issue #59.
+// Spec L171. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_2_FigureSpaceIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\u2007b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("figure space: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -531,13 +535,15 @@ func TestSpecS6_2_FigureSpaceIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_2_NarrowNBSPIsWhitespace verifies narrow no-break space (U+202F).
-// Spec L171. Status: ❌ spec violation — see issue #59.
+// Spec L171. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_2_NarrowNBSPIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\u202fb"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("narrow NBSP: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
