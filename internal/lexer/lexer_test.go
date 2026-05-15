@@ -750,3 +750,78 @@ func TestSpecS8_8_ControlCharsAllowedInUnquoted(t *testing.T) {
 		}
 	}
 }
+
+// TestSpecS6_SubstBodyNBSPBeforeDot verifies that NBSP (U+00A0) inside ${...}
+// before a dot acts as inter-segment whitespace (discarded) rather than being
+// absorbed into the segment text. Spec §D: all three whitespace sites must route
+// through isHoconWhitespace. Status: RED — isUnquotedSubstChar uses hardcoded set.
+func TestSpecS6_SubstBodyNBSPBeforeDot(t *testing.T) {
+	nbsp := string(rune(0x00A0))
+	input := "${foo" + nbsp + ".bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("NBSP before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("NBSP before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("NBSP before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
+
+// TestSpecS6_SubstBodyZlBeforeDot verifies that line separator (U+2028, Zl)
+// inside ${...} before a dot acts as inter-segment whitespace (discarded) rather
+// than being absorbed into the segment text. Status: RED — isUnquotedSubstChar
+// uses hardcoded set.
+func TestSpecS6_SubstBodyZlBeforeDot(t *testing.T) {
+	zl := string(rune(0x2028))
+	input := "${foo" + zl + ".bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("Zl before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("Zl before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("Zl before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
+
+// TestSpecS6_SubstBodyVtabBeforeDot verifies that vertical tab (U+000B) inside
+// ${...} before a dot acts as inter-segment whitespace (discarded) rather than
+// being absorbed into the segment text. Status: RED — isUnquotedSubstChar uses
+// hardcoded set.
+func TestSpecS6_SubstBodyVtabBeforeDot(t *testing.T) {
+	input := "${foo\x0b.bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("vtab before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("vtab before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("vtab before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
+
+// TestSpecS6_SubstBodyBOMBeforeDot verifies that BOM (U+FEFF) inside ${...}
+// before a dot acts as inter-segment whitespace (discarded) rather than being
+// absorbed into the segment text. Status: RED — isUnquotedSubstChar uses hardcoded
+// set.
+func TestSpecS6_SubstBodyBOMBeforeDot(t *testing.T) {
+	bom := string(rune(0xFEFF))
+	input := "${foo" + bom + ".bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("BOM before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("BOM before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("BOM before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
