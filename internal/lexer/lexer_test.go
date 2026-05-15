@@ -434,16 +434,17 @@ func TestSpecS2_3_CommentMarkersInQuotedString(t *testing.T) {
 // TestSpecS6_1_UnicodeCategoryZsIsWhitespace verifies that Unicode Zs-category
 // characters (e.g. em space U+2003) are treated as token separators.
 // Spec L170.
-// Status: ❌ spec violation — lexer rejects Zs chars with "unexpected character"
-// instead of treating them as whitespace. See issue #59.
+// Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_1_UnicodeCategoryZsIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	// Em space (U+2003, Zs) between two unquoted tokens should act as a
-	// separator, producing two separate TokenString tokens.
+	// separator, producing two separate TokenString tokens with no error.
 	src := "a\u2003b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("src=%q: got unexpected error token: %q", src, tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -455,14 +456,16 @@ func TestSpecS6_1_UnicodeCategoryZsIsWhitespace(t *testing.T) {
 
 // TestSpecS6_1_UnicodeCategoryZlIsWhitespace verifies that line separator
 // (U+2028, Zl) is treated as whitespace. Spec L170.
-// Status: ❌ spec violation — see issue #59.
+// Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_1_UnicodeCategoryZlIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
-	// Line separator (U+2028, Zl) should separate two unquoted tokens.
+	// Line separator (U+2028, Zl) should separate two unquoted tokens with no error.
 	src := "a\u2028b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("src=%q: got unexpected error token: %q", src, tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -474,14 +477,16 @@ func TestSpecS6_1_UnicodeCategoryZlIsWhitespace(t *testing.T) {
 
 // TestSpecS6_1_UnicodeCategoryZpIsWhitespace verifies that paragraph separator
 // (U+2029, Zp) is treated as whitespace. Spec L170 covers Zs/Zl/Zp; this is the
-// Zp half. Status: ❌ spec violation — see issue #59.
+// Zp half. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_1_UnicodeCategoryZpIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
-	// Paragraph separator (U+2029, Zp) should separate two unquoted tokens.
+	// Paragraph separator (U+2029, Zp) should separate two unquoted tokens with no error.
 	src := "a\u2029b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("src=%q: got unexpected error token: %q", src, tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
