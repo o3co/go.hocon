@@ -140,10 +140,6 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   tests: spec_phase5_test.go (TestSpec_S6_5_NewlineMeansLF)
   status: ✅
 
-- **S6.6** NEL (U+0085) is not in HOCON_WS and is not a newline — §Whitespace (L165-184)
-  status: ✅ (clarified in fix/s6-whitespace-expansion)
-  behavior-change (fix/s6-whitespace-expansion): previously, unquoted string tokenization used Go's unicode.IsSpace() which includes U+0085 (NEL), causing NEL to be treated as a whitespace separator and excluded from unquoted string tokens. The new isHoconWhitespace predicate does not include NEL (per HOCON spec L165-184). NEL is now allowed in unquoted strings per S8.8 (control chars not in the forbidden set are permitted). Intentional divergence from Go stdlib unicode.IsSpace.
-
 ## S7. Duplicate keys and object merging
 
 - **S7.1** Later non-object key overrides earlier — §Duplicate keys (L189)
