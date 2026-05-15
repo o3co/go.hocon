@@ -586,14 +586,15 @@ func TestSpecS6_4_CRIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_4_VtabIsWhitespace verifies vertical tab (0x0B) is whitespace.
-// Spec L174. Status: ❌ spec violation — lexer rejects with "unexpected character".
-// See issue #59.
+// Spec L174. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_4_VtabIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\x0bb"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("vtab: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -604,14 +605,15 @@ func TestSpecS6_4_VtabIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_4_FFIsWhitespace verifies form feed (0x0C) is whitespace.
-// Spec L174. Status: ❌ spec violation — lexer rejects with "unexpected character".
-// See issue #59.
+// Spec L174. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_4_FFIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\x0cb"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("FF: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -622,16 +624,17 @@ func TestSpecS6_4_FFIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_4_SeparatorsAreWhitespace verifies FS/GS/RS/US (0x1C-0x1F) are
-// whitespace. Spec L174. Status: ❌ spec violation — these chars are absorbed
-// into unquoted string runs instead of acting as separators. See issue #59.
+// whitespace. Spec L174. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_4_SeparatorsAreWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	// FS=0x1C, GS=0x1D, RS=0x1E, US=0x1F — all must act as whitespace
 	for _, ch := range []rune{'\x1c', '\x1d', '\x1e', '\x1f'} {
 		src := "a" + string(ch) + "b"
 		toks := tokenize(src)
 		var strings_ []string
 		for _, tok := range toks {
+			if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+				t.Errorf("U+%04X: got unexpected error token: %q", ch, tok.Value)
+			}
 			if tok.Type == lexer.TokenString {
 				strings_ = append(strings_, tok.Value)
 			}
