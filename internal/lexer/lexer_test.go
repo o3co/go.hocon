@@ -810,8 +810,8 @@ func TestSpecS6_SubstBodyNBSPBeforeDot(t *testing.T) {
 
 // TestSpecS6_SubstBodyZlBeforeDot verifies that line separator (U+2028, Zl)
 // inside ${...} before a dot acts as inter-segment whitespace (discarded) rather
-// than being absorbed into the segment text. Status: RED — isUnquotedSubstChar
-// uses hardcoded set.
+// than being absorbed into the segment text. Status: ✅ (fixed in #78 — isUnquotedSubstChar
+// now routes through isHoconWhitespace).
 func TestSpecS6_SubstBodyZlBeforeDot(t *testing.T) {
 	zl := string(rune(0x2028))
 	input := "${foo" + zl + ".bar}"
@@ -829,8 +829,8 @@ func TestSpecS6_SubstBodyZlBeforeDot(t *testing.T) {
 
 // TestSpecS6_SubstBodyVtabBeforeDot verifies that vertical tab (U+000B) inside
 // ${...} before a dot acts as inter-segment whitespace (discarded) rather than
-// being absorbed into the segment text. Status: RED — isUnquotedSubstChar uses
-// hardcoded set.
+// being absorbed into the segment text. Status: ✅ (fixed in #78 — isUnquotedSubstChar
+// now routes through isHoconWhitespace).
 func TestSpecS6_SubstBodyVtabBeforeDot(t *testing.T) {
 	input := "${foo\x0b.bar}"
 	segs := substSegments(t, input)
@@ -847,8 +847,8 @@ func TestSpecS6_SubstBodyVtabBeforeDot(t *testing.T) {
 
 // TestSpecS6_SubstBodyBOMBeforeDot verifies that BOM (U+FEFF) inside ${...}
 // before a dot acts as inter-segment whitespace (discarded) rather than being
-// absorbed into the segment text. Status: RED — isUnquotedSubstChar uses hardcoded
-// set.
+// absorbed into the segment text. Status: ✅ (fixed in #78 — isUnquotedSubstChar
+// now routes through isHoconWhitespace).
 func TestSpecS6_SubstBodyBOMBeforeDot(t *testing.T) {
 	bom := string(rune(0xFEFF))
 	input := "${foo" + bom + ".bar}"
