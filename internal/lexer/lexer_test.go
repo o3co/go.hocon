@@ -434,16 +434,17 @@ func TestSpecS2_3_CommentMarkersInQuotedString(t *testing.T) {
 // TestSpecS6_1_UnicodeCategoryZsIsWhitespace verifies that Unicode Zs-category
 // characters (e.g. em space U+2003) are treated as token separators.
 // Spec L170.
-// Status: ❌ spec violation — lexer rejects Zs chars with "unexpected character"
-// instead of treating them as whitespace. See issue #59.
+// Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_1_UnicodeCategoryZsIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	// Em space (U+2003, Zs) between two unquoted tokens should act as a
-	// separator, producing two separate TokenString tokens.
+	// separator, producing two separate TokenString tokens with no error.
 	src := "a\u2003b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("src=%q: got unexpected error token: %q", src, tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -455,14 +456,16 @@ func TestSpecS6_1_UnicodeCategoryZsIsWhitespace(t *testing.T) {
 
 // TestSpecS6_1_UnicodeCategoryZlIsWhitespace verifies that line separator
 // (U+2028, Zl) is treated as whitespace. Spec L170.
-// Status: ❌ spec violation — see issue #59.
+// Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_1_UnicodeCategoryZlIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
-	// Line separator (U+2028, Zl) should separate two unquoted tokens.
+	// Line separator (U+2028, Zl) should separate two unquoted tokens with no error.
 	src := "a\u2028b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("src=%q: got unexpected error token: %q", src, tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -474,14 +477,16 @@ func TestSpecS6_1_UnicodeCategoryZlIsWhitespace(t *testing.T) {
 
 // TestSpecS6_1_UnicodeCategoryZpIsWhitespace verifies that paragraph separator
 // (U+2029, Zp) is treated as whitespace. Spec L170 covers Zs/Zl/Zp; this is the
-// Zp half. Status: ❌ spec violation — see issue #59.
+// Zp half. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_1_UnicodeCategoryZpIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
-	// Paragraph separator (U+2029, Zp) should separate two unquoted tokens.
+	// Paragraph separator (U+2029, Zp) should separate two unquoted tokens with no error.
 	src := "a\u2029b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("src=%q: got unexpected error token: %q", src, tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -492,13 +497,15 @@ func TestSpecS6_1_UnicodeCategoryZpIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_2_NBSPIsWhitespace verifies that NBSP (U+00A0) is whitespace.
-// Spec L171. Status: ❌ spec violation — see issue #59.
+// Spec L171. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_2_NBSPIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\u00a0b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("NBSP: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -509,13 +516,15 @@ func TestSpecS6_2_NBSPIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_2_FigureSpaceIsWhitespace verifies figure space (U+2007).
-// Spec L171. Status: ❌ spec violation — see issue #59.
+// Spec L171. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_2_FigureSpaceIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\u2007b"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("figure space: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -526,13 +535,15 @@ func TestSpecS6_2_FigureSpaceIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_2_NarrowNBSPIsWhitespace verifies narrow no-break space (U+202F).
-// Spec L171. Status: ❌ spec violation — see issue #59.
+// Spec L171. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_2_NarrowNBSPIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\u202fb"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("narrow NBSP: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -575,14 +586,15 @@ func TestSpecS6_4_CRIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_4_VtabIsWhitespace verifies vertical tab (0x0B) is whitespace.
-// Spec L174. Status: ❌ spec violation — lexer rejects with "unexpected character".
-// See issue #59.
+// Spec L174. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_4_VtabIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\x0bb"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("vtab: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -593,14 +605,15 @@ func TestSpecS6_4_VtabIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_4_FFIsWhitespace verifies form feed (0x0C) is whitespace.
-// Spec L174. Status: ❌ spec violation — lexer rejects with "unexpected character".
-// See issue #59.
+// Spec L174. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_4_FFIsWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	src := "a\x0cb"
 	toks := tokenize(src)
 	var strings_ []string
 	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("FF: got unexpected error token: %q", tok.Value)
+		}
 		if tok.Type == lexer.TokenString {
 			strings_ = append(strings_, tok.Value)
 		}
@@ -611,16 +624,17 @@ func TestSpecS6_4_FFIsWhitespace(t *testing.T) {
 }
 
 // TestSpecS6_4_SeparatorsAreWhitespace verifies FS/GS/RS/US (0x1C-0x1F) are
-// whitespace. Spec L174. Status: ❌ spec violation — these chars are absorbed
-// into unquoted string runs instead of acting as separators. See issue #59.
+// whitespace. Spec L174. Status: ✅ fixed in fix/s6-whitespace-expansion (was: ❌ #59)
 func TestSpecS6_4_SeparatorsAreWhitespace(t *testing.T) {
-	t.Skipf("spec violation, see #59")
 	// FS=0x1C, GS=0x1D, RS=0x1E, US=0x1F — all must act as whitespace
 	for _, ch := range []rune{'\x1c', '\x1d', '\x1e', '\x1f'} {
 		src := "a" + string(ch) + "b"
 		toks := tokenize(src)
 		var strings_ []string
 		for _, tok := range toks {
+			if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+				t.Errorf("U+%04X: got unexpected error token: %q", ch, tok.Value)
+			}
 			if tok.Type == lexer.TokenString {
 				strings_ = append(strings_, tok.Value)
 			}
@@ -671,6 +685,45 @@ func TestSpecS8_7_BackslashRejectedInUnquoted(t *testing.T) {
 	}
 }
 
+// TestSpecS6_3_BOMMidstreamIsWhitespace verifies that BOM (U+FEFF) appearing
+// mid-stream acts as a whitespace separator rather than leaking into an unquoted
+// string run or producing an error. Spec §Whitespace (L173): BOM must be treated
+// as whitespace anywhere, not only at start-of-input.
+// Status: ✅ fixed in fix/s6-whitespace-expansion
+func TestSpecS6_3_BOMMidstreamIsWhitespace(t *testing.T) {
+	src := "a\uFEFFb"
+	toks := tokenize(src)
+	var strings_ []string
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenError || tok.Type == lexer.TokenInvalid {
+			t.Errorf("BOM mid-stream: got unexpected error token: %q", tok.Value)
+		}
+		if tok.Type == lexer.TokenString {
+			strings_ = append(strings_, tok.Value)
+		}
+	}
+	if len(strings_) != 2 || strings_[0] != "a" || strings_[1] != "b" {
+		t.Errorf("BOM mid-stream: got string tokens %v, want [a b]", strings_)
+	}
+}
+
+// TestSpecS6_LFStillEmitsNewline is a regression guard verifying that after
+// predicate centralization, LF (U+000A) still emits a TokenNewline token and
+// is NOT silently consumed as inter-token whitespace. Spec L183.
+func TestSpecS6_LFStillEmitsNewline(t *testing.T) {
+	toks := tokenize("a\nb")
+	var sawNewline bool
+	for _, tok := range toks {
+		if tok.Type == lexer.TokenNewline {
+			sawNewline = true
+			break
+		}
+	}
+	if !sawNewline {
+		t.Fatal("expected TokenNewline for LF but none found")
+	}
+}
+
 // TestSpecS8_8_ControlCharsAllowedInUnquoted verifies that control characters
 // not in the forbidden set (e.g. SOH 0x01, BEL 0x07) are allowed inside
 // unquoted strings. Spec L280. Status: ✅
@@ -695,5 +748,141 @@ func TestSpecS8_8_ControlCharsAllowedInUnquoted(t *testing.T) {
 		if tok.Value != tc.want {
 			t.Errorf("%s: value=%q, want %q", tc.name, tok.Value, tc.want)
 		}
+	}
+}
+
+// TestSpecS8_8_NELAllowedInUnquoted verifies that NEL (U+0085) is treated as an
+// ordinary character — not as whitespace — in unquoted string tokens.
+//
+// Before fix/s6-whitespace-expansion, isUnquotedForbidden delegated to Go's
+// unicode.IsSpace(), which includes U+0085. That caused "foo<NEL>bar" to be split
+// into two tokens: "foo" and "bar". After the fix, isHoconWhitespace (which does
+// not include NEL per HOCON spec L165-184) is used instead, so NEL is absorbed
+// into the unquoted string and produces a single token. Spec S8.8: control chars
+// not in the forbidden set are permitted in unquoted strings. Status: ✅
+func TestSpecS8_8_NELAllowedInUnquoted(t *testing.T) {
+	nel := string(rune(0x0085))
+	src := "foo" + nel + "bar"
+	want := "foo" + nel + "bar"
+
+	toks := tokenize(src)
+	if len(toks) == 0 {
+		t.Fatal("NEL in unquoted: no tokens produced")
+	}
+	tok := toks[0]
+	if tok.Type != lexer.TokenString {
+		t.Errorf("NEL in unquoted: type=%v, want TokenString", tok.Type)
+	}
+	if tok.Value != want {
+		t.Errorf("NEL in unquoted: value=%q, want %q", tok.Value, want)
+	}
+	// Ensure only one token was produced (NEL did not split the unquoted string).
+	// Ignore any trailing EOF/Newline tokens.
+	meaningful := 0
+	for _, tk := range toks {
+		if tk.Type == lexer.TokenString {
+			meaningful++
+		}
+	}
+	if meaningful != 1 {
+		t.Errorf("NEL in unquoted: got %d TokenString tokens, want 1 (NEL must not split token)", meaningful)
+	}
+}
+
+// TestSpecS6_SubstBodyNBSPBeforeDot verifies that NBSP (U+00A0) inside ${...}
+// before a dot acts as inter-segment whitespace (discarded) rather than being
+// absorbed into the segment text. Spec §D: all three whitespace sites must route
+// through isHoconWhitespace. Status: ✅ (fixed in fix/s6-whitespace-expansion)
+func TestSpecS6_SubstBodyNBSPBeforeDot(t *testing.T) {
+	nbsp := string(rune(0x00A0))
+	input := "${foo" + nbsp + ".bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("NBSP before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("NBSP before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("NBSP before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
+
+// TestSpecS6_SubstBodyZlBeforeDot verifies that line separator (U+2028, Zl)
+// inside ${...} before a dot acts as inter-segment whitespace (discarded) rather
+// than being absorbed into the segment text. Status: ✅ (fixed in #78 — isUnquotedSubstChar
+// now routes through isHoconWhitespace).
+func TestSpecS6_SubstBodyZlBeforeDot(t *testing.T) {
+	zl := string(rune(0x2028))
+	input := "${foo" + zl + ".bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("Zl before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("Zl before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("Zl before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
+
+// TestSpecS6_SubstBodyVtabBeforeDot verifies that vertical tab (U+000B) inside
+// ${...} before a dot acts as inter-segment whitespace (discarded) rather than
+// being absorbed into the segment text. Status: ✅ (fixed in #78 — isUnquotedSubstChar
+// now routes through isHoconWhitespace).
+func TestSpecS6_SubstBodyVtabBeforeDot(t *testing.T) {
+	input := "${foo\x0b.bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("vtab before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("vtab before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("vtab before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
+
+// TestSpecS6_SubstBodyBOMBeforeDot verifies that BOM (U+FEFF) inside ${...}
+// before a dot acts as inter-segment whitespace (discarded) rather than being
+// absorbed into the segment text. Status: ✅ (fixed in #78 — isUnquotedSubstChar
+// now routes through isHoconWhitespace).
+func TestSpecS6_SubstBodyBOMBeforeDot(t *testing.T) {
+	bom := string(rune(0xFEFF))
+	input := "${foo" + bom + ".bar}"
+	segs := substSegments(t, input)
+	if len(segs) != 2 {
+		t.Fatalf("BOM before dot: got %d segments, want 2: %v", len(segs), segs)
+	}
+	if segs[0].Text != "foo" {
+		t.Errorf("BOM before dot: seg[0].Text=%q, want %q", segs[0].Text, "foo")
+	}
+	if segs[1].Text != "bar" {
+		t.Errorf("BOM before dot: seg[1].Text=%q, want %q", segs[1].Text, "bar")
+	}
+}
+
+// TestSpecS6_CR_InsideSubstBody pins the behavior that CR (U+000D) inside
+// ${...} is consumed as inter-segment whitespace, not as a newline that would
+// terminate the substitution with an error. CR satisfies isHoconWhitespace but
+// NOT isHoconNewline, so it is handled by the non-newline whitespace case.
+//
+// Effective behavior: ${foo\rbar} produces one segment with text "foo\rbar"
+// (CR is accumulated as pending whitespace and concatenated into the segment).
+// 3-way convergent with ts.hocon and rs.hocon per spec §F.
+//
+// This test also pins that the refactor removing the dead `ch == '\r'` arm
+// from the isHoconNewline case (commit 3) did not regress CR handling.
+func TestSpecS6_CR_InsideSubstBody(t *testing.T) {
+	// ${foo\rbar}: no dot, CR is whitespace, produces one segment "foo\rbar".
+	segs := substSegments(t, "${foo\rbar}")
+	if len(segs) != 1 {
+		t.Fatalf("CR inside subst: got %d segments, want 1: %v", len(segs), segs)
+	}
+	want := "foo\rbar"
+	if segs[0].Text != want {
+		t.Errorf("CR inside subst: seg[0].Text=%q, want %q", segs[0].Text, want)
 	}
 }
