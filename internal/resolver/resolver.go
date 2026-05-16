@@ -698,6 +698,18 @@ func concatArraysPermissive(vals []Val) Val {
 		}
 		if arr, ok := v.(*ArrayVal); ok {
 			result.Elements = append(result.Elements, arr.Elements...)
+		} else if obj, isObj := v.(*ObjectVal); isObj {
+			// S15 concat-time conversion: when an ObjectVal appears in an array
+			// concatenation context, attempt numeric-object → array conversion.
+			// If conversion succeeds, flatten the resulting elements into the result.
+			// If conversion fails (empty or no eligible keys), insert the object
+			// as a single element — the existing permissive behaviour is preserved
+			// and the accessor-level type check will catch mismatches downstream.
+			if converted, convOK := numericObjectToArray(obj); convOK {
+				result.Elements = append(result.Elements, converted.Elements...)
+			} else {
+				result.Elements = append(result.Elements, v)
+			}
 		} else {
 			result.Elements = append(result.Elements, v)
 		}
