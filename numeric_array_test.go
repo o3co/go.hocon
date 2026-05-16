@@ -116,6 +116,23 @@ func TestS15_Fixture_na03d_MultiPieceConcatNormative(t *testing.T) {
 	assertSlice(t, "arr", got, []string{"x", "y", "z", "w", "a"})
 }
 
+// ── na03e: multi-piece overlap — pairwise fold vs single-pass loop ───────────
+
+// TestS15_Fixture_na03e_MultiPieceOverlap verifies the NORMATIVE left-to-right
+// pairwise fold with overlapping numeric keys across adjacent objects.
+// obj1={"0":"x","1":"y"}, obj2={"0":"z"}, arr = ${obj1} ${obj2} [a]
+// Pairwise fold: join(obj1,obj2) → object-merge → {"0":"z","1":"y"} (obj2 wins key "0")
+//
+//	join(merged, [a]) → numericObjectToArray → ["z","y","a"].
+//
+// A single-pass loop converting each object independently would produce ["x","y","z","a"],
+// which is WRONG. This fixture is the regression guard added after multi-agent review (2026-05-16).
+func TestS15_Fixture_na03e_MultiPieceOverlap(t *testing.T) {
+	cfg := mustParseFile(t, "testdata/hocon/numeric-obj-array/na03e-multi-piece-overlap.conf")
+	got := cfg.GetStringSlice("arr")
+	assertSlice(t, "arr", got, []string{"z", "y", "a"})
+}
+
 // ── na04: empty object NOT converted ─────────────────────────────────────────
 
 // TestS15_Fixture_na04_EmptyNotConverted verifies S15.4: empty {} is NOT
