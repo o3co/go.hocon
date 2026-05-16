@@ -693,39 +693,39 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S15. Numerically-indexed objects to arrays
 
 - **S15.1** `{"0":"a","1":"b"}` → `["a","b"]` when array context — §Conversion (L1191)
-  tests: config_test.go (TestSpec_S15_1_NumericObjectToArray)
-  status: ❌
-  note: numerically-indexed object-to-array conversion not implemented; see issue #71.
+  tests: config_test.go (TestSpec_S15_1_NumericObjectToArray); numeric_array_test.go (TestS15_Fixture_na01_BasicAccessor)
+  status: ✅
+  note: fixed in fix/s15-numeric-obj-array (#71) via `numericObjectToArray` helper called from `getArray`.
 
 - **S15.2** Conversion is lazy (only on type-required access) — §Conversion (L1204)
-  tests: config_test.go (TestSpec_S15_2_ConversionIsLazy)
-  status: ❌
-  note: conversion not implemented at all; see issue #71.
+  tests: config_test.go (TestSpec_S15_2_ConversionIsLazy); numeric_array_test.go (TestS15_Fixture_na02_LazyGetObject)
+  status: ✅
+  note: fixed in fix/s15-numeric-obj-array (#71). Conversion fires in two places: array-typed accessors (`getArray`/`lookupArray`, used by `Get*Slice` / `Get*SliceOption`) AND resolution-time array concat (`joinPair` in `internal/resolver/resolver.go` — when an Array meets an Object). `GetConfig`/`GetConfigOption` and `Has` remain lazy and do not trigger conversion.
 
 - **S15.3** Conversion in concatenation when list expected — §Conversion (L1210)
-  tests: config_test.go (TestSpec_S15_3_ConversionInConcatenation_Pin); config_test.go (TestSpec_S15_3_ConversionInConcatenation_Spec)
-  status: ❌
-  note: real concat context `arr = [a] ${obj}` (with `obj = {"0":"x","1":"y"}`) parses, but the object is inserted un-converted as an element — `GetStringSlice` panics and `GetStringSliceOption` returns None. Spec L1210 requires conversion + flatten to `["a","x","y"]`. Pin asserts the Option-None outcome. Tracked in #71.
+  tests: config_test.go (TestSpec_S15_3_ConversionInConcatenation); numeric_array_test.go (TestS15_Fixture_na03a_ConcatLeftList, na03b, na03c, na03d)
+  status: ✅
+  note: fixed in fix/s15-numeric-obj-array (#71). `joinPair` in `internal/resolver/resolver.go` (replacing the earlier `concatArraysPermissive`) calls `numericObjectToArray` on any ObjectVal when the partner is an Array; `concatTwoArrays` then performs the array-array merge. Multi-piece concat (`na03d`) follows true left-to-right pairwise fold per Lightbend `consolidate`.
 
 - **S15.4** Empty object NOT converted — §Conversion (L1212)
-  tests: config_test.go (TestSpec_S15_4_EmptyObjectNotConverted)
-  status: ✅ (incidental)
-  note: passes today because no conversion runs at all — `arr: {}` stays an object and `GetStringSliceOption` returns None. When #71 lands, the test must continue to pass via an explicit empty-object guard before the conversion path, not by its absence. Aligns with rs.hocon's identical determination.
+  tests: config_test.go (TestSpec_S15_4_EmptyObjectNotConverted); numeric_array_test.go (TestS15_Fixture_na04_EmptyNotConverted)
+  status: ✅
+  note: `numericObjectToArray` has an explicit empty-object guard (`len(obj.keys) == 0` → return nil, false). Previously passed incidentally; now backed by explicit logic.
 
 - **S15.5** Non-integer keys ignored during conversion — §Conversion (L1214)
-  tests: config_test.go (TestSpec_S15_5_NonIntegerKeysIgnored)
-  status: ❌
-  note: conversion not implemented at all; see issue #71.
+  tests: config_test.go (TestSpec_S15_5_NonIntegerKeysIgnored); numeric_array_test.go (TestS15_Fixture_na05_NonIntKeysIgnored)
+  status: ✅
+  note: fixed in fix/s15-numeric-obj-array (#71). Pre-filter regex `^(0|[1-9][0-9]*)$` rejects non-integer keys; only eligible keys contribute to the array.
 
 - **S15.6** Missing indices compacted in resulting array — §Conversion (L1216)
-  tests: config_test.go (TestSpec_S15_6_MissingIndicesCompacted)
-  status: ❌
-  note: conversion not implemented at all; see issue #71.
+  tests: config_test.go (TestSpec_S15_6_MissingIndicesCompacted); numeric_array_test.go (TestS15_Fixture_na06_GapCompaction)
+  status: ✅
+  note: fixed in fix/s15-numeric-obj-array (#71). Eligible entries are sorted by integer key then projected linearly — gaps are naturally eliminated.
 
 - **S15.7** Sorted by integer key value — §Conversion (L1216)
-  tests: config_test.go (TestSpec_S15_7_SortedByIntegerKey)
-  status: ❌
-  note: conversion not implemented at all; see issue #71.
+  tests: config_test.go (TestSpec_S15_7_SortedByIntegerKey); numeric_array_test.go (TestS15_Fixture_na07_SortByKey)
+  status: ✅
+  note: fixed in fix/s15-numeric-obj-array (#71). `sort.Slice` on parsed integer keys ensures correct order regardless of insertion order.
 
 ## S16. MIME Type
 

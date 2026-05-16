@@ -968,10 +968,6 @@ func TestConfig_DelayedMergeNestedSubstitution(t *testing.T) {
 
 // ── Spec compliance Phase 4: S15, S17.5, S17.7, S17.8, S21.4, S21.5 ──────────────
 
-// specIssueS15 is the GitHub issue number for the S15 spec violation.
-// go.hocon does not convert numerically-indexed objects to arrays.
-const specIssueS15 = 71
-
 // specIssueS17_7_8 is the GitHub issue number for the S17.7/S17.8 spec violation.
 // Option accessors return None instead of an error for object/array type mismatches.
 const specIssueS17_7_8 = 72
@@ -986,9 +982,8 @@ const specIssueS21_5 = 74
 
 // TestSpec_S15_1_NumericObjectToArray verifies that an object with integer keys
 // {"0":"a","1":"b"} is converted to ["a","b"] when array access is requested.
-// Currently not implemented — see issue #71.
+// Fixed in fix/s15-numeric-obj-array, see issue #71.
 func TestSpec_S15_1_NumericObjectToArray(t *testing.T) {
-	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
 	cfg := mustParseCfg(t, `arr: {"0": "a", "1": "b"}`)
 	got := cfg.GetStringSlice("arr")
 	want := []string{"a", "b"}
@@ -1004,9 +999,8 @@ func TestSpec_S15_1_NumericObjectToArray(t *testing.T) {
 
 // TestSpec_S15_2_ConversionIsLazy verifies that numeric-key objects are not converted
 // eagerly; they remain objects until array access is attempted.
-// Currently not implemented — see issue #71.
+// Fixed in fix/s15-numeric-obj-array, see issue #71.
 func TestSpec_S15_2_ConversionIsLazy(t *testing.T) {
-	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
 	// Object with numeric keys should still be accessible as an object (lazy).
 	cfg := mustParseCfg(t, `arr: {"0": "a", "1": "b"}`)
 	// String access should still return "a" for key "arr.0"
@@ -1020,33 +1014,10 @@ func TestSpec_S15_2_ConversionIsLazy(t *testing.T) {
 	}
 }
 
-// TestSpec_S15_3_ConversionInConcatenation_Pin pins the current behaviour for a
-// real adjacent-value list concatenation: `arr = [a] ${obj}` with a numeric-keyed
-// object substitution. Spec L1210 requires the object to convert to its array
-// form and flatten in (yielding ["a","x","y"]). Probe (2026-05-12) shows go.hocon
-// parses successfully but the object is inserted un-converted, so:
-//   - GetStringSlice panics ("element 1 is not a non-null scalar")
-//   - GetStringSliceOption returns None
-//
-// Pin asserts the Option-None outcome — when conversion is implemented per #71,
-// this pin flips and the _Spec test below becomes the live assertion.
-func TestSpec_S15_3_ConversionInConcatenation_Pin(t *testing.T) {
-	// pin: see #71
-	_ = specIssueS15
-	cfg := mustParseCfg(t, `
-obj = {"0": "x", "1": "y"}
-arr = [a] ${obj}
-`)
-	if cfg.GetStringSliceOption("arr").IsSome() {
-		t.Error("[pin] GetStringSliceOption(arr) should currently return None (object element not converted)")
-	}
-}
-
-// TestSpec_S15_3_ConversionInConcatenation_Spec is skipped while conversion is
-// unimplemented (#71). When the fix lands, remove the Skip and the assertion
-// should pass: ["a","x","y"] after conversion + flatten per HOCON L1210.
-func TestSpec_S15_3_ConversionInConcatenation_Spec(t *testing.T) {
-	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
+// TestSpec_S15_3_ConversionInConcatenation verifies that `arr = [a] ${obj}` with a
+// numeric-keyed object substitution converts and flattens to ["a","x","y"] per
+// HOCON L1210. Fixed in fix/s15-numeric-obj-array, see issue #71.
+func TestSpec_S15_3_ConversionInConcatenation(t *testing.T) {
 	cfg := mustParseCfg(t, `
 obj = {"0": "x", "1": "y"}
 arr = [a] ${obj}
@@ -1064,10 +1035,8 @@ arr = [a] ${obj}
 }
 
 // TestSpec_S15_4_EmptyObjectNotConverted verifies that an empty object {} is NOT
-// converted to an array. Currently passes incidentally: go.hocon has no conversion
-// path at all, so `arr: {}` stays an object and GetStringSliceOption returns None.
-// When #71 lands, this test must continue to pass — the implementation needs an
-// explicit empty-object guard before the conversion path, not rely on its absence.
+// converted to an array. The explicit empty-object guard in numericObjectToArray
+// ensures this continues to pass after fix/s15-numeric-obj-array (#71).
 func TestSpec_S15_4_EmptyObjectNotConverted(t *testing.T) {
 	cfg := mustParseCfg(t, `arr: {}`)
 	opt := cfg.GetStringSliceOption("arr")
@@ -1078,9 +1047,8 @@ func TestSpec_S15_4_EmptyObjectNotConverted(t *testing.T) {
 
 // TestSpec_S15_5_NonIntegerKeysIgnored verifies that non-integer keys are skipped
 // during object-to-array conversion; only integer-keyed entries appear in the result.
-// Currently not implemented — see issue #71.
+// Fixed in fix/s15-numeric-obj-array, see issue #71.
 func TestSpec_S15_5_NonIntegerKeysIgnored(t *testing.T) {
-	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
 	cfg := mustParseCfg(t, `arr: {"0": "a", "foo": "ignored", "1": "b"}`)
 	got := cfg.GetStringSlice("arr")
 	want := []string{"a", "b"}
@@ -1096,9 +1064,8 @@ func TestSpec_S15_5_NonIntegerKeysIgnored(t *testing.T) {
 
 // TestSpec_S15_6_MissingIndicesCompacted verifies that gaps in integer keys are
 // eliminated: {"0":"a","2":"c"} → ["a","c"] (not ["a",<nil>,"c"]).
-// Currently not implemented — see issue #71.
+// Fixed in fix/s15-numeric-obj-array, see issue #71.
 func TestSpec_S15_6_MissingIndicesCompacted(t *testing.T) {
-	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
 	cfg := mustParseCfg(t, `arr: {"0": "a", "2": "c"}`)
 	got := cfg.GetStringSlice("arr")
 	want := []string{"a", "c"}
@@ -1114,9 +1081,8 @@ func TestSpec_S15_6_MissingIndicesCompacted(t *testing.T) {
 
 // TestSpec_S15_7_SortedByIntegerKey verifies that the resulting array is sorted by
 // the integer value of each key, not by insertion order.
-// Currently not implemented — see issue #71.
+// Fixed in fix/s15-numeric-obj-array, see issue #71.
 func TestSpec_S15_7_SortedByIntegerKey(t *testing.T) {
-	t.Skipf("spec violation: numerically-indexed object-to-array conversion not implemented, see #%d", specIssueS15)
 	cfg := mustParseCfg(t, `arr: {"1": "b", "0": "a"}`)
 	got := cfg.GetStringSlice("arr")
 	want := []string{"a", "b"}

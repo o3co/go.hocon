@@ -608,34 +608,127 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 		resolved = append(resolved, rv)
 	}
 
-	// Classify non-nil, non-separator elements to determine concatenation mode.
-	hasArray := false
-	hasObject := false
-	hasScalar := false
+	// Classify non-nil, non-separator elements to detect array/object involvement.
+	hasArrayOrObject := false
 	for _, rv := range resolved {
 		if rv == nil || isSeparator(rv) {
 			continue
 		}
 		switch rv.(type) {
-		case *ArrayVal:
-			hasArray = true
-		case *ObjectVal:
-			hasObject = true
-		default:
-			hasScalar = true
+		case *ArrayVal, *ObjectVal:
+			hasArrayOrObject = true
 		}
 	}
 
-	switch {
-	case hasObject && !hasArray && !hasScalar:
-		// All meaningful elements are objects → deep merge (left to right, later wins)
-		return concatObjects(resolved), nil
-	case hasArray:
-		// Array concatenation (permissive: non-array elements become single items)
-		return concatArraysPermissive(resolved), nil
-	default:
-		// String concatenation (fallback)
+	// Pure-scalar concat: pass the full resolved slice (including whitespace-separator
+	// tokens) to concatStrings so that spaces between tokens are preserved.
+	if !hasArrayOrObject {
 		return r.concatStrings(resolved), nil
+	}
+
+	// Build the meaningful (non-nil, non-separator) slice for the pairwise fold.
+	// When any array or object is present in the concat, ALL parser-inserted
+	// separator tokens are stripped — including those between scalar tokens in
+	// a mixed concat. This matches Lightbend's behaviour: in array/object
+	// context, separator whitespace has no semantic role. Pure scalar concat
+	// (handled above when !hasArrayOrObject) keeps separators so string concat
+	// can preserve `"foo bar"` style whitespace.
+	var meaningful []Val
+	for _, rv := range resolved {
+		if rv == nil || isSeparator(rv) {
+			continue
+		}
+		meaningful = append(meaningful, rv)
+	}
+
+	if len(meaningful) == 0 {
+		return r.concatStrings(resolved), nil
+	}
+
+	// True left-to-right pairwise fold per spec §"Multi-piece concat is
+	// left-to-right pairwise (NORMATIVE)" and Lightbend ConfigConcatenation.consolidate.
+	//
+	// joinPair accumulates left-to-right so that adjacent objects are merged
+	// (S10.3) before a list partner triggers numericObjectToArray.  A prior
+	// single-pass classify-then-bulk approach produced wrong results when
+	// adjacent objects had overlapping numeric keys (na03e regression).
+	acc := meaningful[0]
+	for _, v := range meaningful[1:] {
+		next, err := r.joinPair(acc, v)
+		if err != nil {
+			return nil, err
+		}
+		acc = next
+	}
+	return acc, nil
+}
+
+// joinPair combines two adjacent resolved values per the HOCON concat rules.
+// It is the inner step of the left-to-right pairwise fold in resolveConcat.
+// All whitespace-separator tokens have already been stripped from the input.
+func (r *resolver) joinPair(left, right Val) (Val, error) {
+	lArr, lIsArr := left.(*ArrayVal)
+	rArr, rIsArr := right.(*ArrayVal)
+	lObj, lIsObj := left.(*ObjectVal)
+	rObj, rIsObj := right.(*ObjectVal)
+
+	switch {
+	case lIsObj && rIsObj:
+		// S10.3: object + object → deep merge (right wins on key conflict).
+		return mergeObjectConcat(lObj, rObj), nil
+
+	case lIsArr && rIsObj:
+		// Array + Object: attempt S15 numeric conversion on the object side.
+		if converted, ok := numericObjectToArray(rObj); ok {
+			return concatTwoArrays(lArr, converted), nil
+		}
+		// Conversion failed → permissive: insert the unconverted object as a single element.
+		result := &ArrayVal{Elements: make([]Val, len(lArr.Elements)+1)}
+		copy(result.Elements, lArr.Elements)
+		result.Elements[len(lArr.Elements)] = right
+		return result, nil
+
+	case lIsObj && rIsArr:
+		// Object + Array: attempt S15 numeric conversion on the object side.
+		if converted, ok := numericObjectToArray(lObj); ok {
+			return concatTwoArrays(converted, rArr), nil
+		}
+		// Conversion failed → permissive: insert the unconverted object as a single element.
+		result := &ArrayVal{Elements: make([]Val, 1+len(rArr.Elements))}
+		result.Elements[0] = left
+		copy(result.Elements[1:], rArr.Elements)
+		return result, nil
+
+	case lIsArr && rIsArr:
+		// Array + Array → plain concatenation.
+		return concatTwoArrays(lArr, rArr), nil
+
+	case lIsArr:
+		// Array + Scalar → permissive: append scalar as element (preserves existing behaviour).
+		result := &ArrayVal{Elements: make([]Val, len(lArr.Elements)+1)}
+		copy(result.Elements, lArr.Elements)
+		result.Elements[len(lArr.Elements)] = right
+		return result, nil
+
+	case rIsArr:
+		// Scalar + Array → permissive: prepend scalar as element.
+		result := &ArrayVal{Elements: make([]Val, 1+len(rArr.Elements))}
+		result.Elements[0] = left
+		copy(result.Elements[1:], rArr.Elements)
+		return result, nil
+
+	default:
+		// All remaining type-pair combinations land here: Scalar+Scalar,
+		// Object+Scalar, Scalar+Object (Object+Object is handled by the
+		// case above; Array+anything by the cases above this default).
+		// In a mixed concat where structured types are present, the
+		// remaining non-array/non-array-paired values become a string
+		// concat — separators have already been stripped above, so the
+		// result is the raw concatenation. This matches Lightbend's
+		// fallthrough behaviour: invalid mixes (S10.13) silently become
+		// a string in current spec; S10.13 strict-error is a separate
+		// Phase 6 cluster.
+		return r.concatStrings([]Val{left, right}), nil
 	}
 }
 
@@ -668,40 +761,11 @@ func mergeObjectConcat(left, right *ObjectVal) *ObjectVal {
 	return result
 }
 
-func concatObjects(vals []Val) Val {
-	var result *ObjectVal
-	for _, v := range vals {
-		if v == nil || isSeparator(v) {
-			continue
-		}
-		obj, ok := v.(*ObjectVal)
-		if !ok {
-			continue
-		}
-		if result == nil {
-			result = obj
-		} else {
-			result = mergeObjectConcat(result, obj)
-		}
-	}
-	if result == nil {
-		return newObjectVal()
-	}
-	return result
-}
-
-func concatArraysPermissive(vals []Val) Val {
-	result := &ArrayVal{}
-	for _, v := range vals {
-		if v == nil || isSeparator(v) {
-			continue
-		}
-		if arr, ok := v.(*ArrayVal); ok {
-			result.Elements = append(result.Elements, arr.Elements...)
-		} else {
-			result.Elements = append(result.Elements, v)
-		}
-	}
+// concatTwoArrays concatenates two ArrayVals into a new ArrayVal.
+func concatTwoArrays(left, right *ArrayVal) *ArrayVal {
+	result := &ArrayVal{Elements: make([]Val, 0, len(left.Elements)+len(right.Elements))}
+	result.Elements = append(result.Elements, left.Elements...)
+	result.Elements = append(result.Elements, right.Elements...)
 	return result
 }
 

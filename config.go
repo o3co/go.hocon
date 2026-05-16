@@ -374,10 +374,42 @@ func parseBytes(s string) (int64, error) {
 
 // ── slices ────────────────────────────────────────────────────────
 
+// lookupArray resolves path and returns an *ArrayVal, applying S15 numeric-object
+// conversion when the value is an ObjectVal.  Returns (arr, true) on success,
+// (nil, false) when the path is missing or the value cannot be converted.
+// The caller must NOT call this when the path is expected to panic (use getArray).
+func (c *Config) lookupArray(path string) (*resolver.ArrayVal, bool) {
+	v, ok := c.lookup(path)
+	if !ok {
+		return nil, false
+	}
+	// S15: try numeric-object → array conversion before the type check.
+	if obj, isObj := v.(*resolver.ObjectVal); isObj {
+		if converted, convOK := resolver.NumericObjectToArray(obj); convOK {
+			return converted, true
+		}
+		// Non-eligible object (empty or no int keys) → not an array.
+		return nil, false
+	}
+	arr, isArr := v.(*resolver.ArrayVal)
+	if !isArr {
+		return nil, false
+	}
+	return arr, true
+}
+
 func (c *Config) getArray(path string) *resolver.ArrayVal {
 	v, ok := c.lookup(path)
 	if !ok {
 		panicConfig(path, "key not found")
+	}
+	// S15: if the value is a numerically-indexed object, attempt conversion to
+	// an array before the type check.  Non-eligible objects (empty, no int keys)
+	// fall through to the panic below — preserving existing error semantics.
+	if obj, isObj := v.(*resolver.ObjectVal); isObj {
+		if converted, convOK := resolver.NumericObjectToArray(obj); convOK {
+			return converted
+		}
 	}
 	arr, ok := v.(*resolver.ArrayVal)
 	if !ok {
@@ -400,11 +432,7 @@ func (c *Config) GetStringSlice(path string) []string {
 }
 
 func (c *Config) GetStringSliceOption(path string) Option[[]string] {
-	v, ok := c.lookup(path)
-	if !ok {
-		return None[[]string]()
-	}
-	arr, ok := v.(*resolver.ArrayVal)
+	arr, ok := c.lookupArray(path)
 	if !ok {
 		return None[[]string]()
 	}
@@ -437,11 +465,7 @@ func (c *Config) GetInt64Slice(path string) []int64 {
 }
 
 func (c *Config) GetInt64SliceOption(path string) Option[[]int64] {
-	v, ok := c.lookup(path)
-	if !ok {
-		return None[[]int64]()
-	}
-	arr, ok := v.(*resolver.ArrayVal)
+	arr, ok := c.lookupArray(path)
 	if !ok {
 		return None[[]int64]()
 	}
@@ -470,11 +494,7 @@ func (c *Config) GetIntSlice(path string) []int {
 }
 
 func (c *Config) GetIntSliceOption(path string) Option[[]int] {
-	v, ok := c.lookup(path)
-	if !ok {
-		return None[[]int]()
-	}
-	arr, ok := v.(*resolver.ArrayVal)
+	arr, ok := c.lookupArray(path)
 	if !ok {
 		return None[[]int]()
 	}
@@ -537,11 +557,7 @@ func (c *Config) GetConfigSlice(path string) []*Config {
 }
 
 func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
-	v, ok := c.lookup(path)
-	if !ok {
-		return None[[]*Config]()
-	}
-	arr, ok := v.(*resolver.ArrayVal)
+	arr, ok := c.lookupArray(path)
 	if !ok {
 		return None[[]*Config]()
 	}
