@@ -968,10 +968,6 @@ func TestConfig_DelayedMergeNestedSubstitution(t *testing.T) {
 
 // ── Spec compliance Phase 4: S15, S17.5, S17.7, S17.8, S21.4, S21.5 ──────────────
 
-// specIssueS15 is the GitHub issue number for the S15 spec violation.
-// Resolved: go.hocon now converts numerically-indexed objects to arrays.
-const specIssueS15 = 71
-
 // specIssueS17_7_8 is the GitHub issue number for the S17.7/S17.8 spec violation.
 // Option accessors return None instead of an error for object/array type mismatches.
 const specIssueS17_7_8 = 72

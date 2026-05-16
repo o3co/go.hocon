@@ -152,7 +152,8 @@ func TestNumericObjectToArray_NonIntKeysIgnored(t *testing.T) {
 	}
 }
 
-// S15.12: all-non-int keys → no conversion
+// All-non-int keys → no conversion (helper contract; no specific S-row).
+// Spec rows S15.1–S15.7 cover spec-defined cases; this is helper-internal coverage.
 func TestNumericObjectToArray_AllNonInt(t *testing.T) {
 	obj := makeObj("foo", "a", "bar", "b")
 	arr, ok := numericObjectToArray(obj)

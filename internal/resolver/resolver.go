@@ -627,8 +627,12 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 	}
 
 	// Build the meaningful (non-nil, non-separator) slice for the pairwise fold.
-	// Whitespace between array/object elements is intentionally discarded per
-	// S10.6 leading/trailing whitespace rules for array concatenation.
+	// When any array or object is present in the concat, ALL parser-inserted
+	// separator tokens are stripped — including those between scalar tokens in
+	// a mixed concat. This matches Lightbend's behaviour: in array/object
+	// context, separator whitespace has no semantic role. Pure scalar concat
+	// (handled above when !hasArrayOrObject) keeps separators so string concat
+	// can preserve `"foo bar"` style whitespace.
 	var meaningful []Val
 	for _, rv := range resolved {
 		if rv == nil || isSeparator(rv) {
@@ -714,10 +718,16 @@ func (r *resolver) joinPair(left, right Val) (Val, error) {
 		return result, nil
 
 	default:
-		// Scalar + Scalar: string-concat without separator (separator already stripped).
-		// This branch is only reached when hasArrayOrObject is true but the accumulated
-		// value so far and the next value are both scalars — e.g. a substitution that
-		// resolved to a scalar inside a mixed concat. Concatenate directly.
+		// All remaining type-pair combinations land here: Scalar+Scalar,
+		// Object+Scalar, Scalar+Object (Object+Object is handled by the
+		// case above; Array+anything by the cases above this default).
+		// In a mixed concat where structured types are present, the
+		// remaining non-array/non-array-paired values become a string
+		// concat — separators have already been stripped above, so the
+		// result is the raw concatenation. This matches Lightbend's
+		// fallthrough behaviour: invalid mixes (S10.13) silently become
+		// a string in current spec; S10.13 strict-error is a separate
+		// Phase 6 cluster.
 		return r.concatStrings([]Val{left, right}), nil
 	}
 }

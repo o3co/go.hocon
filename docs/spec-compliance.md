@@ -700,12 +700,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 - **S15.2** Conversion is lazy (only on type-required access) — §Conversion (L1204)
   tests: config_test.go (TestSpec_S15_2_ConversionIsLazy); numeric_array_test.go (TestS15_Fixture_na02_LazyGetObject)
   status: ✅
-  note: fixed in fix/s15-numeric-obj-array (#71). Conversion fires only in `getArray`/`lookupArray` (array-typed accessors), not in `GetConfig`/`GetConfigOption` or `Has`.
+  note: fixed in fix/s15-numeric-obj-array (#71). Conversion fires in two places: array-typed accessors (`getArray`/`lookupArray`, used by `Get*Slice` / `Get*SliceOption`) AND resolution-time array concat (`joinPair` in `internal/resolver/resolver.go` — when an Array meets an Object). `GetConfig`/`GetConfigOption` and `Has` remain lazy and do not trigger conversion.
 
 - **S15.3** Conversion in concatenation when list expected — §Conversion (L1210)
   tests: config_test.go (TestSpec_S15_3_ConversionInConcatenation); numeric_array_test.go (TestS15_Fixture_na03a_ConcatLeftList, na03b, na03c, na03d)
   status: ✅
-  note: fixed in fix/s15-numeric-obj-array (#71). `concatArraysPermissive` now calls `numericObjectToArray` on any ObjectVal encountered in array-concat context. Multi-piece concat (`na03d`) follows left-to-right pairwise fold per Lightbend `consolidate`.
+  note: fixed in fix/s15-numeric-obj-array (#71). `joinPair` in `internal/resolver/resolver.go` (replacing the earlier `concatArraysPermissive`) calls `numericObjectToArray` on any ObjectVal when the partner is an Array; `concatTwoArrays` then performs the array-array merge. Multi-piece concat (`na03d`) follows true left-to-right pairwise fold per Lightbend `consolidate`.
 
 - **S15.4** Empty object NOT converted — §Conversion (L1212)
   tests: config_test.go (TestSpec_S15_4_EmptyObjectNotConverted); numeric_array_test.go (TestS15_Fixture_na04_EmptyNotConverted)
