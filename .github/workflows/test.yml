@@ -52,7 +52,12 @@ jobs:
 
       - name: Test with coverage
         if: matrix.go == '1.25' && matrix.os == 'ubuntu-latest'
-        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+        # -coverpkg=./... measures coverage of all packages, not just the test
+        # package's own statements. Without it, tests in `package hocon_test`
+        # (root) that exercise `internal/lexer` / `internal/parser` are not
+        # counted toward those packages' coverage, leading to false-negative
+        # codecov reports on PRs that add cross-package integration tests.
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic -coverpkg=./... ./...
 
       - name: Upload coverage to Codecov
         if: matrix.go == '1.25' && matrix.os == 'ubuntu-latest'

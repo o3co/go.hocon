@@ -628,27 +628,17 @@ func (l *Lexer) readNumber(line, col int) Token {
 			l.advance()
 		}
 	} else {
-		// No integer digits consumed.
-		if l.pos > startPos {
-			// '-' was consumed but no digit follows — HOCON.md L270-276 violation.
-			next := "EOF"
-			if c, ok := l.peek(); ok {
-				next = fmt.Sprintf("%q", c)
-			}
-			return Token{
-				Type:  TokenError,
-				Value: fmt.Sprintf("unquoted string cannot begin with '-' unless followed by a digit (got '-' then %s, HOCON.md L270-276)", next),
-				Line:  line,
-				Col:   startCol,
-			}
+		// No integer digits consumed. Caller dispatch invariant (lexer.go
+		// ~L188-189) routes readNumber only when the leading char is `-` or a
+		// digit; the digit case was handled above, so we must have consumed
+		// `-` here. Per HOCON.md L270-276 this is a lex error.
+		next := "EOF"
+		if c, ok := l.peek(); ok {
+			next = fmt.Sprintf("%q", c)
 		}
-		// Unreachable: nextToken dispatches readNumber only when the leading
-		// char is '-' or a digit (lexer.go ~L188-189). Either we consumed '-'
-		// above (and hit the digit-required branch), or we entered with a
-		// digit (and the integer-part `if` matched). Defensive sentinel only.
 		return Token{
 			Type:  TokenError,
-			Value: "readNumber dispatched on non-numeric start (internal invariant violated)",
+			Value: fmt.Sprintf("unquoted string cannot begin with '-' unless followed by a digit (got '-' then %s, HOCON.md L270-276)", next),
 			Line:  line,
 			Col:   startCol,
 		}
