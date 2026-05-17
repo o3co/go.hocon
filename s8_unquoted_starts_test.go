@@ -179,18 +179,21 @@ func TestS8_6_DeferredSuccess(t *testing.T) {
 // segment start, not at value position only.
 
 func TestS8_6_SubstPathHyphenNoDigitRejected(t *testing.T) {
-	// Tightened: a generic err-not-nil would pass via an unresolved-substitution
-	// error too. We just assert *some* error here; the specific class (Lex vs
-	// Resolve) is checked at code-review time. The point is that `${-foo}` is
-	// not silently accepted as a valid path.
-	_, err := hocon.ParseString("x = ${-foo}")
+	// Tightened to assert a *lex-time* rejection specifically: a generic
+	// err-not-nil could pass via an unresolved-substitution error, which
+	// would mask removal of the parseSubstBody S8.6 check. Use a setup
+	// where a matching key DOES exist — if parseSubstBody didn't reject,
+	// resolution would succeed and the test would fail loudly.
+	input := "\"-foo\" = 1\nx = ${-foo}"
+	_, err := hocon.ParseString(input)
 	if err == nil {
-		t.Error("expected error for ${-foo}, parse succeeded")
+		t.Fatalf("expected lex/parse-time error for ${-foo}, parse+resolve succeeded; this means parseSubstBody S8.6 check is missing")
 	}
-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "parse") &&
-		!strings.Contains(err.Error(), "L270") &&
-		!strings.Contains(strings.ToLower(err.Error()), "lex") {
-		t.Logf("note: error class differs from expected lex/parse-time rejection: %v", err)
+	// Error class check: must contain "L270" (the spec citation in the
+	// parseSubstBody error message) to confirm it's the lex-time rejection,
+	// not a downstream resolve error.
+	if !strings.Contains(err.Error(), "L270") {
+		t.Errorf("expected lex-time S8.6 error (containing 'L270'), got: %v", err)
 	}
 }
 

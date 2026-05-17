@@ -466,6 +466,33 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 			}
 
 		case isUnquotedSubstChar(ch):
+			// S8.6 (HOCON.md L270–276) also applies to unquoted path segments
+			// inside ${...}: a segment beginning with '-' must be followed by a
+			// digit. Gate on `!curStarted` so the check fires only at segment
+			// start — a `-` that follows a quoted fragment in the same segment
+			// (e.g. ${"a"-foo} resolving the key "a-foo" via quoted/unquoted
+			// concat) is not policed, mirroring how the existing ${"a"x} flow
+			// builds "ax". Mirrors ts.hocon PR #97 and rs.hocon PR #86.
+			if ch == '-' && !curStarted {
+				next, _ := func() (rune, bool) {
+					if l.pos+1 >= len(l.src) {
+						return 0, false
+					}
+					return l.src[l.pos+1], true
+				}()
+				if next < '0' || next > '9' {
+					after := "EOF"
+					if next != 0 {
+						after = fmt.Sprintf("%q", next)
+					}
+					return Token{
+						Type:  TokenError,
+						Value: fmt.Sprintf("unquoted path segment cannot begin with '-' unless followed by a digit (got '-' then %s, HOCON.md L270-276)", after),
+						Line:  startLine,
+						Col:   l.col,
+					}
+				}
+			}
 			uCol := l.col
 			if curStarted {
 				curText.WriteString(pendingWs)
@@ -615,10 +642,13 @@ func (l *Lexer) readNumber(line, col int) Token {
 				Col:   startCol,
 			}
 		}
-		// Caller should not have dispatched here — return error sentinel.
+		// Unreachable: nextToken dispatches readNumber only when the leading
+		// char is '-' or a digit (lexer.go ~L188-189). Either we consumed '-'
+		// above (and hit the digit-required branch), or we entered with a
+		// digit (and the integer-part `if` matched). Defensive sentinel only.
 		return Token{
 			Type:  TokenError,
-			Value: "readNumber dispatched on non-numeric start (internal invariant)",
+			Value: "readNumber dispatched on non-numeric start (internal invariant violated)",
 			Line:  line,
 			Col:   startCol,
 		}
