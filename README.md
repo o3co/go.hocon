@@ -273,6 +273,10 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 | Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 passing |
 | [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | 77/77 passing |
 
+### Stricter than Lightbend
+
+- **S8.6 leading-hyphen rejection** (Unreleased): `a = -foo`, `a = -bar`, `a = -` etc. now raise a lex error per HOCON.md L270–276, where Lightbend silently falls back to unquoted strings. The same rule applies to dotted key segments (`a.-foo = 1`). Mitigation: quote the value (`a = "-foo"`). See [CHANGELOG](CHANGELOG.md#unreleased) and [`docs/spec-compliance.md`](docs/spec-compliance.md) §S8.6.
+
 ## Related Projects
 
 | Project | Language | Registry | Description |

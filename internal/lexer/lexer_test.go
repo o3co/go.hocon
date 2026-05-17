@@ -661,10 +661,9 @@ func TestSpecS8_6_DigitStartUnquotedRejected(t *testing.T) {
 
 // TestSpecS8_6_HyphenStartUnquotedRejected verifies that "-foo" (not a valid
 // JSON number) is rejected. Spec L270.
-// Status: ❌ spec violation — lexer tokenizes "-foo" as TokenInt("-") +
-// TokenString("foo"). See issue #60.
+// Status: ✅ — readNumber now returns TokenError when '-' is not followed by a
+// digit (fix/s8.6-unquoted-starts). Skip removed; test is GREEN.
 func TestSpecS8_6_HyphenStartUnquotedRejected(t *testing.T) {
-	t.Skipf("spec violation, see #60")
 	// "-foo" starts with '-' and is not a valid JSON number, so it should
 	// be rejected. "-123" is a valid number and is not tested here.
 	_, err := lexer.Tokenize("-foo")

@@ -9,6 +9,7 @@
 package parser
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -271,6 +272,19 @@ func (p *parser) parseKey() ([]string, error) {
 			for i, s := range segments {
 				if s == "" {
 					continue // skip empty segments from leading/trailing dots
+				}
+				// S8.6 (HOCON.md L270–276): each unquoted key segment that begins
+				// with '-' must be followed by a digit. The lexer sees `a.-foo` as
+				// a single unquoted token, so we validate per-segment here after
+				// splitting. Symmetric with the value-position check in readNumber.
+				if len(s) >= 1 && s[0] == '-' {
+					if len(s) < 2 || s[1] < '0' || s[1] > '9' {
+						after := "EOF"
+						if len(s) >= 2 {
+							after = fmt.Sprintf("%q", rune(s[1]))
+						}
+						return nil, newError(line, col, "unquoted key segment cannot begin with '-' unless followed by a digit (got '-' then %s in %q, HOCON.md L270-276)", after, s)
+					}
 				}
 				parts = append(parts, s)
 				_ = i
