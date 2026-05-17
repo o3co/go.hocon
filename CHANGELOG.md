@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-18
+
 ### Changed
 
 - **BREAKING (S8.6)**: `a = -foo`, `a = -bar`, `a = -` and other `-`-not-followed-by-digit inputs are now lex errors. Per HOCON.md L270–276, a leading `-` must begin a number literal (i.e. be followed by a digit). Previously these were silently accepted (`-foo` tokenized as `TokenInt("-") + TokenString("foo")` and then value-coerced). The same rule is applied per-segment in `parseKey` after dot-split, so `a.-foo = 1` is now rejected. `readNumber` now implements **greedy-with-backtrack** per the HOCON.md number grammar (fractional/exponent productions backtrack to the last valid number end), so `1ex`/`1.x`/`0xff` etc. emit `TokenInt(1)` followed by `TokenString("ex")`/`TokenString(".x")`/`TokenString("xff")` respectively (the value-concat result matches Lightbend's output). Mitigation for the breaking case: quote the value (`a = "-foo"`). Note: this is intentionally stricter than Lightbend's reference implementation, which falls back to unquoted on number-parse failure. Digit-leading inputs that resolve to strings via value-concat are unaffected. See `docs/spec-compliance.md` §S8.6 for the remaining gaps tracked under #60 (digit-leading strict rejection: us13 `01`, us15 `1e+x`). The parser numeric-key support for us08 and us09 is delivered separately in the Fixed section below (#81-followup).
