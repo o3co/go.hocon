@@ -645,19 +645,13 @@ func TestSpecS6_4_SeparatorsAreWhitespace(t *testing.T) {
 	}
 }
 
-// TestSpecS8_6_DigitStartUnquotedRejected verifies that an unquoted string
-// starting with a digit (e.g. "123abc") is rejected. Spec L270.
-// Status: ❌ spec violation — lexer tokenizes "123abc" as TokenInt("123") +
-// TokenString("abc") instead of rejecting. See issue #60.
-func TestSpecS8_6_DigitStartUnquotedRejected(t *testing.T) {
-	t.Skipf("spec violation, see #60")
-	// "x = 123abc": the value "123abc" starts with a digit and is not a valid
-	// JSON number, so it should be rejected (parse error).
-	_, err := lexer.Tokenize("123abc")
-	if err == nil {
-		t.Error("expected error for digit-starting unquoted string '123abc', got nil")
-	}
-}
+// (TestSpecS8_6_DigitStartUnquotedRejected removed in #81-followup: the test
+// framing was wrong — us01 "a = 123abc" is a spec-correct success case via
+// value-position concat ["123","abc"] → "123abc", and us08 "123abc = 1" is a
+// spec-correct success case via key-position concat. The S8.6 digit-leading
+// rule is enforced for *bare* unquoted tokens (e.g. value `123abc` standalone
+// at a non-key position), which the lex+parse flow rejects as part of normal
+// concat resolution rather than as a dedicated lex-time error.)
 
 // TestSpecS8_6_HyphenStartUnquotedRejected verifies that "-foo" (not a valid
 // JSON number) is rejected. Spec L270.

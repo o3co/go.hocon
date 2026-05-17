@@ -246,52 +246,122 @@ func (p *parser) parseField() (*FieldNode, error) {
 	return &FieldNode{pos: pos{line, col}, Key: key, Value: val, Append: append_}, nil
 }
 
+// validateKeySegment enforces HOCON.md L270-276 (S8.6) on a single unquoted /
+// numeric key segment: a segment that begins with '-' must be followed by a
+// digit. Quoted segments bypass this and are not passed here.
+// Precondition: s must be non-empty (callers guard with `if s == "" { continue }`).
+func validateKeySegment(line, col int, s string) error {
+	if s[0] != '-' {
+		return nil
+	}
+	if len(s) >= 2 && s[1] >= '0' && s[1] <= '9' {
+		return nil
+	}
+	after := "EOF"
+	if len(s) >= 2 {
+		after = fmt.Sprintf("%q", rune(s[1]))
+	}
+	return newError(line, col, "unquoted key segment cannot begin with '-' unless followed by a digit (got '-' then %s in %q, HOCON.md L270-276)", after, s)
+}
+
 func (p *parser) parseKey() ([]string, error) {
 	line, col := p.current.Line, p.current.Col
 	if p.current.Type == lexer.TokenError {
 		return nil, newError(line, col, "%s", p.current.Value)
 	}
-	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt {
+	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt && p.current.Type != lexer.TokenFloat {
 		return nil, newError(line, col, "expected key, got %v", p.current.Type)
 	}
 
 	var parts []string
+	// prevKeyTokenIsNumeric tracks whether the segment most recently pushed to
+	// `parts` came from a TokenInt or TokenFloat. This gates the adjacent-token
+	// concat branch: concat may re-split the merged value on '.', so it must
+	// not run after a quoted segment (whose literal '.' must not be
+	// reinterpreted as a path separator) or after a plain unquoted
+	// TokenString (which the lexer would have merged into one token if it
+	// were genuinely adjacent).
+	prevKeyTokenIsNumeric := false
 
 	for {
 		raw := p.current.Value
 		isQuoted := p.current.IsQuoted
+		prevTokenType := p.current.Type
 		p.advance()
 
 		if isQuoted {
 			// Quoted key segment — no dot splitting
 			parts = append(parts, raw)
+			prevKeyTokenIsNumeric = false
 		} else {
-			// Unquoted key — split on dots for path notation.
-			// A trailing dot (e.g., "arrays.") means the next token continues the path.
+			// Unquoted / numeric key — split on dots for path notation. A trailing
+			// dot (e.g., "arrays.") means the next token continues the path. For
+			// TokenFloat (e.g., "3.14") this produces nested segments ["3","14"]
+			// per HOCON.md key-as-path convention.
 			segments := strings.Split(raw, ".")
-			for i, s := range segments {
+			for _, s := range segments {
 				if s == "" {
 					continue // skip empty segments from leading/trailing dots
 				}
-				// S8.6 (HOCON.md L270–276): each unquoted key segment that begins
-				// with '-' must be followed by a digit. The lexer sees `a.-foo` as
-				// a single unquoted token, so we validate per-segment here after
-				// splitting. Symmetric with the value-position check in readNumber.
-				if len(s) >= 1 && s[0] == '-' {
-					if len(s) < 2 || s[1] < '0' || s[1] > '9' {
-						after := "EOF"
-						if len(s) >= 2 {
-							after = fmt.Sprintf("%q", rune(s[1]))
-						}
-						return nil, newError(line, col, "unquoted key segment cannot begin with '-' unless followed by a digit (got '-' then %s in %q, HOCON.md L270-276)", after, s)
-					}
+				if err := validateKeySegment(line, col, s); err != nil {
+					return nil, err
 				}
 				parts = append(parts, s)
-				_ = i
 			}
+			prevKeyTokenIsNumeric = prevTokenType == lexer.TokenInt || prevTokenType == lexer.TokenFloat
 			// If the raw value ends with '.', the next token is a continuation
 			if strings.HasSuffix(raw, ".") {
 				continue // read the next segment
+			}
+		}
+
+		// Adjacent-token key concat (numeric only): a TokenInt or TokenFloat
+		// followed by another stringifiable unquoted token with no
+		// intervening whitespace merges into a single key segment. This is
+		// the key-position analogue of value-position concat for `123abc`
+		// (which the lexer splits as TokenInt("123") + TokenString("abc")
+		// because S8.6 forbids a bare digit-leading unquoted token), and it
+		// extends to keyword tails like `123true` (TokenBool) / `123null`
+		// (TokenNull). The dotted form `123true.foo` already worked because
+		// the lexer reads `true.foo` as a single TokenString (it only
+		// keyword-promotes on the exact token value), so this branch fires
+		// with the TokenString tail in that case as well — adding keyword
+		// types here closes the bare-keyword asymmetry.
+		// We deliberately do NOT run this branch after a quoted segment — a
+		// literal '.' inside `"a.b"` must not be re-interpreted as a path
+		// separator when concatenated with a following unquoted token. The
+		// lexer also never emits two adjacent unquoted TokenStrings, so this
+		// branch only matters when the previous token was numeric. The
+		// leading-dot continuation check below still applies independently.
+		isConcatTail := false
+		switch p.current.Type {
+		case lexer.TokenString:
+			isConcatTail = !p.current.IsQuoted
+		case lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
+			isConcatTail = true
+		}
+		if prevKeyTokenIsNumeric && isConcatTail && !p.current.PrecedingSpace && !strings.HasPrefix(p.current.Value, ".") && len(parts) > 0 {
+			tail := p.current.Value
+			p.advance()
+			merged := parts[len(parts)-1] + tail
+			parts = parts[:len(parts)-1]
+			segments := strings.Split(merged, ".")
+			for _, s := range segments {
+				if s == "" {
+					continue
+				}
+				if err := validateKeySegment(line, col, s); err != nil {
+					return nil, err
+				}
+				parts = append(parts, s)
+			}
+			// After numeric+unquoted concat the merged segment is no longer a
+			// pure number, so further concat is not allowed: a trailing dot
+			// re-enters the loop (which resets prevKeyTokenIsNumeric from the
+			// next token), otherwise we fall through to the leading-dot /
+			// break checks below.
+			if strings.HasSuffix(tail, ".") {
+				continue // next token continues the path
 			}
 		}
 
