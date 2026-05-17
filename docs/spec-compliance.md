@@ -189,8 +189,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S8.6** Unquoted string cannot begin with `0-9` or `-` — §Unquoted strings (L270)
-  tests: internal/lexer/lexer_test.go:638 (TestSpecS8_6_DigitStartUnquotedRejected); internal/lexer/lexer_test.go:652 (TestSpecS8_6_HyphenStartUnquotedRejected)
-  status: ❌ ([#60](https://github.com/o3co/go.hocon/issues/60)) — lexer dispatches digit/hyphen to readNumber then emits TokenInt for the prefix; non-numeric suffix "123abc" → TokenInt("123") + TokenString("abc") instead of error
+  tests: s8_unquoted_starts_test.go (16 xx.hocon fixtures + path-rule regressions); internal/lexer/lexer_test.go (TestSpecS8_6_HyphenStartUnquotedRejected now active; TestSpecS8_6_DigitStartUnquotedRejected still skipped — see gap note below)
+  status: ⚠️ partial ([#60](https://github.com/o3co/go.hocon/issues/60)) — `-` not followed by a digit is rejected at lex time: `readNumber` now uses **greedy-with-backtrack** per HOCON.md L270-276 (fractional/exponent productions backtrack to the last valid number end; if the leading `-` has no digit, the lexer returns TokenError rather than emitting TokenInt("-")). The same rule is applied per-segment in `parseKey` after dot-split, so `a.-foo = 1` is rejected. Digit-leading inputs that lex as `TokenInt + TokenString` (e.g. `123abc`, `1ex`, `1.x`, `0xff`, `1.0.0`) continue to **resolve to the value-concat string** matching Lightbend output — the strict lex-time rejection of digit-leading unquoted strings (us13 `01`, us15 `1e+x`) remains a known gap. Two additional spec-correct cases are deferred to a follow-up PR because they require parser-level numeric-key support: us08 `123abc = 1` → `{"123abc": 1}` (TokenInt+TokenString concat as key) and us09 `3.14 = "v"` → `{"3":{"14":"v"}}` (TokenFloat dot-split as key). Tracker: #60 + follow-up.
 
 - **S8.7** No escape sequences in unquoted strings — §Unquoted strings (L253)
   tests: internal/lexer/lexer_test.go:665 (TestSpecS8_7_BackslashRejectedInUnquoted)

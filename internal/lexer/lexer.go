@@ -466,6 +466,33 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 			}
 
 		case isUnquotedSubstChar(ch):
+			// S8.6 (HOCON.md L270–276) also applies to unquoted path segments
+			// inside ${...}: a segment beginning with '-' must be followed by a
+			// digit. Gate on `!curStarted` so the check fires only at segment
+			// start — a `-` that follows a quoted fragment in the same segment
+			// (e.g. ${"a"-foo} resolving the key "a-foo" via quoted/unquoted
+			// concat) is not policed, mirroring how the existing ${"a"x} flow
+			// builds "ax". Mirrors ts.hocon PR #97 and rs.hocon PR #86.
+			if ch == '-' && !curStarted {
+				next, _ := func() (rune, bool) {
+					if l.pos+1 >= len(l.src) {
+						return 0, false
+					}
+					return l.src[l.pos+1], true
+				}()
+				if next < '0' || next > '9' {
+					after := "EOF"
+					if next != 0 {
+						after = fmt.Sprintf("%q", next)
+					}
+					return Token{
+						Type:  TokenError,
+						Value: fmt.Sprintf("unquoted path segment cannot begin with '-' unless followed by a digit (got '-' then %s, HOCON.md L270-276)", after),
+						Line:  startLine,
+						Col:   l.col,
+					}
+				}
+			}
 			uCol := l.col
 			if curStarted {
 				curText.WriteString(pendingWs)
@@ -566,43 +593,121 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 	return l.parseSubstBody(line, col)
 }
 
+// readNumber lexes a number per the HOCON.md §Number grammar (which mirrors
+// JSON's number grammar): `int frac? exp?` with optional leading `-`. The
+// implementation uses **greedy-with-backtrack**: the fractional and exponent
+// productions each independently backtrack to the last valid number end if
+// the production cannot be fully consumed (e.g. `1.x` returns number `1` and
+// leaves `.x` for the next-token pass; `1ex` returns number `1` and leaves
+// `ex`). Per HOCON.md L270-276, a leading `-` MUST be followed by a digit;
+// if not, the lexer returns a TokenError rather than falling back to an
+// unquoted string (which would silently coerce `-foo` to "-foo" — the spec
+// non-compliance this PR closes for cluster 3c). See docs/spec-compliance.md
+// §S8.6 for the rationale and the remaining gaps (us13, us15).
 func (l *Lexer) readNumber(line, col int) Token {
-	var sb strings.Builder
-	hasDot := false
-	hasExp := false
+	startPos := l.pos
+	startCol := col
+
+	// Optional leading '-'
 	if ch, _ := l.peek(); ch == '-' {
-		sb.WriteRune(l.advance())
+		l.advance()
 	}
-	for {
-		ch, ok := l.peek()
-		if !ok {
-			break
-		}
-		if ch >= '0' && ch <= '9' {
-			sb.WriteRune(l.advance())
-		} else if ch == '.' && !hasDot && !hasExp {
-			hasDot = true
-			sb.WriteRune(l.advance())
-		} else if (ch == 'e' || ch == 'E') && !hasExp {
-			hasExp = true
-			sb.WriteRune(l.advance())
-		} else if (ch == '+' || ch == '-') && sb.Len() > 0 {
-			// exponent sign
-			prev := rune(sb.String()[sb.Len()-1])
-			if prev == 'e' || prev == 'E' {
-				sb.WriteRune(l.advance())
-			} else {
+
+	// Integer part — REQUIRED. Per JSON number grammar:
+	// int = '0' | [1-9][0-9]*
+	// (We accept '0[0-9]*' to match Lightbend behavior; the spec says JSON
+	// numbers reject leading-zero forms like "01", but Lightbend's parser
+	// silently accepts them and downstream callers expect this. The strict
+	// us13 case `01` is documented as a known gap under #60.)
+	if d, ok := l.peek(); ok && d >= '0' && d <= '9' {
+		for {
+			c, ok2 := l.peek()
+			if !ok2 || c < '0' || c > '9' {
 				break
 			}
-		} else {
-			break
+			l.advance()
+		}
+	} else {
+		// No integer digits consumed. Caller dispatch invariant (lexer.go
+		// ~L188-189) routes readNumber only when the leading char is `-` or a
+		// digit; the digit case was handled above, so we must have consumed
+		// `-` here. Per HOCON.md L270-276 this is a lex error.
+		next := "EOF"
+		if c, ok := l.peek(); ok {
+			next = fmt.Sprintf("%q", c)
+		}
+		return Token{
+			Type:  TokenError,
+			Value: fmt.Sprintf("unquoted string cannot begin with '-' unless followed by a digit (got '-' then %s, HOCON.md L270-276)", next),
+			Line:  line,
+			Col:   startCol,
 		}
 	}
+
+	lastValidEnd := l.pos
+	lastValidCol := l.col
+	hasDot := false
+	hasExp := false
+
+	// Try fractional part (greedy with backtrack).
+	if ch, ok := l.peek(); ok && ch == '.' {
+		savePos := l.pos
+		saveCol := l.col
+		l.advance() // consume '.'
+		if d, ok2 := l.peek(); ok2 && d >= '0' && d <= '9' {
+			for {
+				c, ok3 := l.peek()
+				if !ok3 || c < '0' || c > '9' {
+					break
+				}
+				l.advance()
+			}
+			lastValidEnd = l.pos
+			lastValidCol = l.col
+			hasDot = true
+		} else {
+			// Backtrack: '.' not followed by digit, leave '.' for next token.
+			l.pos = savePos
+			l.col = saveCol
+		}
+	}
+
+	// Try exponent part (greedy with backtrack).
+	if ch, ok := l.peek(); ok && (ch == 'e' || ch == 'E') {
+		savePos := l.pos
+		saveCol := l.col
+		l.advance() // consume 'e'/'E'
+		if s, ok2 := l.peek(); ok2 && (s == '+' || s == '-') {
+			l.advance()
+		}
+		if d, ok3 := l.peek(); ok3 && d >= '0' && d <= '9' {
+			for {
+				c, ok4 := l.peek()
+				if !ok4 || c < '0' || c > '9' {
+					break
+				}
+				l.advance()
+			}
+			lastValidEnd = l.pos
+			lastValidCol = l.col
+			hasExp = true
+		} else {
+			// Backtrack: 'e' not followed by digit (with optional sign), leave for next token.
+			l.pos = savePos
+			l.col = saveCol
+		}
+	}
+
+	// Position should already be at lastValidEnd (last successful consume), but
+	// restore explicitly in case the exponent backtrack left us short.
+	l.pos = lastValidEnd
+	l.col = lastValidCol
+
 	tt := TokenInt
 	if hasDot || hasExp {
 		tt = TokenFloat
 	}
-	return Token{Type: tt, Value: sb.String(), Line: line, Col: col}
+	return Token{Type: tt, Value: string(l.src[startPos:lastValidEnd]), Line: line, Col: startCol}
 }
 
 // isHoconWhitespace reports whether r is a HOCON whitespace character per
