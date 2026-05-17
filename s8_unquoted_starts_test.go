@@ -249,6 +249,63 @@ func TestS8_6_NumericKeyConcat_KeywordTail(t *testing.T) {
 	}
 }
 
+// TestS8_6_KeyPathHyphenDigitSegmentAllowed pins the positive arm of the
+// S8.6 per-segment rule: `a.-1foo = 1` has segment "-1foo" which begins
+// with '-' but is immediately followed by a digit, so it must be accepted.
+// Complements TestS8_6_KeyPathHyphenSegmentRejected (which covers the
+// "no digit after `-`" arm).
+func TestS8_6_KeyPathHyphenDigitSegmentAllowed(t *testing.T) {
+	cfg, err := hocon.ParseString("a.-1foo = 1")
+	if err != nil {
+		t.Fatalf("expected parse success for a.-1foo = 1, got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	inner, ok := got["a"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected key \"a\" → object, got %T (%v)", got["a"], got)
+	}
+	if v, ok2 := inner["-1foo"]; !ok2 || !jsonEqual(v, 1) {
+		t.Errorf("expected a.-1foo = 1, got inner=%v", inner)
+	}
+}
+
+// TestS8_6_NumericKeyConcat_ResplitValidatesHyphenSegments covers the
+// concat-resplit path's S8.6 enforcement: after merging a numeric leading
+// token with an unquoted tail, the merged value is re-split on '.' and each
+// resulting segment must pass validateKeySegment. `123abc.-foo = 1` merges
+// to "123abc.-foo", splits to ["123abc","-foo"], and the "-foo" segment
+// must be rejected by the same rule as the initial-split path.
+func TestS8_6_NumericKeyConcat_ResplitValidatesHyphenSegments(t *testing.T) {
+	_, err := hocon.ParseString("123abc.-foo = 1")
+	if err == nil {
+		t.Error("expected parse error for 123abc.-foo = 1 (post-merge segment starts with '-' no-digit), parse succeeded")
+	}
+}
+
+// TestS8_6_NumericKeyConcat_ResplitAcceptsHyphenDigit pins the positive arm
+// of the same post-merge rule: `123abc.-1foo = 1` has post-merge segments
+// ["123abc","-1foo"] and "-1foo" is valid (hyphen followed by digit).
+func TestS8_6_NumericKeyConcat_ResplitAcceptsHyphenDigit(t *testing.T) {
+	cfg, err := hocon.ParseString("123abc.-1foo = 1")
+	if err != nil {
+		t.Fatalf("expected parse success for 123abc.-1foo = 1, got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	inner, ok := got["123abc"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected key \"123abc\" → object, got %T (%v)", got["123abc"], got)
+	}
+	if v, ok2 := inner["-1foo"]; !ok2 || !jsonEqual(v, 1) {
+		t.Errorf("expected 123abc.-1foo = 1, got inner=%v", inner)
+	}
+}
+
 // TestS8_6_QuotedKeyConcatNotResplit guards against the regression Codex
 // caught in #81-followup review: the numeric-key concat branch must NOT run
 // after a quoted key segment, because a literal `.` inside the quoted part
