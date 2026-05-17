@@ -282,25 +282,15 @@ func TestSpec_S10_16_WhitespaceInArrayIsConcat(t *testing.T) {
 
 // ── S11.3: numbers retain original string representation in paths ─────────────
 
-// TestSpec_S11_3_NumbersInPaths_Pin pins the current behaviour where a purely
-// numeric path expression like `1.2.3 = x` is rejected at parse time.
+// TestSpec_S11_3_NumbersInPaths_Spec is the spec-correct assertion:
+// `1.2.3 = x` creates the path ["1","2","3"] → nested objects.
 // Spec HOCON.md L489: numbers in path expressions must retain their original
 // string representation and be split on the "." separator.
-func TestSpec_S11_3_NumbersInPaths_Pin(t *testing.T) {
-	// pin: see #77 — `1.2.3 = x` produces a parse error
-	_ = specIssueS11_3_NumberPaths
-	_, err := hocon.ParseString("1.2.3 = x")
-	if err == nil {
-		t.Error("[pin] expected parse error for numeric-root path, got nil")
-	}
-}
-
-// TestSpec_S11_3_NumbersInPaths_Spec is the spec-correct assertion:
-// `1.2.3 = x` should create the path ["1","2","3"] → nested objects.
+// Closed by #81-followup as a side effect of TokenFloat key-position support;
+// the pin test was deleted because the gap no longer exists.
 func TestSpec_S11_3_NumbersInPaths_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S11.3 — numeric-root path expression rejected; see #%d", specIssueS11_3_NumberPaths)
+	_ = specIssueS11_3_NumberPaths
 	cfg := mustParseCfg(t, "1.2.3 = x")
-	// path "1.2.3" → nested lookup
 	got, ok := cfg.GetStringOption("1.2.3").Get()
 	if !ok || got != "x" {
 		t.Errorf("expected 1.2.3=%q, got ok=%v val=%q", "x", ok, got)

@@ -610,12 +610,11 @@ func TestSpecS10_8_UnquotedConcatInKey(t *testing.T) {
 	}
 }
 
-// TestSpecS11_4_TokenFloatKeyRejected pins the current ❌ spec violation:
-// a key like "10.0foo" should parse as path [10, 0foo] per spec L496, but the
-// parser rejects it because parseKey only accepts TokenString and TokenInt.
-// Status: ❌ spec violation — see #62.
-func TestSpecS11_4_TokenFloatKeyRejected(t *testing.T) {
-	t.Skipf("spec violation, see #62") // filed as S11.4 violation
+// TestSpecS11_4_TokenFloatKey verifies the spec assertion (L496) that key
+// `10.0foo` parses as path ["10", "0foo"]. Closed by #81-followup as a side
+// effect of TokenFloat key-position support with adjacent-token concat.
+// Status: ✅ — see #62.
+func TestSpecS11_4_TokenFloatKey(t *testing.T) {
 	// Spec L496: "10.0foo" → path segments ["10", "0foo"]
 	obj, err := parser.Parse(`10.0foo = x`)
 	if err != nil {

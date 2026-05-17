@@ -189,8 +189,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S8.6** Unquoted string cannot begin with `0-9` or `-` — §Unquoted strings (L270)
-  tests: s8_unquoted_starts_test.go (16 xx.hocon fixtures + path-rule regressions); internal/lexer/lexer_test.go (TestSpecS8_6_HyphenStartUnquotedRejected now active; TestSpecS8_6_DigitStartUnquotedRejected still skipped — see gap note below)
-  status: ⚠️ partial ([#60](https://github.com/o3co/go.hocon/issues/60)) — `-` not followed by a digit is rejected at lex time: `readNumber` now uses **greedy-with-backtrack** per HOCON.md L270-276 (fractional/exponent productions backtrack to the last valid number end; if the leading `-` has no digit, the lexer returns TokenError rather than emitting TokenInt("-")). The same rule is applied per-segment in `parseKey` after dot-split, so `a.-foo = 1` is rejected. Digit-leading inputs that lex as `TokenInt + TokenString` (e.g. `123abc`, `1ex`, `1.x`, `0xff`, `1.0.0`) continue to **resolve to the value-concat string** matching Lightbend output — the strict lex-time rejection of digit-leading unquoted strings (us13 `01`, us15 `1e+x`) remains a known gap. Two additional spec-correct cases are deferred to a follow-up PR because they require parser-level numeric-key support: us08 `123abc = 1` → `{"123abc": 1}` (TokenInt+TokenString concat as key) and us09 `3.14 = "v"` → `{"3":{"14":"v"}}` (TokenFloat dot-split as key). Tracker: #60 + follow-up.
+  tests: s8_unquoted_starts_test.go (16 xx.hocon fixtures incl. us08/us09 + path-rule regressions); internal/lexer/lexer_test.go (TestSpecS8_6_HyphenStartUnquotedRejected active)
+  status: ⚠️ partial ([#60](https://github.com/o3co/go.hocon/issues/60)) — `-` not followed by a digit is rejected at lex time: `readNumber` uses **greedy-with-backtrack** per HOCON.md L270-276 (fractional/exponent productions backtrack to the last valid number end; if the leading `-` has no digit, the lexer returns TokenError rather than emitting TokenInt("-")). The same rule is applied per-segment in `parseKey` after dot-split, so `a.-foo = 1` is rejected. Digit-leading inputs that lex as `TokenInt + TokenString` (e.g. `123abc`, `1ex`, `1.x`, `0xff`, `1.0.0`) **resolve to the value-concat string** matching Lightbend output. **#81-followup** added parser-level numeric-key support gated to numeric-leading keys only: us08 `123abc = 1` → `{"123abc": 1}` (TokenInt + unquoted concat), us09 `3.14 = "v"` → `{"3":{"14":"v"}}` (TokenFloat dot-split), and keyword-tail keys like `123true = 1` → `{"123true": 1}` (TokenInt + TokenBool/TokenNull concat, symmetric with `123true.foo = 1`). Quoted-key concat like `"a.b"c = 1` remains rejected so the literal `.` is never re-interpreted as a path separator. The remaining gaps are strict lex-time rejection of digit-leading unquoted strings (us13 `01`, us15 `1e+x`) — Lightbend-style behavior, kept under #60 tripwire.
 
 - **S8.7** No escape sequences in unquoted strings — §Unquoted strings (L253)
   tests: internal/lexer/lexer_test.go:665 (TestSpecS8_7_BackslashRejectedInUnquoted)
@@ -311,12 +311,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S11.3** Numbers retain original string representation in paths — §Path expressions (L489)
-  tests: spec_phase5_test.go (TestSpec_S11_3_NumbersInPaths_Pin, TestSpec_S11_3_NumbersInPaths_Spec)
-  status: ❌ ([#77](https://github.com/o3co/go.hocon/issues/77)) — `1.2.3 = x` is rejected with parse error; spec requires the numeric root to be accepted and split on `.`
+  tests: spec_phase5_test.go (TestSpec_S11_3_NumbersInPaths_Spec)
+  status: ✅ — closed by #81-followup as a side effect of TokenFloat key-position support; `1.2.3 = x` now creates path `["1","2","3"]` (see #77 for prior tracking)
 
 - **S11.4** `10.0foo` → path `[10, 0foo]` — §Path expressions (L496)
-  tests: internal/parser/parser_test.go:617 (TestSpecS11_4_TokenFloatKeyRejected)
-  status: ❌ — impl violates spec: parseKey only accepts TokenString/TokenInt, not TokenFloat; `10.0foo = x` is rejected instead of producing path [10, 0foo]; see #62
+  tests: internal/parser/parser_test.go (TestSpecS11_4_TokenFloatKey)
+  status: ✅ — closed by #81-followup: parseKey accepts TokenFloat with dot-split, and adjacent unquoted TokenString concatenates into the last segment without preceding whitespace, so `10.0foo = x` parses as path `["10","0foo"]` (see #62 for prior tracking)
 
 - **S11.5** `foo10.0` → path `[foo10, 0]` — §Path expressions (L498)
   tests: internal/parser/parser_test.go:635 (TestSpecS11_5_Foo10DotZeroPathSplit)

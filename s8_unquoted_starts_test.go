@@ -1,6 +1,7 @@
 // S8.6 — Unquoted strings MUST NOT begin with `-` (unless followed by a digit
 // forming a number prefix) or any digit `0-9` (per HOCON.md L270-276).
 // Issue #60: https://github.com/o3co/go.hocon/issues/60
+// Issue #81 (key numeric support): folded back into s8SuccessFixtures below.
 //
 // Fixture-driven conformance tests against xx.hocon ground truth at
 // testdata/hocon/unquoted-starts/.
@@ -25,31 +26,21 @@ import (
 )
 
 // Success fixtures: parse must succeed and the resolved JSON must match the
-// xx.hocon ground truth.
+// xx.hocon ground truth. us08/us09 require parseKey to accept TokenInt+
+// TokenString key-concat and TokenFloat dot-split (cluster-3c follow-up #81).
 var s8SuccessFixtures = []string{
 	"us01-digit-prefix-with-tail",
 	"us04-hyphen-with-digit",
 	"us05-number-then-comment",
 	"us06-embedded-digits",
 	"us07-embedded-hyphen",
+	"us08-numeric-key-positive",
+	"us09-dotted-number-key",
 	"us10-greedy-backtrack-exp",
 	"us11-greedy-backtrack-frac",
 	"us12-hex-prefix",
 	"us14-multi-dot-version",
 	"us16-negative-with-tail",
-}
-
-// Deferred-success fixtures: spec-correct cases that go.hocon parser does
-// not yet handle (they require Number-token-aware key parsing — a parser
-// refactor deferred to a follow-up PR). Today these emit parse errors at
-// key position; the spec expects successful parse with the resolved values
-// matching the JSON in testdata/expected/unquoted-starts/. Tracked under a
-// dedicated follow-up issue (filed when this PR lands).
-//   - us08 `123abc = 1`     → {"123abc": 1}   (TokenInt+TokenString concat as key)
-//   - us09 `3.14 = "v"`     → {"3":{"14":"v"}} (TokenFloat dot-split as key)
-var s8DeferredFixtures = []string{
-	"us08-numeric-key-positive",
-	"us09-dotted-number-key",
 }
 
 // Error fixtures: parse must throw (lex or parse error).
@@ -137,43 +128,6 @@ func TestS8_6_KnownGaps(t *testing.T) {
 	}
 }
 
-// TestS8_6_DeferredSuccess covers spec-correct success cases that go.hocon's
-// parser does not yet handle (us08 numeric-key concat, us09 numeric dotted-key).
-// These will be enabled by a follow-up PR that teaches the parser to accept
-// TokenInt/TokenFloat in key position with the appropriate concat/dot-split
-// semantics. For now we Skip with a tracker so they don't rot silently.
-func TestS8_6_DeferredSuccess(t *testing.T) {
-	if _, err := os.Stat(filepath.Join("testdata", "expected", "unquoted-starts")); err != nil {
-		t.Skip("unquoted-starts expected fixtures missing; run `make testdata`")
-	}
-	for _, name := range s8DeferredFixtures {
-		t.Run(name, func(t *testing.T) {
-			t.Skip("S8.6 deferred to follow-up PR (#60-followup): parser numeric-key support pending")
-			cfg, err := hocon.ParseFile(confPath(name))
-			if err != nil {
-				t.Fatalf("ParseFile(%s): %v", name, err)
-			}
-			expectedData, err := os.ReadFile(expectedPath(name))
-			if err != nil {
-				t.Fatalf("ReadFile: %v", err)
-			}
-			var want any
-			if err := json.Unmarshal(expectedData, &want); err != nil {
-				t.Fatalf("parse expected JSON: %v", err)
-			}
-			got := make(map[string]any)
-			if err := cfg.Unmarshal(&got); err != nil {
-				t.Fatalf("Unmarshal: %v", err)
-			}
-			if !jsonEqual(got, want) {
-				gotJSON, _ := json.MarshalIndent(got, "", "  ")
-				wantJSON, _ := json.MarshalIndent(want, "", "  ")
-				t.Errorf("%s mismatch\ngot:\n%s\nwant:\n%s", name, gotJSON, wantJSON)
-			}
-		})
-	}
-}
-
 // Regression: S8.6 also applies inside substitution paths and dotted key
 // segments. The check at lex time for `-` no-digit must fire at the substitution
 // segment start, not at value position only.
@@ -217,5 +171,94 @@ func TestS8_6_KeyPathHyphenSegmentRejected(t *testing.T) {
 	_, err := hocon.ParseString("a.-foo = 1")
 	if err == nil {
 		t.Error("expected error for a.-foo = 1 (key segment starts with '-'), parse succeeded")
+	}
+}
+
+// TestS8_6_NumericKeyConcat covers the parser-level adjacent-token concat
+// added in #81-followup, beyond what us08/us09 fixtures exercise. These pin
+// the merge+resplit semantics for TokenFloat / TokenInt + unquoted tail.
+func TestS8_6_NumericKeyConcat_FloatPlusTail(t *testing.T) {
+	// 3.14abc = 1 → segments ["3","14"] then concat "abc" → re-split → ["3","14abc"]
+	cfg, err := hocon.ParseString("3.14abc = 1")
+	if err != nil {
+		t.Fatalf("expected parse success for 3.14abc = 1, got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	inner, ok := got["3"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected top-level key \"3\" → object, got %T (%v)", got["3"], got)
+	}
+	if v, ok2 := inner["14abc"]; !ok2 || !jsonEqual(v, 1) {
+		t.Errorf("expected 3.14abc = 1, got inner=%v", inner)
+	}
+}
+
+func TestS8_6_NumericKeyConcat_IntPlusDottedTail(t *testing.T) {
+	// 123abc.foo = 1 → concat "123" + "abc.foo" → re-split → ["123abc", "foo"]
+	cfg, err := hocon.ParseString("123abc.foo = 1")
+	if err != nil {
+		t.Fatalf("expected parse success for 123abc.foo = 1, got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	inner, ok := got["123abc"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected top-level key \"123abc\" → object, got %T (%v)", got["123abc"], got)
+	}
+	if v, ok2 := inner["foo"]; !ok2 || !jsonEqual(v, 1) {
+		t.Errorf("expected 123abc.foo = 1, got inner=%v", inner)
+	}
+}
+
+// TestS8_6_NumericKeyConcat_KeywordTail covers the round-2 review finding
+// (Codex): the concat-tail predicate must also accept TokenBool / TokenNull
+// (and TokenInclude) so that `123true = 1`, `123null = 1` etc. behave
+// symmetrically with `123true.foo = 1` (which the lexer already produces
+// as a single TokenString and therefore already worked). Without keyword
+// support, the path expression was inconsistently rejected depending on
+// whether a `.` followed the keyword.
+func TestS8_6_NumericKeyConcat_KeywordTail(t *testing.T) {
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{`123true = 1`, "123true"},
+		{`123false = 1`, "123false"},
+		{`123null = 1`, "123null"},
+		{`123include = 1`, "123include"},
+	}
+	for _, c := range cases {
+		t.Run(c.src, func(t *testing.T) {
+			cfg, err := hocon.ParseString(c.src)
+			if err != nil {
+				t.Fatalf("expected parse success for %s, got: %v", c.src, err)
+			}
+			got := make(map[string]any)
+			if err := cfg.Unmarshal(&got); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			if v, ok := got[c.want]; !ok || !jsonEqual(v, 1) {
+				t.Errorf("expected key %q → 1, got %v", c.want, got)
+			}
+		})
+	}
+}
+
+// TestS8_6_QuotedKeyConcatNotResplit guards against the regression Codex
+// caught in #81-followup review: the numeric-key concat branch must NOT run
+// after a quoted key segment, because a literal `.` inside the quoted part
+// must not be reinterpreted as a path separator. Before the gating fix,
+// `"a.b"c = 1` was silently accepted as path ["a", "bc"]. We pin the pre-PR
+// behavior (parse error) until cross-impl convention for quoted+unquoted key
+// concat is settled and a separate spec item lands.
+func TestS8_6_QuotedKeyConcatNotResplit(t *testing.T) {
+	_, err := hocon.ParseString(`"a.b"c = 1`)
+	if err == nil {
+		t.Error(`expected parse error for "a.b"c = 1 (quoted+unquoted key concat must not silently re-split quoted dots); got success`)
 	}
 }
