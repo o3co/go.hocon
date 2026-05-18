@@ -1331,8 +1331,8 @@ func TestParseBytes_NegativeAccessorPanics(t *testing.T) {
 // characters (NBSP U+00A0, EM space U+2003) are correctly decoded in the
 // byte-indexed scanner between the number and unit tokens.
 func TestParseDuration_MultiByteWS(t *testing.T) {
-	nbsp := " "   // U+00A0 NON-BREAKING SPACE (UTF-8: 0xC2 0xA0)
-	emsp := " "   // U+2003 EM SPACE (UTF-8: 0xE2 0x80 0x83)
+	nbsp := " " // U+00A0 NON-BREAKING SPACE (UTF-8: 0xC2 0xA0)
+	emsp := " " // U+2003 EM SPACE (UTF-8: 0xE2 0x80 0x83)
 	tests := []struct {
 		name  string
 		input string
