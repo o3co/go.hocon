@@ -563,22 +563,20 @@ func TestSpec_S18_3_UnitNameLettersOnly(t *testing.T) {
 
 // ── S18.4: string with no unit → default unit ────────────────────────────────
 
-// TestSpec_S18_4_StringNoUnit_Pin pins the current (non-conformant) behaviour
-// where a bare number string (e.g. "100") returns None from GetDurationOption.
-// Spec HOCON.md L1290: string with no unit should be treated as the default
-// unit (milliseconds for duration).
+// TestSpec_S18_4_StringNoUnit_Pin confirms conformant behaviour: bare number
+// string (e.g. "100") now returns 100ms (fixed in Phase 6 #3d).
 func TestSpec_S18_4_StringNoUnit_Pin(t *testing.T) {
-	// pin: see #81 — "100" (no unit) returns None instead of 100ms
+	// fixed: see #81 — "100" (no unit) now returns 100ms
 	_ = specIssueS18_4_NoUnit
 	cfg := mustParseCfg(t, `d = "100"`)
-	if cfg.GetDurationOption("d").IsSome() {
-		t.Error("[pin] expected None for no-unit string (current impl), got Some")
+	got, ok := cfg.GetDurationOption("d").Get()
+	if !ok || got != 100*time.Millisecond {
+		t.Errorf("[pin] expected %v, got ok=%v val=%v", 100*time.Millisecond, ok, got)
 	}
 }
 
 // TestSpec_S18_4_StringNoUnit_Spec is the spec-correct assertion.
 func TestSpec_S18_4_StringNoUnit_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S18.4 — bare-number string not treated as default unit; see #%d", specIssueS18_4_NoUnit)
 	cfg := mustParseCfg(t, `d = "100"`)
 	got, ok := cfg.GetDurationOption("d").Get()
 	if !ok || got != 100*time.Millisecond {
@@ -588,30 +586,21 @@ func TestSpec_S18_4_StringNoUnit_Spec(t *testing.T) {
 
 // ── S19.1: ns/nano/nanos/nanosecond/nanoseconds ───────────────────────────────
 
-// TestSpec_S19_1_Nanoseconds_Pin pins partial conformance: "ns", "nanosecond",
-// and "nanoseconds" are recognised; "nano" and "nanos" are not.
+// TestSpec_S19_1_Nanoseconds_Pin confirms full conformance: all five nanosecond
+// aliases are now recognised (fixed in Phase 6 #3d).
 // Spec HOCON.md L1307.
 func TestSpec_S19_1_Nanoseconds_Pin(t *testing.T) {
-	// These three pass already (✅ sub-rules):
-	for _, unit := range []string{"ns", "nanosecond", "nanoseconds"} {
+	for _, unit := range []string{"ns", "nanosecond", "nanoseconds", "nano", "nanos"} {
 		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
 		got, ok := cfg.GetDurationOption("d").Get()
 		if !ok || got != time.Nanosecond {
 			t.Errorf("unit %q: expected %v, got ok=%v val=%v", unit, time.Nanosecond, ok, got)
 		}
 	}
-	// These two are missing (pin: returns None):
-	for _, unit := range []string{"nano", "nanos"} {
-		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
-		if cfg.GetDurationOption("d").IsSome() {
-			t.Errorf("[pin] unit %q: currently returns None, but got Some — update status to ✅", unit)
-		}
-	}
 }
 
-// TestSpec_S19_1_Nanoseconds_Spec is the spec-correct assertion for missing aliases.
+// TestSpec_S19_1_Nanoseconds_Spec is the spec-correct assertion for all aliases.
 func TestSpec_S19_1_Nanoseconds_Spec(t *testing.T) {
-	t.Skipf("[skip] spec partial-violation per S19.1 — 'nano' and 'nanos' aliases missing; no dedicated issue yet (tracked under S19.2 scope #%d)", specIssueS19_2_Micro)
 	for _, unit := range []string{"nano", "nanos"} {
 		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
 		got, ok := cfg.GetDurationOption("d").Get()
@@ -623,22 +612,22 @@ func TestSpec_S19_1_Nanoseconds_Spec(t *testing.T) {
 
 // ── S19.2: us/micro/micros/microsecond/microseconds ──────────────────────────
 
-// TestSpec_S19_2_Microseconds_Pin pins the current behaviour: ALL microsecond
-// duration unit aliases return None. Spec HOCON.md L1308.
+// TestSpec_S19_2_Microseconds_Pin confirms conformant behaviour: all microsecond
+// duration unit aliases are now recognised (fixed in Phase 6 #3d). Spec HOCON.md L1308.
 func TestSpec_S19_2_Microseconds_Pin(t *testing.T) {
-	// pin: see #82 — all microsecond units produce None
+	// fixed: see #82 — all microsecond units now return correct duration
 	_ = specIssueS19_2_Micro
 	for _, unit := range []string{"us", "micro", "micros", "microsecond", "microseconds"} {
 		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
-		if cfg.GetDurationOption("d").IsSome() {
-			t.Errorf("[pin] unit %q: expected None (current impl), got Some", unit)
+		got, ok := cfg.GetDurationOption("d").Get()
+		if !ok || got != time.Microsecond {
+			t.Errorf("[pin] unit %q: expected %v, got ok=%v val=%v", unit, time.Microsecond, ok, got)
 		}
 	}
 }
 
 // TestSpec_S19_2_Microseconds_Spec is the spec-correct assertion.
 func TestSpec_S19_2_Microseconds_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S19.2 — microsecond unit aliases not in parseDuration; see #%d", specIssueS19_2_Micro)
 	for _, unit := range []string{"us", "micro", "micros", "microsecond", "microseconds"} {
 		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
 		got, ok := cfg.GetDurationOption("d").Get()
