@@ -794,18 +794,18 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S18.4** String with no unit → interpreted with default unit — §Units format (L1290)
-  tests: spec_phase5_test.go (TestSpec_S18_4_StringNoUnit_Pin, TestSpec_S18_4_StringNoUnit_Spec)
-  status: ❌ ([#81](https://github.com/o3co/go.hocon/issues/81)) — parseDuration requires a unit name after the number; bare-number strings like "100" return None instead of 100ms
+  tests: spec_phase5_test.go (TestSpec_S18_4_StringNoUnit_Pin, TestSpec_S18_4_StringNoUnit_Spec); spec_s18_units_default_test.go (TestUnitsDefault_Duration, TestUnitsDefault_Bytes, TestUnitsDefault_Negative)
+  status: ✅ — fixed in Phase 6 #3d; parseDuration/parseBytes now treat bare-number strings as default unit (ms / bytes). Free rider: S18.1 co-fixed. Closes #81.
 
 ## S19. Duration format
 
 - **S19.1** `ns` / `nano` / `nanos` / `nanosecond` / `nanoseconds` — §Duration format (L1307)
   tests: spec_phase5_test.go (TestSpec_S19_1_Nanoseconds_Pin, TestSpec_S19_1_Nanoseconds_Spec)
-  status: ⚠️ — `ns`, `nanosecond`, `nanoseconds` pass; `nano` and `nanos` aliases are absent from parseDuration and return None
+  status: ✅ — fixed in Phase 6 #3d; `nano` and `nanos` added to the existing `ns` case in parseDuration. Closes #82 (partial).
 
 - **S19.2** `us` / `micro` / `micros` / `microsecond` / `microseconds` — §Duration format (L1308)
   tests: spec_phase5_test.go (TestSpec_S19_2_Microseconds_Pin, TestSpec_S19_2_Microseconds_Spec)
-  status: ❌ ([#82](https://github.com/o3co/go.hocon/issues/82)) — all five microsecond duration aliases are absent from parseDuration; GetDurationOption returns None for all of them
+  status: ✅ — fixed in Phase 6 #3d; new case added to parseDuration for all five microsecond aliases. Closes #82.
 
 - **S19.3** `ms` / `milli` / `millis` / `millisecond` / `milliseconds` — §Duration format (L1309)
   tests: config_test.go:78 (TestConfig_GetDuration)

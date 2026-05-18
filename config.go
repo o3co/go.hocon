@@ -10,13 +10,43 @@ package hocon
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
+	"unicode/utf8"
 
 	"github.com/o3co/go.hocon/internal/resolver"
 )
+
+// integerRegex matches optional sign followed by one or more decimal digits.
+// Compiled once at package scope per the Lightbend isWholeNumber pattern.
+var integerRegex = regexp.MustCompile(`^[+-]?[0-9]+$`)
+
+// isHoconWS reports whether r is a HOCON whitespace character.
+// This is an inlined copy of internal/lexer.isHoconWhitespace (unexported).
+// Keep in sync with internal/lexer/lexer.go:isHoconWhitespace.
+// Note: Go's unicode.IsSpace includes U+0085 (NEL) which HOCON does not, and
+// excludes U+001C-U+001F which HOCON does include. Do not substitute IsSpace.
+func isHoconWS(r rune) bool {
+	switch {
+	case r == '\t', r == '\n', r == '\v', r == '\f', r == '\r':
+		return true
+	case r >= 0x1C && r <= 0x1F:
+		return true
+	case r == ' ', r == 0xA0, r == 0xFEFF:
+		return true
+	case r == 0x1680:
+		return true
+	case r >= 0x2000 && r <= 0x200A:
+		return true
+	case r == 0x2028, r == 0x2029, r == 0x202F, r == 0x205F:
+		return true
+	case r == 0x3000:
+		return true
+	}
+	return false
+}
 
 // Config wraps a resolved HOCON value tree.
 // All *Config values are safe for concurrent read access.
@@ -282,38 +312,94 @@ func (c *Config) GetDurationOption(path string) Option[time.Duration] {
 }
 
 func parseDuration(s string) (time.Duration, error) {
-	s = strings.TrimSpace(s)
-	// find where digits end
+	// Strip HOCON whitespace (not unicode.IsSpace — see isHoconWS).
+	s = strings.TrimFunc(s, isHoconWS)
+
+	// Scan optional sign + digits + optional fractional part.
 	i := 0
-	for i < len(s) && (s[i] == '-' || (s[i] >= '0' && s[i] <= '9') || s[i] == '.') {
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
 		i++
 	}
-	if i == 0 {
+	digStart := i
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == digStart {
 		return 0, fmt.Errorf("no number in duration %q", s)
 	}
-	num, err := strconv.ParseFloat(s[:i], 64)
-	if err != nil {
-		return 0, err
+	if i < len(s) && s[i] == '.' {
+		i++ // consume dot
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
 	}
-	unit := strings.TrimSpace(s[i:])
+	numStr := s[:i]
+
+	// Consume optional HOCON whitespace between number and unit.
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
+	}
+
+	// Consume unit (letters only; error if non-letter non-WS remains).
+	unitStart := i
+	for i < len(s) && (s[i] >= 'a' && s[i] <= 'z' || s[i] >= 'A' && s[i] <= 'Z') {
+		i++
+	}
+	unit := s[unitStart:i]
+
+	// Trailing HOCON whitespace.
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
+	}
+	if i < len(s) {
+		return 0, fmt.Errorf("unexpected characters in duration %q", s)
+	}
+
+	// Resolve multiplier.
 	var mult time.Duration
 	switch unit {
-	case "ns", "nanoseconds", "nanosecond":
-		mult = time.Nanosecond
-	case "ms", "milliseconds", "millisecond":
+	case "": // S18.4 / S18.1: no unit → default milliseconds (HOCON.md L1301)
 		mult = time.Millisecond
-	case "s", "seconds", "second":
+	case "ns", "nanosecond", "nanoseconds", "nano", "nanos": // S19.1
+		mult = time.Nanosecond
+	case "us", "micro", "micros", "microsecond", "microseconds": // S19.2
+		mult = time.Microsecond
+	case "ms", "millisecond", "milliseconds":
+		mult = time.Millisecond
+	case "s", "second", "seconds":
 		mult = time.Second
-	case "m", "minutes", "minute":
+	case "m", "minute", "minutes":
 		mult = time.Minute
-	case "h", "hours", "hour":
+	case "h", "hour", "hours":
 		mult = time.Hour
-	case "d", "days", "day":
+	case "d", "day", "days":
 		mult = 24 * time.Hour
 	default:
 		return 0, fmt.Errorf("unknown duration unit %q", unit)
 	}
-	return time.Duration(num * float64(mult)), nil
+
+	// Lightbend-faithful per-family fractional handling:
+	// integer-form → int64 * mult; fractional → float64 * float64(mult).
+	if integerRegex.MatchString(numStr) {
+		n, err := strconv.ParseInt(numStr, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * mult, nil
+	}
+	f, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(f * float64(mult)), nil
 }
 
 // ── bytes ─────────────────────────────────────────────────────────
@@ -323,6 +409,10 @@ func (c *Config) GetBytes(path string) int64 {
 	n, err := parseBytes(s)
 	if err != nil {
 		panicConfig(path, "invalid byte size: "+s)
+	}
+	// S18.4 accessor invariant: byte sizes must be non-negative (Lightbend getBytesBigInteger).
+	if n < 0 {
+		panicConfig(path, "byte size must not be negative")
 	}
 	return n
 }
@@ -334,27 +424,69 @@ func (c *Config) GetBytesOption(path string) Option[int64] {
 	}
 	s, _ := opt.Get()
 	n, err := parseBytes(s)
-	if err != nil {
+	// S18.4 accessor invariant: negative byte sizes return None (not panic).
+	if err != nil || n < 0 {
 		return None[int64]()
 	}
 	return Some(n)
 }
 
 func parseBytes(s string) (int64, error) {
-	s = strings.TrimSpace(s)
+	// Strip HOCON whitespace (not unicode.IsSpace — see isHoconWS).
+	s = strings.TrimFunc(s, isHoconWS)
+
+	// Scan optional sign + digits + optional fractional part.
 	i := 0
-	for i < len(s) && (s[i] >= '0' && s[i] <= '9') {
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
 		i++
 	}
-	if i == 0 {
+	digStart := i
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == digStart {
 		return 0, fmt.Errorf("no number in byte size %q", s)
 	}
-	num, err := strconv.ParseInt(s[:i], 10, 64)
-	if err != nil {
-		return 0, err
+	hasFrac := false
+	if i < len(s) && s[i] == '.' {
+		hasFrac = true
+		i++ // consume dot
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
 	}
-	unit := strings.TrimFunc(s[i:], unicode.IsSpace)
+	numStr := s[:i]
+
+	// Consume optional HOCON whitespace between number and unit.
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
+	}
+
+	// Consume unit (letters + uppercase allowed for bytes per HOCON.md L1344).
+	unitStart := i
+	for i < len(s) && (s[i] >= 'a' && s[i] <= 'z' || s[i] >= 'A' && s[i] <= 'Z') {
+		i++
+	}
+	unit := s[unitStart:i]
+
+	// Trailing HOCON whitespace.
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
+	}
+	if i < len(s) {
+		return 0, fmt.Errorf("unexpected characters in byte size %q", s)
+	}
+
 	multipliers := map[string]int64{
+		"":  1, // S18.4: no unit → bytes (HOCON.md L1341)
 		"B": 1, "byte": 1, "bytes": 1,
 		"KB": 1000, "kilobyte": 1000, "kilobytes": 1000,
 		"KiB": 1024, "kibibyte": 1024, "kibibytes": 1024,
@@ -369,7 +501,21 @@ func parseBytes(s string) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("unknown byte unit %q", unit)
 	}
-	return num * mult, nil
+
+	// Lightbend-faithful per-family fractional handling:
+	// integer-form → int64 * mult; fractional → int64(f * float64(mult)) (truncate AFTER multiply).
+	if !hasFrac && integerRegex.MatchString(numStr) {
+		n, err := strconv.ParseInt(numStr, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return n * mult, nil
+	}
+	f, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int64(f * float64(mult)), nil
 }
 
 // ── slices ────────────────────────────────────────────────────────

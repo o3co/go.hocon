@@ -31,6 +31,10 @@ testdata:
 	  mkdir -p testdata/hocon/concat-errors && \
 	  cp "$$tmpdir/testdata/hocon/concat-errors/"*.conf testdata/hocon/concat-errors/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/units-default" ]; then \
+	  mkdir -p testdata/hocon/units-default && \
+	  cp "$$tmpdir/testdata/hocon/units-default/"*.conf testdata/hocon/units-default/ 2>/dev/null || true; \
+	fi && \
 	if [ -d "$$tmpdir/testdata/hocon/include-reservation" ]; then \
 	  mkdir -p testdata/hocon/include-reservation && \
 	  cp "$$tmpdir/testdata/hocon/include-reservation/"*.conf testdata/hocon/include-reservation/ 2>/dev/null || true; \

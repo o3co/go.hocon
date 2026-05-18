@@ -976,10 +976,6 @@ const specIssueS17_7_8 = 72
 // Single-letter byte abbreviations (K, k, M, m, …) are not recognised.
 const specIssueS21_4 = 73
 
-// specIssueS21_5 is the GitHub issue number for the S21.5 spec violation.
-// Fractional byte values (e.g. 0.5M) are not supported.
-const specIssueS21_5 = 74
-
 // TestSpec_S15_1_NumericObjectToArray verifies that an object with integer keys
 // {"0":"a","1":"b"} is converted to ["a","b"] when array access is requested.
 // Fixed in fix/s15-numeric-obj-array, see issue #71.
@@ -1224,15 +1220,175 @@ func TestSpec_S21_5_FractionalByteValues(t *testing.T) {
 		{`v: "0.5MB"`, 500_000},
 		{`v: "0.5MiB"`, 512 * 1024},
 		{`v: "0.5KiB"`, 512},
+		{`v: "2.5KiB"`, 2560},
 	}
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.src, func(t *testing.T) {
-			t.Skipf("spec violation: fractional byte values not supported, see #%d", specIssueS21_5)
 			cfg := mustParseCfg(t, tc.src)
 			got := cfg.GetBytes("v")
 			if got != tc.want {
 				t.Errorf("src=%q: got %d, want %d", tc.src, got, tc.want)
+			}
+		})
+	}
+}
+
+// ── S18.4 + S19.1 + S19.2: parseDuration no-unit / aliases ──────────────────
+
+func TestParseDuration_NoUnit(t *testing.T) {
+	tests := []struct {
+		input string
+		want  time.Duration
+	}{
+		{"500", 500 * time.Millisecond},
+		{" 500", 500 * time.Millisecond},
+		{"500 ", 500 * time.Millisecond},
+		{" 500 ", 500 * time.Millisecond},
+		{"-500", -500 * time.Millisecond},
+	}
+	for _, tc := range tests {
+		cfg := mustParseCfg(t, fmt.Sprintf(`d = %q`, tc.input))
+		got, ok := cfg.GetDurationOption("d").Get()
+		if !ok || got != tc.want {
+			t.Errorf("input %q: expected %v, got ok=%v val=%v", tc.input, tc.want, ok, got)
+		}
+	}
+}
+
+func TestParseDuration_NoUnit_Fractional(t *testing.T) {
+	// ud05: Lightbend-faithful — fractional → scaled to nanos (500.5ms = 500500000ns)
+	cfg := mustParseCfg(t, `d = "500.5"`)
+	got, ok := cfg.GetDurationOption("d").Get()
+	want := time.Duration(500500000)
+	if !ok || got != want {
+		t.Errorf("'500.5': expected %v, got ok=%v val=%v", want, ok, got)
+	}
+}
+
+func TestParseDuration_NanoAliases(t *testing.T) {
+	for _, unit := range []string{"nano", "nanos"} {
+		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
+		got, ok := cfg.GetDurationOption("d").Get()
+		if !ok || got != time.Nanosecond {
+			t.Errorf("%q: expected %v, got ok=%v val=%v", unit, time.Nanosecond, ok, got)
+		}
+	}
+}
+
+func TestParseDuration_MicroAliases(t *testing.T) {
+	for _, unit := range []string{"us", "micro", "micros", "microsecond", "microseconds"} {
+		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
+		got, ok := cfg.GetDurationOption("d").Get()
+		if !ok || got != time.Microsecond {
+			t.Errorf("%q: expected %v, got ok=%v val=%v", unit, time.Microsecond, ok, got)
+		}
+	}
+}
+
+// ── S18.4: parseBytes no-unit + negative accessor rejection ──────────────────
+
+func TestParseBytes_NoUnit(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int64
+	}{
+		{"1024", 1024},
+		{" 1024 ", 1024},
+		{"1024.5", 1024}, // truncated toward zero
+	}
+	for _, tc := range tests {
+		cfg := mustParseCfg(t, fmt.Sprintf(`b = %q`, tc.input))
+		got, ok := cfg.GetBytesOption("b").Get()
+		if !ok || got != tc.want {
+			t.Errorf("%q: expected %d, got ok=%v val=%d", tc.input, tc.want, ok, got)
+		}
+	}
+}
+
+func TestParseBytes_NegativeAccessorRejects(t *testing.T) {
+	cfg := mustParseCfg(t, `b = "-1"`)
+	if cfg.GetBytesOption("b").IsSome() {
+		t.Error("GetBytesOption must return None for negative byte size")
+	}
+}
+
+func TestParseBytes_NegativeAccessorPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("GetBytes must panic for negative byte size")
+		}
+	}()
+	cfg := mustParseCfg(t, `b = "-1"`)
+	_ = cfg.GetBytes("b")
+}
+
+// TestParseDuration_TrailingWSThenGarbage verifies the trailing-WS-after-unit
+// loop in parseDuration is exercised (HOCON_WS between the unit and a trailing
+// garbage token must be consumed before the unexpected-characters check fires).
+func TestParseDuration_TrailingWSThenGarbage(t *testing.T) {
+	cfg := mustParseCfg(t, `d = "500ms \tfoo"`)
+	got := cfg.GetDurationOption("d")
+	if got.IsSome() {
+		t.Errorf("expected None for trailing garbage, got %v", got)
+	}
+}
+
+// TestParseBytes_TrailingWSThenGarbage verifies the trailing-WS-after-unit
+// loop in parseBytes is exercised.
+func TestParseBytes_TrailingWSThenGarbage(t *testing.T) {
+	cfg := mustParseCfg(t, `b = "1024B \tfoo"`)
+	got := cfg.GetBytesOption("b")
+	if got.IsSome() {
+		t.Errorf("expected None for trailing garbage, got %v", got)
+	}
+}
+
+// TestParseDuration_MultiByteWS verifies that multi-byte UTF-8 HOCON whitespace
+// characters (NBSP U+00A0, EM space U+2003) are correctly decoded in the
+// byte-indexed scanner between the number and unit tokens.
+func TestParseDuration_MultiByteWS(t *testing.T) {
+	nbsp := " " // U+00A0 NON-BREAKING SPACE (UTF-8: 0xC2 0xA0)
+	emsp := " " // U+2003 EM SPACE (UTF-8: 0xE2 0x80 0x83)
+	tests := []struct {
+		name  string
+		input string
+		want  time.Duration
+	}{
+		{"nbsp-between-number-and-unit", "500" + nbsp + "ms", 500 * time.Millisecond},
+		{"emsp-between-number-and-unit", "1" + emsp + "s", time.Second},
+		{"nbsp-leading-trailing", nbsp + "500" + nbsp, 500 * time.Millisecond},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mustParseCfg(t, fmt.Sprintf(`d = %q`, tc.input))
+			got, ok := cfg.GetDurationOption("d").Get()
+			if !ok || got != tc.want {
+				t.Errorf("input %q: expected %v, got ok=%v val=%v", tc.input, tc.want, ok, got)
+			}
+		})
+	}
+}
+
+// TestParseBytes_MultiByteWS verifies that multi-byte UTF-8 HOCON whitespace
+// characters are correctly decoded in parseBytes' byte-indexed scanner.
+func TestParseBytes_MultiByteWS(t *testing.T) {
+	emsp := " " // U+2003 EM SPACE
+	tests := []struct {
+		name  string
+		input string
+		want  int64
+	}{
+		{"emsp-between-number-and-unit", "1" + emsp + "KB", 1000},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mustParseCfg(t, fmt.Sprintf(`b = %q`, tc.input))
+			got, ok := cfg.GetBytesOption("b").Get()
+			if !ok || got != tc.want {
+				t.Errorf("input %q: expected %d, got ok=%v val=%d", tc.input, tc.want, ok, got)
 			}
 		})
 	}
