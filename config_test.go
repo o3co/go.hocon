@@ -976,10 +976,6 @@ const specIssueS17_7_8 = 72
 // Single-letter byte abbreviations (K, k, M, m, …) are not recognised.
 const specIssueS21_4 = 73
 
-// specIssueS21_5 is the GitHub issue number for the S21.5 spec violation.
-// Fractional byte values (e.g. 0.5M) are not supported.
-const specIssueS21_5 = 74
-
 // TestSpec_S15_1_NumericObjectToArray verifies that an object with integer keys
 // {"0":"a","1":"b"} is converted to ["a","b"] when array access is requested.
 // Fixed in fix/s15-numeric-obj-array, see issue #71.
