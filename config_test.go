@@ -1237,3 +1237,92 @@ func TestSpec_S21_5_FractionalByteValues(t *testing.T) {
 		})
 	}
 }
+
+// ── S18.4 + S19.1 + S19.2: parseDuration no-unit / aliases ──────────────────
+
+func TestParseDuration_NoUnit(t *testing.T) {
+	tests := []struct {
+		input string
+		want  time.Duration
+	}{
+		{"500", 500 * time.Millisecond},
+		{" 500", 500 * time.Millisecond},
+		{"500 ", 500 * time.Millisecond},
+		{" 500 ", 500 * time.Millisecond},
+		{"-500", -500 * time.Millisecond},
+	}
+	for _, tc := range tests {
+		cfg := mustParseCfg(t, fmt.Sprintf(`d = %q`, tc.input))
+		got, ok := cfg.GetDurationOption("d").Get()
+		if !ok || got != tc.want {
+			t.Errorf("input %q: expected %v, got ok=%v val=%v", tc.input, tc.want, ok, got)
+		}
+	}
+}
+
+func TestParseDuration_NoUnit_Fractional(t *testing.T) {
+	// ud05: Lightbend-faithful — fractional → scaled to nanos (500.5ms = 500500000ns)
+	cfg := mustParseCfg(t, `d = "500.5"`)
+	got, ok := cfg.GetDurationOption("d").Get()
+	want := time.Duration(500500000)
+	if !ok || got != want {
+		t.Errorf("'500.5': expected %v, got ok=%v val=%v", want, ok, got)
+	}
+}
+
+func TestParseDuration_NanoAliases(t *testing.T) {
+	for _, unit := range []string{"nano", "nanos"} {
+		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
+		got, ok := cfg.GetDurationOption("d").Get()
+		if !ok || got != time.Nanosecond {
+			t.Errorf("%q: expected %v, got ok=%v val=%v", unit, time.Nanosecond, ok, got)
+		}
+	}
+}
+
+func TestParseDuration_MicroAliases(t *testing.T) {
+	for _, unit := range []string{"us", "micro", "micros", "microsecond", "microseconds"} {
+		cfg := mustParseCfg(t, fmt.Sprintf(`d = "1%s"`, unit))
+		got, ok := cfg.GetDurationOption("d").Get()
+		if !ok || got != time.Microsecond {
+			t.Errorf("%q: expected %v, got ok=%v val=%v", unit, time.Microsecond, ok, got)
+		}
+	}
+}
+
+// ── S18.4: parseBytes no-unit + negative accessor rejection ──────────────────
+
+func TestParseBytes_NoUnit(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int64
+	}{
+		{"1024", 1024},
+		{" 1024 ", 1024},
+		{"1024.5", 1024}, // truncated toward zero
+	}
+	for _, tc := range tests {
+		cfg := mustParseCfg(t, fmt.Sprintf(`b = %q`, tc.input))
+		got, ok := cfg.GetBytesOption("b").Get()
+		if !ok || got != tc.want {
+			t.Errorf("%q: expected %d, got ok=%v val=%d", tc.input, tc.want, ok, got)
+		}
+	}
+}
+
+func TestParseBytes_NegativeAccessorRejects(t *testing.T) {
+	cfg := mustParseCfg(t, `b = "-1"`)
+	if cfg.GetBytesOption("b").IsSome() {
+		t.Error("GetBytesOption must return None for negative byte size")
+	}
+}
+
+func TestParseBytes_NegativeAccessorPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("GetBytes must panic for negative byte size")
+		}
+	}()
+	cfg := mustParseCfg(t, `b = "-1"`)
+	_ = cfg.GetBytes("b")
+}
