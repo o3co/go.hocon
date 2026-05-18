@@ -416,6 +416,26 @@ func isUnquotedSubstChar(ch rune) bool {
 	return true
 }
 
+// parseLiteralBrackets consumes the literal 2-character sequence "[]" for the
+// env-var list suffix (S13c / E7). Called when the segment-collection loop
+// encounters '['. The '[' must already be at the current position.
+// Returns a TokenError if the sequence is not exactly "[]" (no whitespace inside).
+func (l *Lexer) parseLiteralBrackets(startLine, startCol int) *Token {
+	// consume '['
+	l.advance()
+	ch, ok := l.peek()
+	if !ok {
+		tok := Token{Type: TokenError, Value: "unterminated substitution: expected ']' after '[' in list suffix", Line: startLine, Col: startCol}
+		return &tok
+	}
+	if ch != ']' {
+		tok := Token{Type: TokenError, Value: fmt.Sprintf("expected ']' after '[' in substitution list suffix at line %d col %d (no whitespace allowed inside '[]')", startLine, l.col), Line: startLine, Col: l.col}
+		return &tok
+	}
+	l.advance() // consume ']'
+	return nil  // success
+}
+
 // parseSubstBody implements the Appendix A state machine for ${...} body tokenization.
 // Called after '$' and '{' have both been consumed.
 // startLine/startCol are the position of the '$' (for error reporting).
@@ -436,6 +456,7 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 	var segments []Segment
 	lastDotLine, lastDotCol := 0, 0
 	hasLastDot := false
+	listSuffix := false
 
 	for {
 		ch, ok := l.peek()
@@ -448,6 +469,38 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 		case ch == '}':
 			l.advance()
 			// trailing WS is discarded
+			goto done
+
+		case ch == '[':
+			// S13c / E7: '[]' suffix — env-var list expansion.
+			// '[' is only valid as the 2-char suffix "[]" at the end of the
+			// path, not inside a segment body (isUnquotedSubstChar already
+			// rejects '[' in segment runs). Flush any in-progress segment,
+			// discard pendingWs (implements E7 horizontal-WS-before-'['), then
+			// consume the literal "[]" and break to require the closing '}'.
+			if !curStarted && len(segments) == 0 {
+				return Token{Type: TokenError, Value: "empty segment before '[]' suffix", Line: startLine, Col: l.col}
+			}
+			if curStarted {
+				segments = append(segments, Segment{Text: curText.String(), Line: curLine, Col: curCol})
+				curText.Reset()
+				curStarted = false
+			}
+			pendingWs = "" // discard E7 inter-token horizontal whitespace
+			if errTok := l.parseLiteralBrackets(startLine, startCol); errTok != nil {
+				return *errTok
+			}
+			listSuffix = true
+			// After "[]" the next character must be '}' — handled below after goto done.
+			// Consume '}' to mirror the normal '}' branch.
+			ch2, ok2 := l.peek()
+			if !ok2 {
+				return Token{Type: TokenError, Value: "unterminated substitution after '[]' suffix", Line: startLine, Col: startCol}
+			}
+			if ch2 != '}' {
+				return Token{Type: TokenError, Value: fmt.Sprintf("unexpected character after '[]' suffix in substitution: %c", ch2), Line: startLine, Col: l.col}
+			}
+			l.advance() // consume '}'
 			goto done
 
 		case ch == '"':
@@ -561,8 +614,8 @@ done:
 	} else if len(segments) == 0 {
 		// ${}
 		return Token{Type: TokenError, Value: "empty substitution path", Line: startLine, Col: startCol}
-	} else {
-		// trailing dot: ${foo.}
+	} else if !listSuffix {
+		// trailing dot: ${foo.} — but not when we just consumed a [] suffix
 		errLine, errCol := startLine, startCol
 		if hasLastDot {
 			errLine, errCol = lastDotLine, lastDotCol
@@ -582,7 +635,7 @@ done:
 		Value: strings.Join(parts, "."),
 		Line:  startLine,
 		Col:   startCol,
-		Subst: &SubstPayload{Segments: segments, Optional: optional},
+		Subst: &SubstPayload{Segments: segments, Optional: optional, ListSuffix: listSuffix},
 	}
 }
 
