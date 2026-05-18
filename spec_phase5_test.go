@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -503,6 +504,26 @@ func TestSpec_S14a_10_UnquotedIncludeArg_Spec(t *testing.T) {
 	_, err := hocon.ParseString("include unquoted-file")
 	if err == nil {
 		t.Error("expected parse error for unquoted include argument, got nil")
+	}
+}
+
+// TestSpec_S14a_10_UnquotedIncludeArg_ErrorMessage pins the spec-aligned error
+// message for the unquoted-include-argument case. The S14a.10 path must
+// distinguish itself from the S12.5 reservation message: the user wrote
+// `include foo.conf` intending an include statement (forgot quotes), so
+// suggesting "use \"include\" (quoted) as a field" would be the opposite of
+// what they need. Multi-agent-review (Claude review on #67) caught this.
+func TestSpec_S14a_10_UnquotedIncludeArg_ErrorMessage(t *testing.T) {
+	_, err := hocon.ParseString("include unquoted-file")
+	if err == nil {
+		t.Fatal("expected parse error for unquoted include argument, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "quoted string") {
+		t.Errorf("expected S14a.10 error to mention 'quoted string', got: %q", msg)
+	}
+	if strings.Contains(msg, "reserved as a key name") {
+		t.Errorf("S14a.10 error should NOT use the S12.5 reservation message; got: %q", msg)
 	}
 }
 

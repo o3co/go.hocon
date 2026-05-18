@@ -199,7 +199,16 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		}
 		p.advance() // consume ')'
 	} else {
-		if p.current.Type != lexer.TokenString || !p.current.IsQuoted {
+		// Distinguish two cases for spec-aligned diagnostics:
+		//   (a) `include` followed by an unquoted TokenString (e.g. `include foo.conf`):
+		//       user meant an include statement but forgot the quotes → S14a.10 message.
+		//   (b) `include` followed by anything else (separator =/:/+=/{, EOF, brace, ...):
+		//       user intended `include` as a key name → S12.5 reservation message.
+		if p.current.Type == lexer.TokenString && !p.current.IsQuoted {
+			return nil, newError(p.current.Line, p.current.Col,
+				fmt.Sprintf("include argument must be a quoted string, got unquoted: %q (HOCON.md L958)", p.current.Value))
+		}
+		if p.current.Type != lexer.TokenString {
 			return nil, newError(line, col,
 				"'include' is reserved as a key name; use \"include\" (quoted) to use it as a field (HOCON.md L570)")
 		}
