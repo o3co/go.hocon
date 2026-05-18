@@ -347,10 +347,14 @@ func (r *resolver) resolveConcatPartial(n *parser.ConcatNode, ctx *ObjectVal, pa
 		}
 		vals = append(vals, v)
 	}
-	return &concatPlaceholder{vals: vals}, nil
+	return &concatPlaceholder{vals: vals, line: n.Line(), col: n.Col()}, nil
 }
 
-type concatPlaceholder struct{ vals []Val }
+type concatPlaceholder struct {
+	vals []Val
+	line int // 1-based source line of the concat value (from first AST node)
+	col  int // 1-based source column of the concat value (from first AST node)
+}
 
 func (c *concatPlaceholder) val() {}
 
@@ -407,7 +411,7 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 	case *substPlaceholder:
 		return r.resolveSubst(vv, root)
 	case *concatPlaceholder:
-		return r.resolveConcat(vv.vals, root, path)
+		return r.resolveConcat(vv.vals, root, path, vv.line, vv.col)
 	case *ObjectVal:
 		return r.resolveSubstitutions(vv, root)
 	case *ArrayVal:
@@ -657,7 +661,7 @@ func isSeparator(v Val) bool {
 	return false
 }
 
-func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val, error) {
+func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line, col int) (Val, error) {
 	// resolve each val
 	var resolved []Val
 	for _, v := range vals {
@@ -714,7 +718,7 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 	// adjacent objects had overlapping numeric keys (na03e regression).
 	acc := meaningful[0]
 	for _, v := range meaningful[1:] {
-		next, err := r.joinPair(acc, v)
+		next, err := r.joinPair(acc, v, line, col)
 		if err != nil {
 			return nil, err
 		}
@@ -729,7 +733,7 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 //
 // Spec §Value concatenation (L373/L385): type mismatches raise *ResolveError.
 // Phase 6 #3b replaces all permissive-coercion fallbacks with errors.
-func (r *resolver) joinPair(left, right Val) (Val, error) {
+func (r *resolver) joinPair(left, right Val, line, col int) (Val, error) {
 	lArr, lIsArr := left.(*ArrayVal)
 	rArr, rIsArr := right.(*ArrayVal)
 	lObj, lIsObj := left.(*ObjectVal)
@@ -749,7 +753,7 @@ func (r *resolver) joinPair(left, right Val) (Val, error) {
 		return nil, &ResolveError{Message: fmt.Sprintf(
 			"cannot concatenate %s with %s: value concatenation requires same-kind operands (spec L385)",
 			valTypeName(left), valTypeName(right),
-		)}
+		), Line: line, Col: col}
 
 	case lIsObj && rIsArr:
 		// Object + Array: S15 numeric conversion first; error if not convertible.
@@ -760,7 +764,7 @@ func (r *resolver) joinPair(left, right Val) (Val, error) {
 		return nil, &ResolveError{Message: fmt.Sprintf(
 			"cannot concatenate %s with %s: value concatenation requires same-kind operands (spec L385)",
 			valTypeName(left), valTypeName(right),
-		)}
+		), Line: line, Col: col}
 
 	case lIsArr && rIsArr:
 		// Array + Array → plain concatenation.
@@ -771,14 +775,14 @@ func (r *resolver) joinPair(left, right Val) (Val, error) {
 		return nil, &ResolveError{Message: fmt.Sprintf(
 			"cannot concatenate %s with %s: arrays and objects may not appear in string value concatenation (spec L373)",
 			valTypeName(left), valTypeName(right),
-		)}
+		), Line: line, Col: col}
 
 	case rIsArr:
 		// S10.13: scalar + array is not a string concat (spec L373).
 		return nil, &ResolveError{Message: fmt.Sprintf(
 			"cannot concatenate %s with %s: arrays and objects may not appear in string value concatenation (spec L373)",
 			valTypeName(left), valTypeName(right),
-		)}
+		), Line: line, Col: col}
 
 	default:
 		// Remaining cases: Scalar+Scalar (valid string-concat), or Object+Scalar /
@@ -790,7 +794,7 @@ func (r *resolver) joinPair(left, right Val) (Val, error) {
 			return nil, &ResolveError{Message: fmt.Sprintf(
 				"cannot concatenate %s with %s: arrays and objects may not appear in string value concatenation (spec L373)",
 				valTypeName(left), valTypeName(right),
-			)}
+			), Line: line, Col: col}
 		}
 		// Pure scalar+scalar → string concat per S10 string-concat rules.
 		return r.concatStrings([]Val{left, right}), nil
@@ -798,12 +802,25 @@ func (r *resolver) joinPair(left, right Val) (Val, error) {
 }
 
 // valTypeName returns a human-readable type name for a Val, used in error messages.
+// For scalars the precise subtype (null/boolean/number/string) is returned so that
+// error messages satisfy the spec requirement to name left/right types.
 func valTypeName(v Val) string {
-	switch v.(type) {
+	switch vv := v.(type) {
 	case *ArrayVal:
 		return "array"
 	case *ObjectVal:
 		return "object"
+	case *ScalarVal:
+		switch vv.Type {
+		case ScalarNull:
+			return "null"
+		case ScalarBoolean:
+			return "boolean"
+		case ScalarNumber:
+			return "number"
+		default:
+			return "string"
+		}
 	default:
 		return "scalar"
 	}

@@ -65,6 +65,12 @@ type ConcatNode struct {
 
 func (n *ConcatNode) node() {}
 
+// Line returns the source line of this node.
+func (n *ConcatNode) Line() int { return n.line }
+
+// Col returns the source column of this node.
+func (n *ConcatNode) Col() int { return n.col }
+
 // SubstNode represents a substitution ${path} or ${?path}.
 type SubstNode struct {
 	pos

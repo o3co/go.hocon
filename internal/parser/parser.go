@@ -382,6 +382,8 @@ func (p *parser) parseKey() ([]string, error) {
 
 func (p *parser) parseValue() (Node, error) {
 	p.skipNewlines()
+	// Capture position before consuming the first token so ConcatNode can carry it.
+	firstLine, firstCol := p.current.Line, p.current.Col
 	first, err := p.parseSingleValue()
 	if err != nil {
 		return nil, err
@@ -409,7 +411,7 @@ func (p *parser) parseValue() (Node, error) {
 	if len(nodes) == 1 {
 		return nodes[0], nil
 	}
-	return &ConcatNode{Nodes: nodes}, nil
+	return &ConcatNode{pos: pos{firstLine, firstCol}, Nodes: nodes}, nil
 }
 
 func (p *parser) parseSingleValue() (Node, error) {

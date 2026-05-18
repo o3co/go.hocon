@@ -9,9 +9,12 @@
 // Phase 6 #3b review-fix tests — RED before implementation.
 //
 // Fix #1: valTypeName scalar precision — errors must name the correct scalar
-//         subtype (null/boolean/number/string), not the generic "scalar".
+//
+//	subtype (null/boolean/number/string), not the generic "scalar".
+//
 // Fix #2: position info in concat type-mismatch errors — Line/Col must be
-//         non-zero so errors are locatable in source.
+//
+//	non-zero so errors are locatable in source.
 package resolver_test
 
 import (
