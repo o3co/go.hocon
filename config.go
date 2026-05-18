@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/o3co/go.hocon/internal/resolver"
 )
@@ -335,8 +336,12 @@ func parseDuration(s string) (time.Duration, error) {
 	numStr := s[:i]
 
 	// Consume optional HOCON whitespace between number and unit.
-	for i < len(s) && isHoconWS(rune(s[i])) {
-		i++
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
 	}
 
 	// Consume unit (letters only; error if non-letter non-WS remains).
@@ -347,8 +352,12 @@ func parseDuration(s string) (time.Duration, error) {
 	unit := s[unitStart:i]
 
 	// Trailing HOCON whitespace.
-	for i < len(s) && isHoconWS(rune(s[i])) {
-		i++
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
 	}
 	if i < len(s) {
 		return 0, fmt.Errorf("unexpected characters in duration %q", s)
@@ -449,8 +458,12 @@ func parseBytes(s string) (int64, error) {
 	numStr := s[:i]
 
 	// Consume optional HOCON whitespace between number and unit.
-	for i < len(s) && isHoconWS(rune(s[i])) {
-		i++
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
 	}
 
 	// Consume unit (letters + uppercase allowed for bytes per HOCON.md L1344).
@@ -461,8 +474,12 @@ func parseBytes(s string) (int64, error) {
 	unit := s[unitStart:i]
 
 	// Trailing HOCON whitespace.
-	for i < len(s) && isHoconWS(rune(s[i])) {
-		i++
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !isHoconWS(r) {
+			break
+		}
+		i += w
 	}
 	if i < len(s) {
 		return 0, fmt.Errorf("unexpected characters in byte size %q", s)

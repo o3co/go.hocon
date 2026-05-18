@@ -1326,3 +1326,53 @@ func TestParseBytes_NegativeAccessorPanics(t *testing.T) {
 	cfg := mustParseCfg(t, `b = "-1"`)
 	_ = cfg.GetBytes("b")
 }
+
+// TestParseDuration_MultiByteWS verifies that multi-byte UTF-8 HOCON whitespace
+// characters (NBSP U+00A0, EM space U+2003) are correctly decoded in the
+// byte-indexed scanner between the number and unit tokens.
+func TestParseDuration_MultiByteWS(t *testing.T) {
+	nbsp := " "   // U+00A0 NON-BREAKING SPACE (UTF-8: 0xC2 0xA0)
+	emsp := " "   // U+2003 EM SPACE (UTF-8: 0xE2 0x80 0x83)
+	tests := []struct {
+		name  string
+		input string
+		want  time.Duration
+	}{
+		{"nbsp-between-number-and-unit", "500" + nbsp + "ms", 500 * time.Millisecond},
+		{"emsp-between-number-and-unit", "1" + emsp + "s", time.Second},
+		{"nbsp-leading-trailing", nbsp + "500" + nbsp, 500 * time.Millisecond},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mustParseCfg(t, fmt.Sprintf(`d = %q`, tc.input))
+			got, ok := cfg.GetDurationOption("d").Get()
+			if !ok || got != tc.want {
+				t.Errorf("input %q: expected %v, got ok=%v val=%v", tc.input, tc.want, ok, got)
+			}
+		})
+	}
+}
+
+// TestParseBytes_MultiByteWS verifies that multi-byte UTF-8 HOCON whitespace
+// characters are correctly decoded in parseBytes' byte-indexed scanner.
+func TestParseBytes_MultiByteWS(t *testing.T) {
+	emsp := " " // U+2003 EM SPACE
+	tests := []struct {
+		name  string
+		input string
+		want  int64
+	}{
+		{"emsp-between-number-and-unit", "1" + emsp + "KB", 1000},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mustParseCfg(t, fmt.Sprintf(`b = %q`, tc.input))
+			got, ok := cfg.GetBytesOption("b").Get()
+			if !ok || got != tc.want {
+				t.Errorf("input %q: expected %d, got ok=%v val=%d", tc.input, tc.want, ok, got)
+			}
+		})
+	}
+}
