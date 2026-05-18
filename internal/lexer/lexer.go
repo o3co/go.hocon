@@ -49,10 +49,14 @@ type Segment struct {
 	Col  int
 }
 
-// SubstPayload carries the parsed segments and optional flag for a substitution token.
+// SubstPayload carries the parsed segments, optional flag, and list-suffix flag
+// for a substitution token.
+// ListSuffix is true when the substitution body ends with the literal '[]' suffix
+// (e.g. ${X[]} or ${?X[]}), signalling env-var list expansion (S13c).
 type SubstPayload struct {
-	Segments []Segment
-	Optional bool
+	Segments   []Segment
+	Optional   bool
+	ListSuffix bool // true when '[]' suffix present — triggers resolveEnvList
 }
 
 // Token is a single lexed unit.

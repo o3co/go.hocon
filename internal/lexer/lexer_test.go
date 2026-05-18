@@ -68,6 +68,97 @@ func TestLexer_OptSubstitution(t *testing.T) {
 	}
 }
 
+// Step 1 — SubstPayload.ListSuffix field existence + default false (S13c).
+func TestSubstPayload_ListSuffixDefault(t *testing.T) {
+	l := lexer.New("${X}")
+	tok := l.Next()
+	if tok.Type != lexer.TokenSubstitution {
+		t.Fatalf("expected TokenSubstitution, got %v", tok.Type)
+	}
+	if tok.Subst == nil {
+		t.Fatal("Subst is nil")
+	}
+	if tok.Subst.ListSuffix {
+		t.Errorf("expected ListSuffix=false for ${X}, got true")
+	}
+}
+
+// Step 2 — ListSuffix set when lexing ${X[]} (S13c).
+func TestSubstPayload_ListSuffixSet(t *testing.T) {
+	l := lexer.New("${X[]}")
+	tok := l.Next()
+	if tok.Type != lexer.TokenSubstitution {
+		t.Fatalf("expected TokenSubstitution for ${X[]}, got %v (%s)", tok.Type, tok.Value)
+	}
+	if tok.Subst == nil {
+		t.Fatal("Subst is nil")
+	}
+	if !tok.Subst.ListSuffix {
+		t.Errorf("expected ListSuffix=true for ${X[]}, got false")
+	}
+	if len(tok.Subst.Segments) != 1 || tok.Subst.Segments[0].Text != "X" {
+		t.Errorf("expected segments=[X], got %+v", tok.Subst.Segments)
+	}
+}
+
+// Step 2 sub-tests — E7 whitespace, error cases.
+func TestSubstPayload_ListSuffix_SubTests(t *testing.T) {
+	tests := []struct {
+		name        string
+		src         string
+		wantType    lexer.TokenType
+		listSuffix  bool
+		segTexts    []string
+	}{
+		// E7: space before [] accepted
+		{"space-before-suffix", "${X []}", lexer.TokenSubstitution, true, []string{"X"}},
+		// E7: tab before [] accepted
+		{"tab-before-suffix", "${X\t[]}", lexer.TokenSubstitution, true, []string{"X"}},
+		// optional with list suffix
+		{"optional-list-suffix", "${?X[]}", lexer.TokenSubstitution, true, []string{"X"}},
+		// ${[]} → lex error (empty segment before suffix)
+		{"empty-segment-suffix", "${[]}", lexer.TokenError, false, nil},
+		// ${X[} → lex error (no closing ])
+		{"bracket-no-close", "${X[}", lexer.TokenError, false, nil},
+		// ${X[abc]} → lex error (non-empty bracket content)
+		{"bracket-non-empty", "${X[abc]}", lexer.TokenError, false, nil},
+		// ${X.} → lex error (trailing dot, no suffix involved)
+		{"trailing-dot", "${X.}", lexer.TokenError, false, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l := lexer.New(tc.src)
+			tok := l.Next()
+			if tok.Type != tc.wantType {
+				t.Fatalf("src=%q: expected token type %v, got %v (%s)", tc.src, tc.wantType, tok.Type, tok.Value)
+			}
+			if tc.wantType == lexer.TokenSubstitution {
+				if tok.Subst == nil {
+					t.Fatal("Subst is nil")
+				}
+				if tok.Subst.ListSuffix != tc.listSuffix {
+					t.Errorf("ListSuffix: want %v, got %v", tc.listSuffix, tok.Subst.ListSuffix)
+				}
+				if tc.segTexts != nil {
+					got := make([]string, len(tok.Subst.Segments))
+					for i, s := range tok.Subst.Segments {
+						got[i] = s.Text
+					}
+					if len(got) != len(tc.segTexts) {
+						t.Errorf("segments: want %v, got %v", tc.segTexts, got)
+					} else {
+						for i := range got {
+							if got[i] != tc.segTexts[i] {
+								t.Errorf("segment[%d]: want %q, got %q", i, tc.segTexts[i], got[i])
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestLexer_Numbers(t *testing.T) {
 	tests := []struct {
 		src  string

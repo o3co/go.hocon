@@ -23,6 +23,10 @@ testdata:
 	  mkdir -p testdata/hocon/subst-tokenize && \
 	  cp "$$tmpdir/testdata/hocon/subst-tokenize/"*.conf testdata/hocon/subst-tokenize/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/env-var-list" ]; then \
+	  mkdir -p testdata/hocon/env-var-list && \
+	  cp "$$tmpdir/testdata/hocon/env-var-list/"* testdata/hocon/env-var-list/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 
