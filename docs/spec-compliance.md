@@ -874,8 +874,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S21.5** Fractional values supported (`0.5M`) — §Units format (L1281-1294) + §Size in bytes (L1335-1342)
   tests: config_test.go (TestSpec_S21_5_FractionalByteValues)
-  status: ❌
-  note: parseBytes uses strconv.ParseInt which rejects fractional values; see issue #74.
+  status: ✅ — side-cleared in Phase 6 #3d. `parseBytes` rewritten to truncate AFTER multiply (`int64(f * float64(mult))`) per Lightbend `BigDecimal.toBigInteger()`; multi-letter units (KB/KiB/MB/MiB/...) now accept fractional values. Single-letter byte abbreviations (`0.5K`, `1.5M`) remain blocked by S21.4 (#73). Closes #74.
 
 ## S22. Config object merging API
 
