@@ -178,6 +178,9 @@ func TestUnitsDefault_Period(t *testing.T) {
 		"up05-period-with-unit",
 	}
 	for _, stem := range periodFixtures {
-		t.Logf("S18.4 period: GetPeriod not implemented in go.hocon — skipping %s", stem)
+		stem := stem
+		t.Run(stem, func(t *testing.T) {
+			t.Skipf("S18.4 period: GetPeriod not implemented in go.hocon — fixture present at testdata/hocon/units-default/%s.conf, accessor assertion deferred", stem)
+		})
 	}
 }
