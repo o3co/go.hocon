@@ -1224,11 +1224,11 @@ func TestSpec_S21_5_FractionalByteValues(t *testing.T) {
 		{`v: "0.5MB"`, 500_000},
 		{`v: "0.5MiB"`, 512 * 1024},
 		{`v: "0.5KiB"`, 512},
+		{`v: "2.5KiB"`, 2560},
 	}
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.src, func(t *testing.T) {
-			t.Skipf("spec violation: fractional byte values not supported, see #%d", specIssueS21_5)
 			cfg := mustParseCfg(t, tc.src)
 			got := cfg.GetBytes("v")
 			if got != tc.want {

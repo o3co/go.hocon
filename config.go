@@ -486,7 +486,7 @@ func parseBytes(s string) (int64, error) {
 	}
 
 	// Lightbend-faithful per-family fractional handling:
-	// integer-form → int64 * mult; fractional → int64(f) * mult (truncate toward zero).
+	// integer-form → int64 * mult; fractional → int64(f * float64(mult)) (truncate AFTER multiply).
 	if !hasFrac && integerRegex.MatchString(numStr) {
 		n, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {
@@ -498,7 +498,7 @@ func parseBytes(s string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int64(f) * mult, nil
+	return int64(f * float64(mult)), nil
 }
 
 // ── slices ────────────────────────────────────────────────────────
