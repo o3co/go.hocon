@@ -29,6 +29,12 @@ import (
 )
 
 // s13cSuccessFixtures: parse must succeed and resolved JSON must match expected.
+//
+// Note on ev08-self-append: the spec originally classified this as a tripwire
+// pending cluster 3f (S13a.13 self-ref-lookback), but multi-impl probe (ts/rs/go
+// all pass naturally) confirmed the assumption was wrong — ev08's `x = ["x"]; x =
+// ${?x} ${?LIST[]}` has a clear prior value for `x`, so it does not exercise the
+// S13a.13 "no prior value" lookback gap. ev08 lives in SUCCESS in all 3 impls.
 var s13cSuccessFixtures = []string{
 	"ev01-basic",
 	"ev02-stops-at-gap",
@@ -36,6 +42,7 @@ var s13cSuccessFixtures = []string{
 	"ev05-config-defined-wins",
 	"ev06-concat-prepend",
 	"ev07-concat-append",
+	"ev08-self-append",
 	"ev09-whitespace-before-suffix",
 	"ev10-empty-string-element",
 	"ev11-include-context",
@@ -44,14 +51,6 @@ var s13cSuccessFixtures = []string{
 // s13cErrorFixtures: parse/resolve must return a non-nil error.
 var s13cErrorFixtures = []string{
 	"ev03-required-no-elements",
-}
-
-// s13cTripwireFixtures: skipped pending S13a.13 self-ref-lookback fix (cluster 3f).
-// ev08 requires that ${?x} inside a self-referential concat resolves to the prior
-// value of x; that feature is tracked in go.hocon #68 / cluster 3f.
-// Re-enable by removing the t.Skip line when cluster 3f lands.
-var s13cTripwireFixtures = []string{
-	"ev08-self-append",
 }
 
 // confPath_s13c returns the path to a fixture .conf file.
@@ -167,42 +166,6 @@ func TestS13c_ErrorFixtures(t *testing.T) {
 			_, err := hocon.ParseFile(confPath_s13c(name))
 			if err == nil {
 				t.Errorf("%s: expected parse/resolve error, got success", name)
-			}
-		})
-	}
-}
-
-// TestS13c_TripwireFixtures marks ev08 as a tracked skip pending cluster 3f (S13a.13).
-// The assertion body is preserved below the Skip so removing the Skip line immediately
-// exercises the fixture — the next reader will know the gap has closed.
-func TestS13c_TripwireFixtures(t *testing.T) {
-	for _, name := range s13cTripwireFixtures {
-		name := name
-		t.Run(name, func(t *testing.T) {
-			t.Skip("tripwire: ev08 depends on S13a.13 self-ref-lookback (cluster 3f, go.hocon #68); re-enable when 3f lands")
-
-			injectEnvSidecar(t, name)
-
-			cfg, err := hocon.ParseFile(confPath_s13c(name))
-			if err != nil {
-				t.Fatalf("ParseFile(%s): %v", name, err)
-			}
-			expectedData, err := os.ReadFile(expectedPath_s13c(name))
-			if err != nil {
-				t.Fatalf("ReadFile(expected, %s): %v", name, err)
-			}
-			var want any
-			if err := json.Unmarshal(expectedData, &want); err != nil {
-				t.Fatalf("parse expected JSON (%s): %v", name, err)
-			}
-			got := make(map[string]any)
-			if err := cfg.Unmarshal(&got); err != nil {
-				t.Fatalf("Unmarshal(%s): %v", name, err)
-			}
-			if !jsonEqual(got, want) {
-				gotJSON, _ := json.MarshalIndent(got, "", "  ")
-				wantJSON, _ := json.MarshalIndent(want, "", "  ")
-				t.Errorf("%s mismatch\ngot:\n%s\nwant:\n%s", name, gotJSON, wantJSON)
 			}
 		})
 	}

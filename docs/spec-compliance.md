@@ -517,7 +517,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ### S13c. List values from environment variables
 
 - **S13c.1** `${X[]}` looks up `X_0`, `X_1`, ... env vars — §List values from env (L900)
-  tests: s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev01-basic, ev02-stops-at-gap, ev06-concat-prepend, ev07-concat-append, ev09-whitespace-before-suffix, ev10-empty-string-element, ev11-include-context); internal/resolver/resolver_test.go (TestResolveEnvList_Basic)
+  tests: s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev01-basic, ev02-stops-at-gap, ev06-concat-prepend, ev07-concat-append, ev08-self-append, ev09-whitespace-before-suffix, ev10-empty-string-element, ev11-include-context); internal/resolver/resolver_test.go (TestResolveEnvList_Basic)
   status: ✅
 
 - **S13c.2** Stops at first missing index — §List values from env (L905)
