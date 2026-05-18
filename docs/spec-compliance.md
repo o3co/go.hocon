@@ -237,8 +237,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.4** Mixing arrays + objects in concat is an error — §Array and object concatenation (L385)
-  tests: internal/resolver/resolver_test.go:1009 (TestSpecS10_4_MixingArrayAndObjectInConcatIsError)
-  status: ❌ — resolver allows array+object concat silently; see #63
+  tests: internal/resolver/resolver_test.go (TestSpecS10_4_MixingArrayAndObjectInConcatIsError, TestSpecS10_4_ArrayPlusObjectErrors); internal/resolver/concat_errors_test.go (ce01, ce02, ce07, ce08, ce10, ce11)
+  status: ✅ (fixed in fix/s10-concat-type-check — Phase 6 #3b; was ❌ #63)
 
 - **S10.5** Inner whitespace between simple values preserved — §String value concatenation (L332)
   tests: config_test.go:357 (TestConfig_StringConcat_AdjacentStringsPreservesSpace)
@@ -273,8 +273,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.13** Array/object appearing in string concat is an error — §String value concatenation (L373)
-  tests: internal/resolver/resolver_test.go:567 (TestResolver_ArrayConcatenationPermissive); internal/resolver/resolver_test.go:1027 (TestSpecS10_13_ArrayInStringConcatPermissivePinned)
-  status: ⚠️ — permissive extension: test asserts `a = [1, 2] 3` → `[1, 2, 3]` (array followed by scalar in concat); spec L373 says arrays/objects in string concat must error. Pin test added in Phase 2.
+  tests: internal/resolver/resolver_test.go (TestSpecS10_13_ArrayPlusScalarErrors, TestSpecS10_13_ObjectPlusScalarErrors, TestSpecS10_13_ArrayPlusArrayStillWorks); internal/resolver/concat_errors_test.go (ce03, ce04, ce05, ce06, ce12, ce13)
+  status: ✅ (fixed in fix/s10-concat-type-check — Phase 6 #3b; was ⚠️ — prior permissive `[1, 2] 3 → [1, 2, 3]` removed)
 
 - **S10.14** Whitespace around obj/array substitutions is ignored — §Concatenation with whitespace (L440)
   tests: internal/resolver/resolver_test.go:1046 (TestSpecS10_14_WhitespaceAroundSubstitutionIsIgnored)
@@ -297,8 +297,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.19** Mixing a substitution-resolved object with a literal array (or vice versa) is an error — §Array and object concatenation (L385-389)
-  tests: internal/resolver/resolver_test.go:1066 (TestSpecS10_19_SubstResolvedObjectPlusLiteralArrayIsError)
-  status: ❌ — resolver silently accepts; see #63
+  tests: internal/resolver/resolver_test.go (TestSpecS10_19_SubstResolvedObjectPlusLiteralArrayIsError, TestSpecS10_4_ArrayPlusObjectErrors); internal/resolver/concat_errors_test.go (ce07, ce08)
+  status: ✅ (fixed in fix/s10-concat-type-check — Phase 6 #3b; was ❌ #63)
 
 ## S11. Path expressions
 
