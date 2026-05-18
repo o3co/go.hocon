@@ -452,6 +452,14 @@ func (p *parser) parseSingleValue() (Node, error) {
 		val := p.current.Value
 		p.advance()
 		return &ScalarNode{pos: pos{line, col}, Raw: val, ValueType: "string"}, nil
+	case lexer.TokenInclude:
+		// `include` as a bare unquoted word in value position is an unquoted
+		// string literal — e.g. `a = include` produces { a: "include" }.
+		// The reservation rule (HOCON.md L570) applies only to key paths, not
+		// value positions. The lexer always promotes the bare keyword to
+		// TokenInclude; we demote it back to a string scalar here.
+		p.advance()
+		return &ScalarNode{pos: pos{line, col}, Raw: "include", ValueType: "string"}, nil
 	case lexer.TokenInt:
 		raw := p.current.Value
 		p.advance()
