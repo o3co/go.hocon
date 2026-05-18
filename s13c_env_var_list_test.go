@@ -80,7 +80,11 @@ func parseEnvSidecar(path string) (map[string]string, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	result := make(map[string]string)
 	scanner := bufio.NewScanner(f)

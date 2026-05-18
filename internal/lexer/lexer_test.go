@@ -104,11 +104,11 @@ func TestSubstPayload_ListSuffixSet(t *testing.T) {
 // Step 2 sub-tests — E7 whitespace, error cases.
 func TestSubstPayload_ListSuffix_SubTests(t *testing.T) {
 	tests := []struct {
-		name        string
-		src         string
-		wantType    lexer.TokenType
-		listSuffix  bool
-		segTexts    []string
+		name       string
+		src        string
+		wantType   lexer.TokenType
+		listSuffix bool
+		segTexts   []string
 	}{
 		// E7: space before [] accepted
 		{"space-before-suffix", "${X []}", lexer.TokenSubstitution, true, []string{"X"}},

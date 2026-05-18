@@ -486,7 +486,8 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 				curText.Reset()
 				curStarted = false
 			}
-			pendingWs = "" // discard E7 inter-token horizontal whitespace
+			// E7: pendingWs (ASCII space/tab before '[') is intentionally discarded
+			// by not prepending it to any segment — we go straight to parseLiteralBrackets.
 			if errTok := l.parseLiteralBrackets(startLine, startCol); errTok != nil {
 				return *errTok
 			}
