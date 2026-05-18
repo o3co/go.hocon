@@ -688,13 +688,108 @@ func TestSpecS12_5_IncludeReservedAsKeyStart(t *testing.T) {
 // TestSpecS12_5_IncludeDotFooRejected pins the S12.5 spec rule: `include` may
 // NOT begin a path expression in a key, regardless of whether it stands alone
 // or is the prefix of a dotted path. Per HOCON L570.
-// Status: ❌ — parser currently accepts `include.foo = x` and stores key
-// ["include", "foo"] (see #67). Identified by Codex review on PR #64.
+// Status: ✅ fixed in go.hocon#67.
 func TestSpecS12_5_IncludeDotFooRejected(t *testing.T) {
-	t.Skipf("spec violation, see #67")
 	// Spec L570: `include` reserved as start of a path expression.
 	if _, err := parser.Parse(`include.foo = x`); err == nil {
 		t.Error("expected parse error: 'include.foo' begins with reserved 'include', must be rejected")
+	}
+}
+
+// TestSpecS12_5_IncludeDotFooRejected_ErrorType verifies that the error raised
+// for `include.foo = 1` is a *parser.Error with a message containing "reserved".
+func TestSpecS12_5_IncludeDotFooRejected_ErrorType(t *testing.T) {
+	_, err := parser.Parse(`include.foo = 1`)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	var pe *parser.Error
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *parser.Error, got %T", err)
+	}
+	if !strings.Contains(pe.Message, "reserved") {
+		t.Errorf("expected 'reserved' in error message, got: %s", pe.Message)
+	}
+}
+
+// TestSpecS12_5_IncludeNestedObjectBodyRejected verifies that include.bar inside
+// a nested object literal is also rejected per S12.5.
+func TestSpecS12_5_IncludeNestedObjectBodyRejected(t *testing.T) {
+	_, err := parser.Parse(`a = { include.bar = 1 }`)
+	if err == nil {
+		t.Fatal("expected parse error for include.bar in nested object")
+	}
+}
+
+// TestSpecS12_5_IncludePlusEqualsRejected verifies that `include += [1]` is
+// rejected (TokenInclude dispatches to parseInclude which errors on `+=`).
+func TestSpecS12_5_IncludePlusEqualsRejected(t *testing.T) {
+	_, err := parser.Parse(`include += [1]`)
+	if err == nil {
+		t.Fatal("expected parse error for include += [1]")
+	}
+}
+
+// TestSpecS12_5_IncludeObjectBodyRejected verifies that `include { x = 1 }` is
+// rejected (TokenInclude dispatches to parseInclude which errors on `{`).
+func TestSpecS12_5_IncludeObjectBodyRejected(t *testing.T) {
+	_, err := parser.Parse(`include { x = 1 }`)
+	if err == nil {
+		t.Fatal("expected parse error for include { x = 1 }")
+	}
+}
+
+// Unit C — Quoted-form bypass + non-initial regression guards (S12.5 positive)
+
+// TestSpecS12_5_QuotedIncludeAllowed verifies that `"include" = 1` is a valid
+// field write when the key is quoted. Quoted form bypasses the reservation rule.
+func TestSpecS12_5_QuotedIncludeAllowed(t *testing.T) {
+	obj, err := parser.Parse(`"include" = 1`)
+	if err != nil {
+		t.Fatalf("expected no error for quoted include key, got: %v", err)
+	}
+	if len(obj.Fields) != 1 || obj.Fields[0].Key[0] != "include" {
+		t.Errorf("expected key [include], got %v", obj.Fields)
+	}
+}
+
+// TestSpecS12_5_QuotedIncludeDottedAllowed verifies that `"include".foo = 1` is
+// valid: the first segment is quoted, so the reservation rule does not fire.
+func TestSpecS12_5_QuotedIncludeDottedAllowed(t *testing.T) {
+	obj, err := parser.Parse(`"include".foo = 1`)
+	if err != nil {
+		t.Fatalf("expected no error for quoted include dotted key, got: %v", err)
+	}
+	want := []string{"include", "foo"}
+	if len(obj.Fields) != 1 || len(obj.Fields[0].Key) != 2 ||
+		obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
+		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
+	}
+}
+
+// TestSpecS12_5_NonInitialIncludeAllowed verifies that `foo.include = 1` is
+// valid: `include` is the second path element, not the first.
+func TestSpecS12_5_NonInitialIncludeAllowed(t *testing.T) {
+	obj, err := parser.Parse(`foo.include = 1`)
+	if err != nil {
+		t.Fatalf("expected no error for foo.include, got: %v", err)
+	}
+	want := []string{"foo", "include"}
+	if len(obj.Fields) != 1 || len(obj.Fields[0].Key) != 2 ||
+		obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
+		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
+	}
+}
+
+// Unit D — Substitution path not affected (ir14)
+
+// TestSpecS12_5_SubstitutionIncludePathAllowed verifies that ${include} in a
+// value position is NOT subject to the reservation rule (substitution paths
+// are syntactically unrestricted per spec Non-Goals).
+func TestSpecS12_5_SubstitutionIncludePathAllowed(t *testing.T) {
+	_, err := parser.Parse("\"include\" = \"v\"\na = ${include}")
+	if err != nil {
+		t.Fatalf("expected no parse error for ${include} in value position, got: %v", err)
 	}
 }
 

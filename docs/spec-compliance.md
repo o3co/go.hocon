@@ -361,8 +361,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S12.5** `include` may NOT begin a path expression in a key — §Paths as keys (L570)
-  tests: internal/parser/parser_test.go:683 (TestSpecS12_5_IncludeReservedAsKeyStart); internal/parser/parser_test.go:694 (TestSpecS12_5_IncludeDotFooRejected)
-  status: ❌ (see #67) — `include = x` correctly rejected, but `include.foo = x` is accepted (parser does not reject dotted paths beginning with reserved 'include' per L570)
+  tests: internal/parser/parser_test.go (TestSpecS12_5_IncludeReservedAsKeyStart, TestSpecS12_5_IncludeDotFooRejected, TestSpecS12_5_IncludeDotFooRejected_ErrorType, TestSpecS12_5_IncludeNestedObjectBodyRejected, TestSpecS12_5_IncludePlusEqualsRejected, TestSpecS12_5_IncludeObjectBodyRejected, TestSpecS12_5_QuotedIncludeAllowed, TestSpecS12_5_QuotedIncludeDottedAllowed, TestSpecS12_5_NonInitialIncludeAllowed, TestSpecS12_5_SubstitutionIncludePathAllowed); internal/parser/include_reservation_test.go (TestIncludeReservationFixtures, ir01–ir14)
+  status: ✅ — fixed in #67 (Phase 6 #3e). Both bare `include = x` and dotted `include.foo = x` now rejected with *parser.Error. Quoted `"include"` and non-initial `foo.include` remain valid.
 
 ## S13. Substitutions
 
@@ -588,7 +588,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S14a.10** Include argument must be quoted string — §Include syntax (L958)
   tests: spec_phase5_test.go (TestSpec_S14a_10_UnquotedIncludeArg_Pin, TestSpec_S14a_10_UnquotedIncludeArg_Spec, TestSpec_S14a_10_QuotedIncludeArgAccepted)
-  status: ❌ ([#80](https://github.com/o3co/go.hocon/issues/80)) — parser accepts unquoted strings as include path (e.g. `include foo.conf`) instead of requiring a quoted string; silently treated as optional include that is not found
+  status: ✅ — fixed as side-effect of S12.5 fix (#67). `parseInclude` now requires `IsQuoted` on the TokenString argument; unquoted `include foo.conf` raises *parser.Error. Pin test converted to regression guard.
 
 - **S14a.11** `"include"` (quoted) is just a normal key — §Include syntax (L977)
   tests: internal/parser/parser_test.go:356 (TestParser_IncludeQuotedUrlNotError)
