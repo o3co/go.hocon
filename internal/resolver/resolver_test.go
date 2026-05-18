@@ -564,32 +564,6 @@ func TestResolver_ObjectConcatenation(t *testing.T) {
 	}
 }
 
-func TestResolver_ArrayConcatenationPermissive(t *testing.T) {
-	// HOCON spec: non-array elements concatenated with arrays are pushed as items.
-	// `a = [1, 2] 3` should produce [1, 2, 3].
-	res := resolve(t, `a = [1, 2] 3`)
-	v, ok := res.Root.Get("a")
-	if !ok {
-		t.Fatal("a not found")
-	}
-	arr, ok := v.(*resolver.ArrayVal)
-	if !ok {
-		t.Fatalf("expected ArrayVal, got %T", v)
-	}
-	if len(arr.Elements) != 3 {
-		t.Fatalf("expected 3 elements, got %d", len(arr.Elements))
-	}
-	for i, want := range []string{"1", "2", "3"} {
-		sv, ok := arr.Elements[i].(*resolver.ScalarVal)
-		if !ok {
-			t.Errorf("element %d: expected ScalarVal, got %T", i, arr.Elements[i])
-			continue
-		}
-		if sv.Raw != want {
-			t.Errorf("element %d: expected %s, got %v", i, want, sv.Raw)
-		}
-	}
-}
 
 func TestResolver_ObjectConcatenationDeepMerge(t *testing.T) {
 	// HOCON spec: nested object concatenation should deep-merge
@@ -1004,10 +978,8 @@ include file("nonexistent.conf")
 
 // TestSpecS10_4_MixingArrayAndObjectInConcatIsError verifies that concatenating
 // an array with an object (or vice versa) is a resolver error. Spec L385.
-// Status: ❌ spec violation — resolver currently allows `a = [1,2] {x:1}` and
-// produces a merged value instead of erroring; see issue #<S10.4>.
+// Status: ✅ (fixed in fix/s10-concat-type-check — Phase 6 #3b).
 func TestSpecS10_4_MixingArrayAndObjectInConcatIsError(t *testing.T) {
-	t.Skipf("spec violation, see #63") // filed as S10.4 / S10.19 violation
 	cases := []string{
 		`a = [1, 2] {x: 1}`,
 		`a = {x: 1} [1, 2]`,
@@ -1019,26 +991,6 @@ func TestSpecS10_4_MixingArrayAndObjectInConcatIsError(t *testing.T) {
 	}
 }
 
-// TestSpecS10_13_ArrayInStringConcatPinPermissiveExtension documents the current
-// ⚠️ permissive extension: `a = [1, 2] 3` is accepted and produces [1, 2, 3].
-// Spec L373 says arrays/objects appearing in a string concat must error.
-// This test pins the current (permissive) behaviour so regressions are visible.
-// Status: ⚠️ — permissive extension (see existing issue).
-func TestSpecS10_13_ArrayInStringConcatPermissivePinned(t *testing.T) {
-	// The implementation allows scalar appended after an array.
-	res := resolve(t, `a = [1, 2] 3`)
-	v, ok := res.Root.Get("a")
-	if !ok {
-		t.Fatal("a not found")
-	}
-	arr, ok := v.(*resolver.ArrayVal)
-	if !ok {
-		t.Fatalf("expected ArrayVal (permissive extension), got %T", v)
-	}
-	if len(arr.Elements) != 3 {
-		t.Fatalf("expected 3 elements (permissive), got %d", len(arr.Elements))
-	}
-}
 
 // TestSpecS10_14_WhitespaceAroundSubstitutionIsIgnored verifies that whitespace
 // between a substitution and an adjacent array is ignored for concat purposes.
@@ -1061,10 +1013,8 @@ func TestSpecS10_14_WhitespaceAroundSubstitutionIsIgnored(t *testing.T) {
 // TestSpecS10_19_SubstResolvedObjectPlusLiteralArrayIsError verifies that when a
 // substitution resolves to an object, concatenating it with a literal array is a
 // resolve error. Spec L385-389.
-// Status: ❌ spec violation — resolver currently silently produces a value;
-// see issue #<S10.19>.
+// Status: ✅ (fixed in fix/s10-concat-type-check — Phase 6 #3b).
 func TestSpecS10_19_SubstResolvedObjectPlusLiteralArrayIsError(t *testing.T) {
-	t.Skipf("spec violation, see #63") // same issue tracks array/object mixing
 	src := "obj = {x: 1}\na = ${obj} [1, 2]"
 	if _, err := resolveErr(src); err == nil {
 		t.Error("expected resolve error: substitution-resolved object + literal array should be an error")
