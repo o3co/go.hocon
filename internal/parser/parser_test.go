@@ -739,6 +739,60 @@ func TestSpecS12_5_IncludeObjectBodyRejected(t *testing.T) {
 	}
 }
 
+// Unit C — Quoted-form bypass + non-initial regression guards (S12.5 positive)
+
+// TestSpecS12_5_QuotedIncludeAllowed verifies that `"include" = 1` is a valid
+// field write when the key is quoted. Quoted form bypasses the reservation rule.
+func TestSpecS12_5_QuotedIncludeAllowed(t *testing.T) {
+	obj, err := parser.Parse(`"include" = 1`)
+	if err != nil {
+		t.Fatalf("expected no error for quoted include key, got: %v", err)
+	}
+	if len(obj.Fields) != 1 || obj.Fields[0].Key[0] != "include" {
+		t.Errorf("expected key [include], got %v", obj.Fields)
+	}
+}
+
+// TestSpecS12_5_QuotedIncludeDottedAllowed verifies that `"include".foo = 1` is
+// valid: the first segment is quoted, so the reservation rule does not fire.
+func TestSpecS12_5_QuotedIncludeDottedAllowed(t *testing.T) {
+	obj, err := parser.Parse(`"include".foo = 1`)
+	if err != nil {
+		t.Fatalf("expected no error for quoted include dotted key, got: %v", err)
+	}
+	want := []string{"include", "foo"}
+	if len(obj.Fields) != 1 || len(obj.Fields[0].Key) != 2 ||
+		obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
+		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
+	}
+}
+
+// TestSpecS12_5_NonInitialIncludeAllowed verifies that `foo.include = 1` is
+// valid: `include` is the second path element, not the first.
+func TestSpecS12_5_NonInitialIncludeAllowed(t *testing.T) {
+	obj, err := parser.Parse(`foo.include = 1`)
+	if err != nil {
+		t.Fatalf("expected no error for foo.include, got: %v", err)
+	}
+	want := []string{"foo", "include"}
+	if len(obj.Fields) != 1 || len(obj.Fields[0].Key) != 2 ||
+		obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
+		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
+	}
+}
+
+// Unit D — Substitution path not affected (ir14)
+
+// TestSpecS12_5_SubstitutionIncludePathAllowed verifies that ${include} in a
+// value position is NOT subject to the reservation rule (substitution paths
+// are syntactically unrestricted per spec Non-Goals).
+func TestSpecS12_5_SubstitutionIncludePathAllowed(t *testing.T) {
+	_, err := parser.Parse("\"include\" = \"v\"\na = ${include}")
+	if err != nil {
+		t.Fatalf("expected no parse error for ${include} in value position, got: %v", err)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Spec compliance Phase 3: substitutions & includes (S13, S13a, S14a, S14b).
 // -----------------------------------------------------------------------------
