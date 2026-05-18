@@ -199,8 +199,9 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		}
 		p.advance() // consume ')'
 	} else {
-		if p.current.Type != lexer.TokenString {
-			return nil, newError(line, col, "expected filename after include")
+		if p.current.Type != lexer.TokenString || !p.current.IsQuoted {
+			return nil, newError(line, col,
+				"'include' is reserved as a key name; use \"include\" (quoted) to use it as a field (HOCON.md L570)")
 		}
 		path = p.current.Value
 		p.advance()
@@ -219,10 +220,27 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 
 func (p *parser) parseField() (*FieldNode, error) {
 	line, col := p.current.Line, p.current.Col
+	// S12.5: capture first-token provenance BEFORE parseKey advances past it.
+	// We need to know whether the very first token was quoted and what its type
+	// was, so the reservation check below can distinguish:
+	//   include.foo = 1  → TokenString, IsQuoted=false → REJECT
+	//   "include".foo = 1 → TokenString, IsQuoted=true  → allow
+	firstTokenIsQuoted := p.current.IsQuoted
+	firstTokenType := p.current.Type
 	// parse key (dot-separated path, possibly multi-segment with quoted parts)
 	key, err := p.parseKey()
 	if err != nil {
 		return nil, err
+	}
+	// S12.5 (HOCON.md L570): 'include' is reserved at the start of an unquoted
+	// key path. TokenInclude inputs (`include = 1`, `include {...}`,
+	// `include += [1]`) never reach parseField — they are dispatched to
+	// parseInclude in parseObjectFields. This check handles the TokenString
+	// case: `include.foo = 1` (lexer emits a single TokenString "include.foo",
+	// parseKey splits on '.' to produce ["include", "foo"]).
+	if len(key) > 0 && key[0] == "include" && !firstTokenIsQuoted && firstTokenType == lexer.TokenString {
+		return nil, newError(line, col,
+			"'include' is reserved at the start of a key path; use \"include\" (quoted) or rename the key (HOCON.md L570)")
 	}
 	// HOCON allows newlines between key and separator
 	p.skipNewlines()

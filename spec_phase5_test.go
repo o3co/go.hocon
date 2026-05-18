@@ -484,23 +484,22 @@ foo.d = 4
 
 // ── S14a.10: include argument must be a quoted string ─────────────────────────
 
-// TestSpec_S14a_10_UnquotedIncludeArg_Pin pins the current (non-conformant)
-// behaviour where `include unquoted-file` is silently accepted (the parser
-// accepts an unquoted TokenString as the include path, then the missing file
-// is treated as an optional include and silently skipped).
-// Spec HOCON.md L958: the argument must be a single quoted string.
+// TestSpec_S14a_10_UnquotedIncludeArg_Pin was a pin for the non-conformant
+// behaviour where `include unquoted-file` was silently accepted. Fixed as a
+// side-effect of S12.5 (go.hocon#67): parseInclude now requires a quoted string.
+// Spec HOCON.md L958. Converted to regression guard (must error).
 func TestSpec_S14a_10_UnquotedIncludeArg_Pin(t *testing.T) {
-	// pin: see #80 — "include unquoted-file" parses without error
 	_ = specIssueS14a_10_UnquotedInclude
 	_, err := hocon.ParseString("include unquoted-file")
-	if err != nil {
-		t.Errorf("[pin] expected nil error (current impl accepts unquoted), got: %v", err)
+	if err == nil {
+		t.Error("[regression] expected parse error for unquoted include argument — fix regressed")
 	}
 }
 
 // TestSpec_S14a_10_UnquotedIncludeArg_Spec is the spec-correct assertion.
+// Un-skipped: fixed as side-effect of S12.5 (go.hocon#67).
 func TestSpec_S14a_10_UnquotedIncludeArg_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S14a.10 — unquoted include arg accepted; see #%d", specIssueS14a_10_UnquotedInclude)
+	_ = specIssueS14a_10_UnquotedInclude
 	_, err := hocon.ParseString("include unquoted-file")
 	if err == nil {
 		t.Error("expected parse error for unquoted include argument, got nil")
