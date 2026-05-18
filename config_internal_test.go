@@ -33,7 +33,7 @@ func TestIsHoconWS(t *testing.T) {
 	}
 	no := []rune{
 		'a', '0', '_',
-		0x0085, // NEL — HOCON does NOT treat this as whitespace
+		0x0085,     // NEL — HOCON does NOT treat this as whitespace
 		0x21, 0x7F, // ASCII boundary checks
 		0x199F, 0x1681, // around U+1680
 		0x1FFF, 0x200B, // around U+2000-200A range
