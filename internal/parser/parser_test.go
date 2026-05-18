@@ -688,13 +688,54 @@ func TestSpecS12_5_IncludeReservedAsKeyStart(t *testing.T) {
 // TestSpecS12_5_IncludeDotFooRejected pins the S12.5 spec rule: `include` may
 // NOT begin a path expression in a key, regardless of whether it stands alone
 // or is the prefix of a dotted path. Per HOCON L570.
-// Status: ❌ — parser currently accepts `include.foo = x` and stores key
-// ["include", "foo"] (see #67). Identified by Codex review on PR #64.
+// Status: ✅ fixed in go.hocon#67.
 func TestSpecS12_5_IncludeDotFooRejected(t *testing.T) {
-	t.Skipf("spec violation, see #67")
 	// Spec L570: `include` reserved as start of a path expression.
 	if _, err := parser.Parse(`include.foo = x`); err == nil {
 		t.Error("expected parse error: 'include.foo' begins with reserved 'include', must be rejected")
+	}
+}
+
+// TestSpecS12_5_IncludeDotFooRejected_ErrorType verifies that the error raised
+// for `include.foo = 1` is a *parser.Error with a message containing "reserved".
+func TestSpecS12_5_IncludeDotFooRejected_ErrorType(t *testing.T) {
+	_, err := parser.Parse(`include.foo = 1`)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	var pe *parser.Error
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *parser.Error, got %T", err)
+	}
+	if !strings.Contains(pe.Message, "reserved") {
+		t.Errorf("expected 'reserved' in error message, got: %s", pe.Message)
+	}
+}
+
+// TestSpecS12_5_IncludeNestedObjectBodyRejected verifies that include.bar inside
+// a nested object literal is also rejected per S12.5.
+func TestSpecS12_5_IncludeNestedObjectBodyRejected(t *testing.T) {
+	_, err := parser.Parse(`a = { include.bar = 1 }`)
+	if err == nil {
+		t.Fatal("expected parse error for include.bar in nested object")
+	}
+}
+
+// TestSpecS12_5_IncludePlusEqualsRejected verifies that `include += [1]` is
+// rejected (TokenInclude dispatches to parseInclude which errors on `+=`).
+func TestSpecS12_5_IncludePlusEqualsRejected(t *testing.T) {
+	_, err := parser.Parse(`include += [1]`)
+	if err == nil {
+		t.Fatal("expected parse error for include += [1]")
+	}
+}
+
+// TestSpecS12_5_IncludeObjectBodyRejected verifies that `include { x = 1 }` is
+// rejected (TokenInclude dispatches to parseInclude which errors on `{`).
+func TestSpecS12_5_IncludeObjectBodyRejected(t *testing.T) {
+	_, err := parser.Parse(`include { x = 1 }`)
+	if err == nil {
+		t.Fatal("expected parse error for include { x = 1 }")
 	}
 }
 
