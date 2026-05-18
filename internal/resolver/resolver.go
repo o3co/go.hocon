@@ -318,7 +318,7 @@ func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal, pathPrefix []st
 		return arr, nil
 	case *parser.SubstNode:
 		// leave substitution nodes for second pass — consume pre-parsed lexer segments directly
-		return &substPlaceholder{node: n, segments: n.Segments.Segments}, nil
+		return &substPlaceholder{node: n, segments: n.Segments.Segments, listSuffix: n.Segments.ListSuffix}, nil
 	case *parser.ConcatNode:
 		return r.resolveConcatPartial(n, ctx, pathPrefix)
 	case *parser.IncludeNode:
@@ -330,9 +330,10 @@ func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal, pathPrefix []st
 
 // substPlaceholder is a temporary stand-in for unresolved substitutions.
 type substPlaceholder struct {
-	node      *parser.SubstNode
-	segments  []lexer.Segment // path segments — source of truth
-	prefixLen int             // 0 for normal, >0 for relativized (number of prefix segments)
+	node       *parser.SubstNode
+	segments   []lexer.Segment // path segments — source of truth
+	prefixLen  int             // 0 for normal, >0 for relativized (number of prefix segments)
+	listSuffix bool            // true when '[]' suffix present — triggers resolveEnvList (S13c)
 }
 
 func (s *substPlaceholder) val() {}
@@ -531,6 +532,13 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		return resolved, nil
 	}
 
+	// S13c: env-var list expansion — when '[]' suffix is present, delegate to
+	// resolveEnvList. This branch runs BEFORE scalar env fallback (S13c.5: when
+	// listSuffix=true, the bare scalar env var must NOT be consulted as fallback).
+	if s.listSuffix {
+		return r.resolveEnvList(s, segStrs, n)
+	}
+
 	// Relativized path not found — fall back to original (non-relativized) path.
 	if s.prefixLen > 0 && len(segStrs) > s.prefixLen {
 		originalStrs := segStrs[s.prefixLen:]
@@ -562,6 +570,58 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		return s, nil
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
+}
+
+// resolveEnvList implements S13c env-var list expansion for ${X[]} / ${?X[]}.
+//
+// Algorithm (spec HOCON.md L900-L917, extra-spec conventions E6/E7):
+//  1. Build candidate bases: if prefixLen > 0, try fully-qualified segments
+//     first, then bare (stripped of prefix). Otherwise just the full name.
+//  2. For each candidate base, peek X_0. If present, scan X_0, X_1, … to
+//     first absent index and return ArrayVal of ScalarString elements.
+//     Empty-string element value is preserved (stop = key absent, not empty).
+//  3. If no candidate base has _0: optional → nil (key dropped); required →
+//     ResolveError. S13c.5: does NOT fall through to scalar env fallback.
+func (r *resolver) resolveEnvList(s *substPlaceholder, segStrs []string, n *parser.SubstNode) (Val, error) {
+	// Build candidate bases in order: relativized-full first (if applicable), then bare.
+	var bases []string
+	full := strings.Join(segStrs, ".")
+	if s.prefixLen > 0 && len(segStrs) > s.prefixLen {
+		bareStrs := segStrs[s.prefixLen:]
+		bare := strings.Join(bareStrs, ".")
+		bases = []string{full, bare}
+	} else {
+		bases = []string{full}
+	}
+
+	for _, base := range bases {
+		key0 := base + "_0"
+		if _, ok := os.LookupEnv(key0); ok {
+			// First base with _0 wins entirely — scan to first missing index.
+			var elems []Val
+			for i := 0; ; i++ {
+				k := fmt.Sprintf("%s_%d", base, i)
+				v, present := os.LookupEnv(k)
+				if !present {
+					break
+				}
+				elems = append(elems, &ScalarVal{Raw: v, Type: ScalarString})
+			}
+			return &ArrayVal{Elements: elems}, nil
+		}
+	}
+
+	// No candidate base had _0 — required/optional handling (S13c.3/S13c.4).
+	// S13c.5: do NOT fall through to scalar env var fallback.
+	if n.Optional {
+		return nil, nil // field will be dropped
+	}
+	return nil, &ResolveError{
+		Message: fmt.Sprintf("required env-var list ${%s[]} has no %s_0 element in the environment", strings.Join(segStrs, "."), strings.Join(segStrs, ".")),
+		Path:    strings.Join(segStrs, "."),
+		Line:    n.Line(),
+		Col:     n.Col(),
+	}
 }
 
 // findPrior looks up the per-object priorValues for a given path in the tree.
@@ -941,7 +1001,7 @@ func relativizeVal(v Val, prefixSegments []string) Val {
 		newSegments = append(newSegments, strSegs(prefixSegments)...)
 		newSegments = append(newSegments, vv.segments...)
 		newNode.Path = segmentsToKey(segTexts(newSegments))
-		return &substPlaceholder{node: newNode, segments: newSegments, prefixLen: vv.prefixLen + len(prefixSegments)}
+		return &substPlaceholder{node: newNode, segments: newSegments, prefixLen: vv.prefixLen + len(prefixSegments), listSuffix: vv.listSuffix}
 	case *concatPlaceholder:
 		newVals := make([]Val, len(vv.vals))
 		for i, cv := range vv.vals {

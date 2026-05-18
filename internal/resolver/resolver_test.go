@@ -1186,3 +1186,105 @@ func TestSpecS14b_1_ArrayRootIncludeIsError(t *testing.T) {
 // specIssueS13a13 is the GitHub issue number for the S13a.13 spec violation.
 // Filed as: resolver incorrectly evaluates `a = ${?a}foo` to "foofoo" instead of "foo".
 const specIssueS13a13 = 68
+
+// -----------------------------------------------------------------------------
+// S13c — env-var list expansion unit tests (Steps 3–6).
+// NOTE: no t.Parallel() — t.Setenv mutates the process environment.
+// -----------------------------------------------------------------------------
+
+// Step 3 / Step 4: resolveEnvList happy path — ${X[]} with X_0 and X_1 set
+// returns an ArrayVal with two ScalarString elements.
+func TestResolveEnvList_Basic(t *testing.T) {
+	t.Setenv("S13C_RESOLVER_X_0", "a")
+	t.Setenv("S13C_RESOLVER_X_1", "b")
+	res, err := resolveErr(`x = ${S13C_RESOLVER_X[]}`)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	v, ok := res.Root.Get("x")
+	if !ok {
+		t.Fatal("key x not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T (%v)", v, v)
+	}
+	if len(arr.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(arr.Elements))
+	}
+	for i, want := range []string{"a", "b"} {
+		sv, ok := arr.Elements[i].(*resolver.ScalarVal)
+		if !ok {
+			t.Errorf("element[%d]: expected ScalarVal, got %T", i, arr.Elements[i])
+			continue
+		}
+		if sv.Raw != want {
+			t.Errorf("element[%d]: want %q, got %q", i, want, sv.Raw)
+		}
+	}
+}
+
+// Step 5: empty-string element is preserved (stop = key absent, not value empty).
+// ev10 analogue: _0="" and _1=b → ["","b"].
+func TestResolveEnvList_EmptyStringElement(t *testing.T) {
+	t.Setenv("S13C_RESOLVER_ES_0", "")
+	t.Setenv("S13C_RESOLVER_ES_1", "b")
+	res, err := resolveErr(`x = ${S13C_RESOLVER_ES[]}`)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	v, ok := res.Root.Get("x")
+	if !ok {
+		t.Fatal("key x not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", v)
+	}
+	if len(arr.Elements) != 2 {
+		t.Fatalf("expected 2 elements (\"\" and \"b\"), got %d", len(arr.Elements))
+	}
+	if sv := arr.Elements[0].(*resolver.ScalarVal); sv.Raw != "" {
+		t.Errorf("element[0]: want empty string, got %q", sv.Raw)
+	}
+	if sv := arr.Elements[1].(*resolver.ScalarVal); sv.Raw != "b" {
+		t.Errorf("element[1]: want \"b\", got %q", sv.Raw)
+	}
+}
+
+// Step 5: optional list with no env vars set → key removed (nil resolved value).
+func TestResolveEnvList_OptionalEmpty(t *testing.T) {
+	res, err := resolveErr(`x = ${?S13C_RESOLVER_OPT_NOENV[]}`)
+	if err != nil {
+		t.Fatalf("expected success (optional), got error: %v", err)
+	}
+	_, ok := res.Root.Get("x")
+	if ok {
+		t.Error("expected key x to be absent (optional list, no env), but it was present")
+	}
+}
+
+// Step 6: S13c.5 — when listSuffix=true and no _0 env var is set, the bare
+// scalar env var X must NOT be consulted as fallback.
+// Required: ResolveError. Optional: key removed.
+func TestResolveEnvList_NoScalarFallback_Required(t *testing.T) {
+	// Set only the bare scalar key, NOT _0.
+	t.Setenv("S13C_RESOLVER_NSF", "scalar-value")
+	_, err := resolveErr(`x = ${S13C_RESOLVER_NSF[]}`)
+	if err == nil {
+		t.Fatal("expected ResolveError when listSuffix=true and no _0 env var (S13c.5 no scalar fallback), got success")
+	}
+}
+
+func TestResolveEnvList_NoScalarFallback_Optional(t *testing.T) {
+	// Set only the bare scalar key, NOT _0.
+	t.Setenv("S13C_RESOLVER_NSFO", "scalar-value")
+	res, err := resolveErr(`x = ${?S13C_RESOLVER_NSFO[]}`)
+	if err != nil {
+		t.Fatalf("expected success (optional), got error: %v", err)
+	}
+	_, ok := res.Root.Get("x")
+	if ok {
+		t.Error("expected key x to be absent (optional list, no _0 env, S13c.5), but it was present")
+	}
+}
