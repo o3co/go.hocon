@@ -124,6 +124,18 @@ func TestSubstPayload_ListSuffix_SubTests(t *testing.T) {
 		{"bracket-non-empty", "${X[abc]}", lexer.TokenError, false, nil},
 		// ${X.} → lex error (trailing dot, no suffix involved)
 		{"trailing-dot", "${X.}", lexer.TokenError, false, nil},
+		// ${X.[]} → lex error (empty segment before suffix — trailing dot then suffix)
+		{"trailing-dot-before-suffix", "${X.[]}", lexer.TokenError, false, nil},
+		// ${X . []} → lex error (dot, then E7 space, then suffix — still empty segment)
+		{"trailing-dot-space-before-suffix", "${X . []}", lexer.TokenError, false, nil},
+		// E7: NBSP (U+00A0) before [] → lex error (only ASCII SPACE/TAB allowed)
+		{"nbsp-before-suffix", "${X []}", lexer.TokenError, false, nil},
+		// E7: CR (U+000D) before [] → lex error (only ASCII SPACE/TAB allowed)
+		{"cr-before-suffix", "${X\r[]}", lexer.TokenError, false, nil},
+		// ${X[][]} → lex error (double suffix; next char after ']' must be '}')
+		{"double-suffix", "${X[][]}", lexer.TokenError, false, nil},
+		// ${"a"[]} → quoted segment followed by suffix; valid, listSuffix=true
+		{"quoted-segment-with-suffix", `${"a"[]}`, lexer.TokenSubstitution, true, []string{"a"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

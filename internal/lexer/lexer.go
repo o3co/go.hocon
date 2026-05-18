@@ -476,18 +476,30 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 			// '[' is only valid as the 2-char suffix "[]" at the end of the
 			// path, not inside a segment body (isUnquotedSubstChar already
 			// rejects '[' in segment runs). Flush any in-progress segment,
-			// discard pendingWs (implements E7 horizontal-WS-before-'['), then
-			// consume the literal "[]" and break to require the closing '}'.
-			if !curStarted && len(segments) == 0 {
+			// validate pendingWs against E7 (ASCII SPACE/TAB only), discard
+			// pendingWs, then consume the literal "[]" and require '}'.
+			if !curStarted {
+				// Empty segment before '[]' — either no segments at all (`${[]}`,
+				// `${ []}`) or a trailing dot just consumed (`${X.[]}`, `${X . []}`).
+				// Both are syntax errors: the suffix must follow a complete path.
 				return Token{Type: TokenError, Value: "empty segment before '[]' suffix", Line: startLine, Col: l.col}
 			}
-			if curStarted {
-				segments = append(segments, Segment{Text: curText.String(), Line: curLine, Col: curCol})
-				curText.Reset()
-				curStarted = false
+			// E7: only ASCII SPACE (0x20) or TAB (0x09) are allowed between the
+			// path expression and '['. Wider whitespace (NBSP, CR, Zs, BOM, etc.)
+			// is rejected to keep the suffix tokenizer conservative per spec
+			// extra-spec-conventions.md E7 ("narrow allow-list intentionally avoids
+			// semantic surprise"). General subst-body inter-segment whitespace is
+			// still broader (S6 set); this constraint only fires at the '[' arm.
+			for _, w := range pendingWs {
+				if w != ' ' && w != '\t' {
+					return Token{Type: TokenError, Value: fmt.Sprintf("only ASCII space or tab allowed between substitution path and '[]' suffix (got %q, HOCON extra-spec E7)", w), Line: startLine, Col: l.col}
+				}
 			}
-			// E7: pendingWs (ASCII space/tab before '[') is intentionally discarded
-			// by not prepending it to any segment — we go straight to parseLiteralBrackets.
+			segments = append(segments, Segment{Text: curText.String(), Line: curLine, Col: curCol})
+			curText.Reset()
+			curStarted = false
+			// E7-conformant pendingWs is intentionally discarded — we go straight
+			// to parseLiteralBrackets without prepending it to any segment.
 			if errTok := l.parseLiteralBrackets(startLine, startCol); errTok != nil {
 				return *errTok
 			}
