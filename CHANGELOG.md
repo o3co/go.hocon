@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **S18.4 + S19.1 + S19.2 duration/bytes accessors (Phase 6 #3d)**: `GetDuration`/`GetBytes` now interpret bare numbers and strings-with-no-unit as default unit (ms / bytes per HOCON.md L1301/L1341). Adds `nano`/`nanos` aliases (S19.1) and microsecond units `us`/`micro`/`micros`/`microsecond`/`microseconds` (S19.2). `GetBytes` rejects negative byte sizes at accessor layer (panic); `GetBytesOption` returns None for negative. Whitespace trimming uses HOCON_WS predicate (not `unicode.IsSpace`). Lightbend-faithful per-family fractional: duration → float64*nanos; bytes → int64(f)*mult (truncate toward zero). Free rider: S18.1 number-value default-unit fixed in same `parseDuration` path. Fixtures: ud01-ud08, ub01-ub06, un01-un03. Closes #81, #82.
+
 - **S12.5: reject `include` as start of key path expression (Phase 6 #3e)**: `include.foo = 1` now raises a `*parser.Error` (`'include' is reserved at the start of a key path; use "include" (quoted) or rename the key — HOCON.md L570`). Previously silently accepted, producing key `["include","foo"]`. Bare `include = x` was already rejected; the error message is now spec-aligned. Quoted `"include" = 1` and non-initial `foo.include = 1` continue to work. Side-fix: `include unquoted-file` (S14a.10, #80) — `parseInclude` now requires the argument to be a quoted `TokenString`; unquoted arguments raise *parser.Error. Also fixes `a = include` (value-position `include`) which previously caused "unexpected token" — now correctly parsed as unquoted string `"include"`. Fixtures: xx.hocon ir01–ir14. Closes #67. Side-closes #80.
 
 ### Added
