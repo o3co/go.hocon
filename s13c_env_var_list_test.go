@@ -20,6 +20,7 @@ package hocon_test
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,10 +68,10 @@ func expectedPath_s13c(name string) string {
 // Rules:
 //   - Lines are trimmed of leading/trailing whitespace.
 //   - Empty lines and lines starting with '#' are skipped.
-//   - Each line must contain '='; the key is everything before the first '=',
-//     the value is everything after (may be empty, may contain '=').
+//   - Each line must contain '=' (else: error); the key is everything before the
+//     first '=', the value is everything after (may be empty, may contain '=').
 //   - Keys and values are used verbatim (no shell quoting / expansion).
-func parseEnvSidecar(path string) (map[string]string, error) {
+func parseEnvSidecar(path string) (result map[string]string, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		// A missing .env sidecar means "no env vars for this fixture" — treat as empty.
@@ -85,23 +86,27 @@ func parseEnvSidecar(path string) (map[string]string, error) {
 		}
 	}()
 
-	result := make(map[string]string)
+	result = make(map[string]string)
 	scanner := bufio.NewScanner(f)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		idx := strings.IndexByte(line, '=')
 		if idx < 0 {
-			// Skip malformed lines gracefully; they won't affect fixture validity.
-			continue
+			return nil, fmt.Errorf("malformed env sidecar %s line %d: missing '=': %q", path, lineNo, line)
 		}
 		key := line[:idx]
 		val := line[idx+1:]
 		result[key] = val
 	}
-	return result, scanner.Err()
+	if scanErr := scanner.Err(); scanErr != nil {
+		return nil, scanErr
+	}
+	return result, nil
 }
 
 // injectEnvSidecar loads and injects the .env sidecar for a fixture via t.Setenv.

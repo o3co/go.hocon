@@ -1244,11 +1244,19 @@ func TestResolveEnvList_EmptyStringElement(t *testing.T) {
 	if len(arr.Elements) != 2 {
 		t.Fatalf("expected 2 elements (\"\" and \"b\"), got %d", len(arr.Elements))
 	}
-	if sv := arr.Elements[0].(*resolver.ScalarVal); sv.Raw != "" {
-		t.Errorf("element[0]: want empty string, got %q", sv.Raw)
+	sv0, ok := arr.Elements[0].(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("element[0]: expected ScalarVal, got %T", arr.Elements[0])
 	}
-	if sv := arr.Elements[1].(*resolver.ScalarVal); sv.Raw != "b" {
-		t.Errorf("element[1]: want \"b\", got %q", sv.Raw)
+	if sv0.Raw != "" {
+		t.Errorf("element[0]: want empty string, got %q", sv0.Raw)
+	}
+	sv1, ok := arr.Elements[1].(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("element[1]: expected ScalarVal, got %T", arr.Elements[1])
+	}
+	if sv1.Raw != "b" {
+		t.Errorf("element[1]: want \"b\", got %q", sv1.Raw)
 	}
 }
 

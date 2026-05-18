@@ -420,12 +420,14 @@ func isUnquotedSubstChar(ch rune) bool {
 // env-var list suffix (S13c / E7). Called when the segment-collection loop
 // encounters '['. The '[' must already be at the current position.
 // Returns a TokenError if the sequence is not exactly "[]" (no whitespace inside).
-func (l *Lexer) parseLiteralBrackets(startLine, startCol int) *Token {
+// On error, Col points at the bracket/suffix region (l.col) rather than the
+// outer substitution start, so error location matches the offending character.
+func (l *Lexer) parseLiteralBrackets(startLine int) *Token {
 	// consume '['
 	l.advance()
 	ch, ok := l.peek()
 	if !ok {
-		tok := Token{Type: TokenError, Value: "unterminated substitution: expected ']' after '[' in list suffix", Line: startLine, Col: startCol}
+		tok := Token{Type: TokenError, Value: "unterminated substitution: expected ']' after '[' in list suffix", Line: startLine, Col: l.col}
 		return &tok
 	}
 	if ch != ']' {
@@ -500,7 +502,7 @@ func (l *Lexer) parseSubstBody(startLine, startCol int) Token {
 			curStarted = false
 			// E7-conformant pendingWs is intentionally discarded — we go straight
 			// to parseLiteralBrackets without prepending it to any segment.
-			if errTok := l.parseLiteralBrackets(startLine, startCol); errTok != nil {
+			if errTok := l.parseLiteralBrackets(startLine); errTok != nil {
 				return *errTok
 			}
 			listSuffix = true
