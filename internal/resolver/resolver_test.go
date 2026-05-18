@@ -1021,6 +1021,143 @@ func TestSpecS10_19_SubstResolvedObjectPlusLiteralArrayIsError(t *testing.T) {
 	}
 }
 
+// -----------------------------------------------------------------------------
+// Spec compliance Phase 6 #3b: S10.4 / S10.13 / S10.19 type-check tightening.
+// -----------------------------------------------------------------------------
+
+// TestSpecS10_4_ArrayPlusObjectErrors verifies that array+object concat errors.
+// Spec L385. Status: ✅ (Phase 6 #3b).
+func TestSpecS10_4_ArrayPlusObjectErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"literal array+object", `a = [1] { b: 2 }`},
+		{"literal object+array", `a = { b: 2 } [1]`},
+		{"subst obj + literal array", "obj = { b: 2 }\na = [1] ${obj}"},
+		{"literal array + subst obj", "arr = [1]\na = ${arr} { b: 2 }"},
+		{"empty array + object", `a = [] {b:1}`},
+		{"array + empty object", `a = [1] {}`},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := resolveErr(tc.src); err == nil {
+				t.Errorf("expected resolve error for %q, got nil", tc.src)
+			}
+		})
+	}
+}
+
+// TestSpecS15_StillBridgesNumericKeyedObject is a regression guard ensuring the
+// Phase 6 #2 numericObjectToArray success path still works after S10.4 tightening.
+// Spec S15. Status: ✅.
+func TestSpecS15_StillBridgesNumericKeyedObject(t *testing.T) {
+	// Numeric-keyed object converts to array; array concat succeeds.
+	res := resolve(t, `obj = {"0":"x","1":"y"}
+a = [1] ${obj}`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", v)
+	}
+	if len(arr.Elements) != 3 {
+		t.Fatalf("expected 3 elements (1,x,y), got %d", len(arr.Elements))
+	}
+}
+
+// TestSpecS10_13_ArrayPlusScalarErrors verifies that array+scalar and
+// scalar+array in concat both error. Spec L373. Status: ✅ (Phase 6 #3b).
+func TestSpecS10_13_ArrayPlusScalarErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"array+scalar", `a = [1, 2] 3`},
+		{"scalar+array", `a = 3 [1, 2]`},
+		{"string+array via subst", "arr = [1]\na = x ${arr}"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := resolveErr(tc.src); err == nil {
+				t.Errorf("expected resolve error for %q (array+scalar), got nil", tc.src)
+			}
+		})
+	}
+}
+
+// TestSpecS10_13_ArrayPlusArrayStillWorks is a regression guard ensuring that
+// array+array concat remains valid after S10.13 tightening.
+func TestSpecS10_13_ArrayPlusArrayStillWorks(t *testing.T) {
+	res := resolve(t, `a = [1] [2]`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", v)
+	}
+	if len(arr.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(arr.Elements))
+	}
+}
+
+// TestSpecS10_13_ObjectPlusScalarErrors verifies that object+scalar and
+// scalar+object in concat both error. Spec L373. Status: ✅ (Phase 6 #3b).
+func TestSpecS10_13_ObjectPlusScalarErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"object+scalar", `a = { b: 1 } x`},
+		{"scalar+object", `a = x { b: 1 }`},
+		{"scalar+subst object", "obj = { b: 1 }\na = x ${obj}"},
+		{"object+subst scalar", "s = foo\na = { b: 1 } ${s}"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := resolveErr(tc.src); err == nil {
+				t.Errorf("expected resolve error for %q (object+scalar), got nil", tc.src)
+			}
+		})
+	}
+}
+
+// TestSpecS10_OptionalMissingSuppressesPair verifies that a missing ${?missing}
+// at the end reduces the concat to the single remaining value without error.
+// Spec S13 optional-omission. Status: ✅.
+func TestSpecS10_OptionalMissingSuppressesPair(t *testing.T) {
+	res := resolve(t, `a = [1] ${?missing}`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", v)
+	}
+	if len(arr.Elements) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(arr.Elements))
+	}
+}
+
+// TestSpecS10_OptionalMissingMidConcat verifies that a missing ${?missing} in
+// the middle of a concat is omitted, leaving the remaining neighbours to be
+// type-checked against each other. Spec S13 optional-omission + S10.4.
+// Status: ✅ (Phase 6 #3b).
+func TestSpecS10_OptionalMissingMidConcat(t *testing.T) {
+	// [1] (omitted) {b:2} → [1] {b:2} → array+object → ERROR.
+	if _, err := resolveErr(`a = [1] ${?missing} { b: 2 }`); err == nil {
+		t.Error("expected resolve error: optional omitted mid-concat leaves array+object pair, which must error")
+	}
+}
+
 // TestSpecS13b_2_PlusEqualsOnStringPriorValueIsError verifies that += on a key
 // whose prior value is a non-array string is a resolve error. Spec L732.
 // Status: ✅
