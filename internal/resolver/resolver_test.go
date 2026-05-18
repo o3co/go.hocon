@@ -564,7 +564,6 @@ func TestResolver_ObjectConcatenation(t *testing.T) {
 	}
 }
 
-
 func TestResolver_ObjectConcatenationDeepMerge(t *testing.T) {
 	// HOCON spec: nested object concatenation should deep-merge
 	res := resolve(t, `a = {x: {nested: 1}} {x: {other: 2}}`)
@@ -990,7 +989,6 @@ func TestSpecS10_4_MixingArrayAndObjectInConcatIsError(t *testing.T) {
 		}
 	}
 }
-
 
 // TestSpecS10_14_WhitespaceAroundSubstitutionIsIgnored verifies that whitespace
 // between a substitution and an adjacent array is ignored for concat purposes.
