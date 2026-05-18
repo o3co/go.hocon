@@ -1323,6 +1323,27 @@ func TestParseBytes_NegativeAccessorPanics(t *testing.T) {
 	_ = cfg.GetBytes("b")
 }
 
+// TestParseDuration_TrailingWSThenGarbage verifies the trailing-WS-after-unit
+// loop in parseDuration is exercised (HOCON_WS between the unit and a trailing
+// garbage token must be consumed before the unexpected-characters check fires).
+func TestParseDuration_TrailingWSThenGarbage(t *testing.T) {
+	cfg := mustParseCfg(t, `d = "500ms \tfoo"`)
+	got := cfg.GetDurationOption("d")
+	if got.IsSome() {
+		t.Errorf("expected None for trailing garbage, got %v", got)
+	}
+}
+
+// TestParseBytes_TrailingWSThenGarbage verifies the trailing-WS-after-unit
+// loop in parseBytes is exercised.
+func TestParseBytes_TrailingWSThenGarbage(t *testing.T) {
+	cfg := mustParseCfg(t, `b = "1024B \tfoo"`)
+	got := cfg.GetBytesOption("b")
+	if got.IsSome() {
+		t.Errorf("expected None for trailing garbage, got %v", got)
+	}
+}
+
 // TestParseDuration_MultiByteWS verifies that multi-byte UTF-8 HOCON whitespace
 // characters (NBSP U+00A0, EM space U+2003) are correctly decoded in the
 // byte-indexed scanner between the number and unit tokens.
