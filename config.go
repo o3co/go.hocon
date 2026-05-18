@@ -469,7 +469,7 @@ func parseBytes(s string) (int64, error) {
 	}
 
 	multipliers := map[string]int64{
-		"":                               1, // S18.4: no unit → bytes (HOCON.md L1341)
+		"":  1, // S18.4: no unit → bytes (HOCON.md L1341)
 		"B": 1, "byte": 1, "bytes": 1,
 		"KB": 1000, "kilobyte": 1000, "kilobytes": 1000,
 		"KiB": 1024, "kibibyte": 1024, "kibibytes": 1024,
