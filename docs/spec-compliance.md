@@ -517,24 +517,32 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ### S13c. List values from environment variables
 
 - **S13c.1** `${X[]}` looks up `X_0`, `X_1`, ... env vars — §List values from env (L900)
-  tests: —
-  status: ❌ — not implemented; internal/lexer/lexer.go:397 rejects `[` / `]` inside `${...}` body, so `${X[]}` is unparseable
+  tests: s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev01-basic, ev02-stops-at-gap, ev06-concat-prepend, ev07-concat-append, ev08-self-append, ev09-whitespace-before-suffix, ev10-empty-string-element, ev11-include-context); internal/resolver/resolver_test.go (TestResolveEnvList_Basic)
+  status: ✅
 
 - **S13c.2** Stops at first missing index — §List values from env (L905)
-  tests: —
-  status: ❌ — not implemented (see S13c.1)
+  tests: s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev02-stops-at-gap); internal/resolver/resolver_test.go (TestResolveEnvList_Basic)
+  status: ✅
 
 - **S13c.3** `${X[]}` no elements → required error — §List values from env (L910)
-  tests: —
-  status: ❌ — not implemented (see S13c.1)
+  tests: s13c_env_var_list_test.go (TestS13c_ErrorFixtures/ev03-required-no-elements); internal/resolver/resolver_test.go (TestResolveEnvList_NoScalarFallback_Required)
+  status: ✅
 
 - **S13c.4** `${?X[]}` no elements → undefined / removed — §List values from env (L912)
-  tests: —
-  status: ❌ — not implemented (see S13c.1)
+  tests: s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev04-optional-no-elements); internal/resolver/resolver_test.go (TestResolveEnvList_OptionalEmpty)
+  status: ✅
 
 - **S13c.5** `[]` suffix supported only for env vars (not config / sys props) — §List values from env (L902)
-  tests: —
-  status: ❌ — not implemented (see S13c.1); the constraint is moot when the `[]` suffix itself is rejected by the lexer
+  tests: internal/resolver/resolver_test.go (TestResolveEnvList_NoScalarFallback_Required, TestResolveEnvList_NoScalarFallback_Optional); s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev05-config-defined-wins — E6 path: config lookup wins before env-list branch runs)
+  status: ✅ — listSuffix=true branch in resolveSubst runs before scalar env fallback; resolveEnvList returns ResolveError (required) or nil (optional) when no _0 element present, without consulting the bare scalar env key
+
+- **E6** Config-defined wins over env-var list (extra-spec convention E6)
+  tests: s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev05-config-defined-wins)
+  status: ✅ — config lookup runs before listSuffix branch; returns config value directly when found
+
+- **E7** ASCII space/tab allowed between path and `[]` suffix (extra-spec convention E7)
+  tests: s13c_env_var_list_test.go (TestS13c_SuccessFixtures/ev09-whitespace-before-suffix); internal/lexer/lexer_test.go (TestSubstPayload_ListSuffix_SubTests/space-before-suffix, tab-before-suffix)
+  status: ✅ — pendingWs discarded at `[` arm in parseSubstBody; only ASCII 0x20/0x09 (no newline, no NBSP)
 
 ## S14. Includes
 
