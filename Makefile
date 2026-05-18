@@ -27,6 +27,10 @@ testdata:
 	  mkdir -p testdata/hocon/env-var-list && \
 	  cp "$$tmpdir/testdata/hocon/env-var-list/"* testdata/hocon/env-var-list/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/concat-errors" ]; then \
+	  mkdir -p testdata/hocon/concat-errors && \
+	  cp "$$tmpdir/testdata/hocon/concat-errors/"*.conf testdata/hocon/concat-errors/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 

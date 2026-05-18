@@ -347,10 +347,14 @@ func (r *resolver) resolveConcatPartial(n *parser.ConcatNode, ctx *ObjectVal, pa
 		}
 		vals = append(vals, v)
 	}
-	return &concatPlaceholder{vals: vals}, nil
+	return &concatPlaceholder{vals: vals, line: n.Line(), col: n.Col()}, nil
 }
 
-type concatPlaceholder struct{ vals []Val }
+type concatPlaceholder struct {
+	vals []Val
+	line int // 1-based source line of the concat value (from first AST node)
+	col  int // 1-based source column of the concat value (from first AST node)
+}
 
 func (c *concatPlaceholder) val() {}
 
@@ -407,7 +411,7 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 	case *substPlaceholder:
 		return r.resolveSubst(vv, root)
 	case *concatPlaceholder:
-		return r.resolveConcat(vv.vals, root, path)
+		return r.resolveConcat(vv.vals, root, path, vv.line, vv.col)
 	case *ObjectVal:
 		return r.resolveSubstitutions(vv, root)
 	case *ArrayVal:
@@ -657,7 +661,7 @@ func isSeparator(v Val) bool {
 	return false
 }
 
-func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val, error) {
+func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line, col int) (Val, error) {
 	// resolve each val
 	var resolved []Val
 	for _, v := range vals {
@@ -714,7 +718,7 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 	// adjacent objects had overlapping numeric keys (na03e regression).
 	acc := meaningful[0]
 	for _, v := range meaningful[1:] {
-		next, err := r.joinPair(acc, v)
+		next, err := r.joinPair(acc, v, line, col)
 		if err != nil {
 			return nil, err
 		}
@@ -726,7 +730,10 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string) (Val,
 // joinPair combines two adjacent resolved values per the HOCON concat rules.
 // It is the inner step of the left-to-right pairwise fold in resolveConcat.
 // All whitespace-separator tokens have already been stripped from the input.
-func (r *resolver) joinPair(left, right Val) (Val, error) {
+//
+// Spec §Value concatenation (L373/L385): type mismatches raise *ResolveError.
+// Phase 6 #3b replaces all permissive-coercion fallbacks with errors.
+func (r *resolver) joinPair(left, right Val, line, col int) (Val, error) {
 	lArr, lIsArr := left.(*ArrayVal)
 	rArr, rIsArr := right.(*ArrayVal)
 	lObj, lIsObj := left.(*ObjectVal)
@@ -738,57 +745,84 @@ func (r *resolver) joinPair(left, right Val) (Val, error) {
 		return mergeObjectConcat(lObj, rObj), nil
 
 	case lIsArr && rIsObj:
-		// Array + Object: attempt S15 numeric conversion on the object side.
+		// Array + Object: S15 numeric conversion first; error if not convertible.
 		if converted, ok := numericObjectToArray(rObj); ok {
 			return concatTwoArrays(lArr, converted), nil
 		}
-		// Conversion failed → permissive: insert the unconverted object as a single element.
-		result := &ArrayVal{Elements: make([]Val, len(lArr.Elements)+1)}
-		copy(result.Elements, lArr.Elements)
-		result.Elements[len(lArr.Elements)] = right
-		return result, nil
+		// S10.4/S10.19: non-numeric object cannot concat with array.
+		return nil, &ResolveError{Message: fmt.Sprintf(
+			"cannot concatenate %s with %s: value concatenation requires same-kind operands (spec L385)",
+			valTypeName(left), valTypeName(right),
+		), Line: line, Col: col}
 
 	case lIsObj && rIsArr:
-		// Object + Array: attempt S15 numeric conversion on the object side.
+		// Object + Array: S15 numeric conversion first; error if not convertible.
 		if converted, ok := numericObjectToArray(lObj); ok {
 			return concatTwoArrays(converted, rArr), nil
 		}
-		// Conversion failed → permissive: insert the unconverted object as a single element.
-		result := &ArrayVal{Elements: make([]Val, 1+len(rArr.Elements))}
-		result.Elements[0] = left
-		copy(result.Elements[1:], rArr.Elements)
-		return result, nil
+		// S10.4/S10.19: non-numeric object cannot concat with array.
+		return nil, &ResolveError{Message: fmt.Sprintf(
+			"cannot concatenate %s with %s: value concatenation requires same-kind operands (spec L385)",
+			valTypeName(left), valTypeName(right),
+		), Line: line, Col: col}
 
 	case lIsArr && rIsArr:
 		// Array + Array → plain concatenation.
 		return concatTwoArrays(lArr, rArr), nil
 
 	case lIsArr:
-		// Array + Scalar → permissive: append scalar as element (preserves existing behaviour).
-		result := &ArrayVal{Elements: make([]Val, len(lArr.Elements)+1)}
-		copy(result.Elements, lArr.Elements)
-		result.Elements[len(lArr.Elements)] = right
-		return result, nil
+		// S10.13: array + scalar is not a string concat (spec L373).
+		return nil, &ResolveError{Message: fmt.Sprintf(
+			"cannot concatenate %s with %s: arrays and objects may not appear in string value concatenation (spec L373)",
+			valTypeName(left), valTypeName(right),
+		), Line: line, Col: col}
 
 	case rIsArr:
-		// Scalar + Array → permissive: prepend scalar as element.
-		result := &ArrayVal{Elements: make([]Val, 1+len(rArr.Elements))}
-		result.Elements[0] = left
-		copy(result.Elements[1:], rArr.Elements)
-		return result, nil
+		// S10.13: scalar + array is not a string concat (spec L373).
+		return nil, &ResolveError{Message: fmt.Sprintf(
+			"cannot concatenate %s with %s: arrays and objects may not appear in string value concatenation (spec L373)",
+			valTypeName(left), valTypeName(right),
+		), Line: line, Col: col}
 
 	default:
-		// All remaining type-pair combinations land here: Scalar+Scalar,
-		// Object+Scalar, Scalar+Object (Object+Object is handled by the
-		// case above; Array+anything by the cases above this default).
-		// In a mixed concat where structured types are present, the
-		// remaining non-array/non-array-paired values become a string
-		// concat — separators have already been stripped above, so the
-		// result is the raw concatenation. This matches Lightbend's
-		// fallthrough behaviour: invalid mixes (S10.13) silently become
-		// a string in current spec; S10.13 strict-error is a separate
-		// Phase 6 cluster.
+		// Remaining cases: Scalar+Scalar (valid string-concat), or Object+Scalar /
+		// Scalar+Object (both invalid per S10.13).
+		_, lIsObjD := left.(*ObjectVal)
+		_, rIsObjD := right.(*ObjectVal)
+		if lIsObjD || rIsObjD {
+			// S10.13: object may not appear in string value concatenation.
+			return nil, &ResolveError{Message: fmt.Sprintf(
+				"cannot concatenate %s with %s: arrays and objects may not appear in string value concatenation (spec L373)",
+				valTypeName(left), valTypeName(right),
+			), Line: line, Col: col}
+		}
+		// Pure scalar+scalar → string concat per S10 string-concat rules.
 		return r.concatStrings([]Val{left, right}), nil
+	}
+}
+
+// valTypeName returns a human-readable type name for a Val, used in error messages.
+// For scalars the precise subtype (null/boolean/number/string) is returned so that
+// error messages satisfy the spec requirement to name left/right types.
+func valTypeName(v Val) string {
+	switch vv := v.(type) {
+	case *ArrayVal:
+		return "array"
+	case *ObjectVal:
+		return "object"
+	case *ScalarVal:
+		switch vv.Type {
+		case ScalarNull:
+			return "null"
+		case ScalarBoolean:
+			return "boolean"
+		case ScalarNumber:
+			return "number"
+		default:
+			return "string"
+		}
+	default:
+		return "scalar"
 	}
 }
 
