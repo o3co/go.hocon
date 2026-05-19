@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -436,6 +435,17 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 	segStrs := segTexts(s.segments)
 	key := segmentsToKey(segStrs)
 
+	// Fast path: if this key is already fully resolved (e.g. `b = ${a}` where
+	// `a` was processed first), return the cached value immediately.  This
+	// avoids re-entering the placeholder resolution loop and prevents the
+	// "foofoo" double-expansion that would otherwise occur when the cached
+	// value gets returned by the inner ${?a} re-entrant call.
+	if !r.resolving[key] {
+		if cached, ok := r.resolvedCache[key]; ok {
+			return cached, nil
+		}
+	}
+
 	if r.resolving[key] {
 		// Check if a previously resolved value exists (self-referential substitution).
 		// e.g. path=${path}["/extra"] — the ${path} should resolve to the prior value.
@@ -457,19 +467,35 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 
 	val, ok := r.lookupPath(root, segStrs)
 	if ok {
-		// If the found value is still a placeholder that references the SAME path
-		// (actual self-reference like b=${b}), use the prior value instead.
-		// A placeholder referencing a DIFFERENT path is not self-referential and
-		// should be resolved normally.
+		// If the found value is still a placeholder that IS (or contains) this
+		// same substitution node s, we have a genuine self-referential definition
+		// (e.g. `a = ${?a}foo`).  We must NOT recursively resolve that value or
+		// it would double-expand ("foofoo").  Instead, use the prior value or
+		// short-circuit.
+		//
+		// Crucially, only fire when val contains s itself (pointer equality).
+		// If val is a different concat that merely *mentions* the same path name
+		// (e.g. `b = ${a}` where `a = ${?a}foo`), the lookup returns a/a's
+		// definition which contains a *different* substPlaceholder node — the
+		// isSelfRef branch must NOT fire, and the normal resolveVal path at the
+		// bottom of this block will resolve a's value correctly (the inner
+		// ${?a} hit r.resolving["a"]==true and returns nil, giving "foo").
+		//
+		// Spec deviation: the S13a.13 spec ★1 decision #1 specified path-equality
+		// preservation for self-ref detection. Round-2 multi-agent-review surfaced
+		// a false-positive on external lookups; the criterion was tightened to
+		// AST-node pointer-identity (sp == s) — strictly narrower than path-
+		// equality. Spec amendment deferred to a follow-up xx.hocon PR (see
+		// Phase 6 #3f close-out notes).
 		isSelfRef := false
 		switch v := val.(type) {
 		case *substPlaceholder:
-			if slices.Equal(segTexts(v.segments), segStrs) {
+			if v == s {
 				isSelfRef = true
 			}
 		case *concatPlaceholder:
 			for _, cv := range v.vals {
-				if sp, spOk := cv.(*substPlaceholder); spOk && slices.Equal(segTexts(sp.segments), segStrs) {
+				if sp, spOk := cv.(*substPlaceholder); spOk && sp == s {
 					isSelfRef = true
 					break
 				}
@@ -488,6 +514,13 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 					}
 				}
 			}
+			// Spec HOCON.md L841: no prior + self-ref → short-circuit.
+			// Do NOT resolve the found current value (which is the concat-in-progress);
+			// that would produce "foofoo" for `a = ${?a}foo` with no prior `a`.
+			if n.Optional {
+				return nil, nil
+			}
+			return nil, &ResolveError{Message: "unresolved self-referential substitution", Path: key, Line: n.Line(), Col: n.Col()}
 		}
 		resolved, err := r.resolveVal(val, root, key)
 		if err != nil {
@@ -920,8 +953,15 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 					val = deepMerge(nv, eo) // new over existing: nv=dst wins
 				}
 			} else {
-				// non-object overwrite: save prior value for self-referential substitution support
-				r.priorValues[segmentsToKey(segments)] = existing
+				// non-object overwrite: save prior value for self-referential substitution support.
+				// Store ONLY on the parent object's per-object priorValues so that nested-path
+				// self-ref look-back (resolveSubst isSelfRef → parent.priorValues check) can find it.
+				// Do NOT write r.priorValues here: segments is the bare leaf key (e.g. "a" from
+				// "foo.a"), which would collide with an unrelated top-level "a" key in r.priorValues.
+				// Top-level keys are handled by the len(field.Key)==1 branch in buildObject, which
+				// writes r.priorValues with the correct full key; the parent.priorValues entry alone
+				// is sufficient for nested self-ref look-back (see resolveSubst L508-516).
+				obj.priorValues[key] = existing
 			}
 		}
 		obj.set(key, val)

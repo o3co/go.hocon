@@ -493,8 +493,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ❌ ([#79](https://github.com/o3co/go.hocon/issues/79)) — spec example `foo:{a:{c:1}};foo:${foo.a};foo:{a:2}` should yield {a:2,c:1} but c is lost in the merge
 
 - **S13a.13** `a = ${?a}foo` resolves to `"foo"` (look-back undefined) — §Self-Referential (L841)
-  tests: internal/resolver/resolver_test.go:1147 (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty)
-  status: ❌ (see [#68](https://github.com/o3co/go.hocon/issues/68))
+  tests: internal/resolver/resolver_test.go (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty, TestSpecS13a_13_SelfRefLookback), s13a13_self_ref_lookback_test.go (TestS13a13_SelfRefLookback_Success, TestS13a13_SelfRefLookback_Errors)
+  status: ✅ (cleared in Phase 6 cluster #3f, [#68](https://github.com/o3co/go.hocon/issues/68))
 
 - **S13a.14** Mutually-referring object fields (`bar.a = ${foo.d}; foo.c = ${bar.b}`) resolve lazily without false cycle — §Self-Referential (L825-834)
   tests: spec_phase5_test.go (TestSpec_S13a_14_MutualRefNoCycle)

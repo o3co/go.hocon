@@ -1228,9 +1228,8 @@ func TestSpecS13a_10_SubstMemoizedByInstance(t *testing.T) {
 // TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty verifies that
 // `a = ${?a}foo` resolves to "foo" when `a` has no prior value; the
 // look-back substitution ${?a} is undefined and contributes nothing.
-// Spec HOCON.md L841. Status: ❌ — impl resolves to "foofoo" (see #68).
+// Spec HOCON.md L841. Status: ✅ — fixed in fix/s13a.13-self-ref-lookback (#68).
 func TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty(t *testing.T) {
-	t.Skipf("spec violation, see #%d", specIssueS13a13)
 	res := resolve(t, `a = ${?a}foo`)
 	v, ok := res.Root.Get("a")
 	if !ok {
@@ -1268,9 +1267,221 @@ func TestSpecS14b_1_ArrayRootIncludeIsError(t *testing.T) {
 	}
 }
 
-// specIssueS13a13 is the GitHub issue number for the S13a.13 spec violation.
-// Filed as: resolver incorrectly evaluates `a = ${?a}foo` to "foofoo" instead of "foo".
-const specIssueS13a13 = 68
+// TestSpecS13a_13_SelfRefLookback is a table-driven suite verifying the full
+// matrix of S13a.13 self-referential look-back cases at the resolver layer.
+// Spec HOCON.md L837–L854. Fixed in #68.
+func TestSpecS13a_13_SelfRefLookback(t *testing.T) {
+	type strCase struct {
+		name string
+		src  string
+		key  string
+		want string
+	}
+	strCases := []strCase{
+		{
+			name: "optional_no_prior_trailing_literal",
+			src:  `a = ${?a}foo`,
+			key:  "a",
+			want: "foo",
+		},
+		{
+			name: "optional_no_prior_leading_literal",
+			src:  `a = bar${?a}`,
+			key:  "a",
+			want: "bar",
+		},
+		{
+			name: "optional_no_prior_both_sides",
+			src:  `a = bar${?a}foo`,
+			key:  "a",
+			want: "barfoo",
+		},
+		{
+			name: "optional_with_prior",
+			src:  "a = \"x\"\na = ${?a}foo",
+			key:  "a",
+			want: "xfoo",
+		},
+		{
+			name: "required_with_prior",
+			src:  "a = \"x\"\na = ${a}foo",
+			key:  "a",
+			want: "xfoo",
+		},
+	}
+	for _, tc := range strCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			res := resolve(t, tc.src)
+			v, ok := res.Root.Get(tc.key)
+			if !ok {
+				t.Fatalf("%s: key %q not found", tc.name, tc.key)
+			}
+			sv, ok := v.(*resolver.ScalarVal)
+			if !ok {
+				t.Fatalf("%s: expected ScalarVal, got %T", tc.name, v)
+			}
+			if sv.Raw != tc.want {
+				t.Errorf("%s: got %q, want %q", tc.name, sv.Raw, tc.want)
+			}
+		})
+	}
+
+	// Required self-ref with no prior must return an error.
+	t.Run("required_no_prior_errors", func(t *testing.T) {
+		_, err := resolveErr(`a = ${a}foo`)
+		if err == nil {
+			t.Error("expected error for required self-ref with no prior, got nil")
+		}
+	})
+
+	// Array cases.
+	t.Run("array_optional_no_prior", func(t *testing.T) {
+		res := resolve(t, `a = ${?a} [2]`)
+		v, ok := res.Root.Get("a")
+		if !ok {
+			t.Fatal("key a not found")
+		}
+		arr, ok := v.(*resolver.ArrayVal)
+		if !ok {
+			t.Fatalf("expected ArrayVal, got %T", v)
+		}
+		if len(arr.Elements) != 1 {
+			t.Fatalf("expected 1 element, got %d: %v", len(arr.Elements), v)
+		}
+		sv, ok := arr.Elements[0].(*resolver.ScalarVal)
+		if !ok {
+			t.Fatalf("element 0: expected ScalarVal, got %T", arr.Elements[0])
+		}
+		if sv.Raw != "2" {
+			t.Errorf("element 0: got %q, want %q", sv.Raw, "2")
+		}
+	})
+
+	t.Run("array_optional_with_prior", func(t *testing.T) {
+		res := resolve(t, "a = [1]\na = ${?a} [2]")
+		v, ok := res.Root.Get("a")
+		if !ok {
+			t.Fatal("key a not found")
+		}
+		arr, ok := v.(*resolver.ArrayVal)
+		if !ok {
+			t.Fatalf("expected ArrayVal, got %T", v)
+		}
+		if len(arr.Elements) != 2 {
+			t.Fatalf("expected 2 elements, got %d", len(arr.Elements))
+		}
+	})
+
+	// Nested path cases.
+	t.Run("nested_optional_no_prior", func(t *testing.T) {
+		res := resolve(t, `foo.a = ${?foo.a}bar`)
+		fooVal, ok := res.Root.Get("foo")
+		if !ok {
+			t.Fatal("key foo not found")
+		}
+		obj, ok := fooVal.(*resolver.ObjectVal)
+		if !ok {
+			t.Fatalf("expected ObjectVal for foo, got %T", fooVal)
+		}
+		aVal, ok := obj.Get("a")
+		if !ok {
+			t.Fatal("key foo.a not found")
+		}
+		sv, ok := aVal.(*resolver.ScalarVal)
+		if !ok {
+			t.Fatalf("expected ScalarVal for foo.a, got %T", aVal)
+		}
+		if sv.Raw != "bar" {
+			t.Errorf("foo.a: got %q, want %q", sv.Raw, "bar")
+		}
+	})
+
+	t.Run("nested_optional_with_prior", func(t *testing.T) {
+		res := resolve(t, "foo.a = \"x\"\nfoo.a = ${?foo.a}bar")
+		fooVal, ok := res.Root.Get("foo")
+		if !ok {
+			t.Fatal("key foo not found")
+		}
+		obj, ok := fooVal.(*resolver.ObjectVal)
+		if !ok {
+			t.Fatalf("expected ObjectVal for foo, got %T", fooVal)
+		}
+		aVal, ok := obj.Get("a")
+		if !ok {
+			t.Fatal("key foo.a not found")
+		}
+		sv, ok := aVal.(*resolver.ScalarVal)
+		if !ok {
+			t.Fatalf("expected ScalarVal for foo.a, got %T", aVal)
+		}
+		if sv.Raw != "xbar" {
+			t.Errorf("foo.a: got %q, want %q", sv.Raw, "xbar")
+		}
+	})
+}
+
+// TestSpecS13a_13_ExternalReferenceToSelfRefField verifies that when a field
+// other than `a` references `a`, and `a` is defined with an optional self-ref
+// (e.g. `a = ${?a}foo`), the referencing field resolves correctly to `a`'s
+// resolved value rather than returning an error.
+// Regression test for Codex P1: the isSelfRef short-circuit incorrectly fired
+// when resolving `b = ${a}`, treating `a`'s structural self-ref as if `b`'s
+// required substitution was an unresolved self-reference.
+// Spec HOCON.md L837–L854 (S13a.13 self-referential look-back).
+func TestSpecS13a_13_ExternalReferenceToSelfRefField(t *testing.T) {
+	res := resolve(t, "a = ${?a}foo\nb = ${a}")
+	aVal, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	bVal, ok := res.Root.Get("b")
+	if !ok {
+		t.Fatal("b not found")
+	}
+	aSv, ok := aVal.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("a: expected ScalarVal, got %T", aVal)
+	}
+	bSv, ok := bVal.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("b: expected ScalarVal, got %T", bVal)
+	}
+	if aSv.Raw != "foo" {
+		t.Errorf("a = %q, want %q", aSv.Raw, "foo")
+	}
+	if bSv.Raw != "foo" {
+		t.Errorf("b = %q, want %q", bSv.Raw, "foo")
+	}
+
+	// Also verify reverse declaration order (b before a): b must still resolve
+	// to "foo" even when a has not yet been processed when b is first seen.
+	t.Run("reverse_order", func(t *testing.T) {
+		res2 := resolve(t, "b = ${a}\na = ${?a}foo")
+		aVal2, ok := res2.Root.Get("a")
+		if !ok {
+			t.Fatal("a not found")
+		}
+		bVal2, ok := res2.Root.Get("b")
+		if !ok {
+			t.Fatal("b not found")
+		}
+		aSv2, ok := aVal2.(*resolver.ScalarVal)
+		if !ok {
+			t.Fatalf("a: expected ScalarVal, got %T", aVal2)
+		}
+		bSv2, ok := bVal2.(*resolver.ScalarVal)
+		if !ok {
+			t.Fatalf("b: expected ScalarVal, got %T", bVal2)
+		}
+		if aSv2.Raw != "foo" {
+			t.Errorf("a = %q, want %q", aSv2.Raw, "foo")
+		}
+		if bSv2.Raw != "foo" {
+			t.Errorf("b = %q, want %q", bSv2.Raw, "foo")
+		}
+	})
+}
 
 // -----------------------------------------------------------------------------
 // S13c — env-var list expansion unit tests (Steps 3–6).
