@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/o3co/go.hocon)](https://goreportcard.com/report/github.com/o3co/go.hocon)
 [![CI](https://github.com/o3co/go.hocon/actions/workflows/test.yml/badge.svg)](https://github.com/o3co/go.hocon/actions/workflows/test.yml)
 [![Lint](https://github.com/o3co/go.hocon/actions/workflows/lint.yml/badge.svg)](https://github.com/o3co/go.hocon/actions/workflows/lint.yml)
-[![codecov](https://codecov.io/gh/o3co/go.hocon/branch/main/graph/badge.svg)](https://codecov.io/gh/o3co/go.hocon)
+[![codecov](https://codecov.io/gh/o3co/go.hocon/branch/develop/graph/badge.svg)](https://codecov.io/gh/o3co/go.hocon)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 [Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) 仕様の Go パーサー。現在の準拠率は [仕様準拠](#仕様準拠) を参照。
