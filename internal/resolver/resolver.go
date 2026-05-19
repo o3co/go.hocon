@@ -1172,10 +1172,6 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 }
 
 // propsToObjectVal converts a flat map[string]string (from a .properties file)
-// into a nested ObjectVal. Dotted keys are expanded into nested objects:
-// "server.host" = "x" becomes {server: {host: "x"}}.
-// All leaf values are ScalarVal with string type, per .properties spec.
-// propsToObjectVal converts a flat map[string]string (from a .properties file)
 // into a nested *ObjectVal applying the HOCON.md L1485 "object wins" rule:
 //
 //   - Non-leaf segment + existing scalar: replace the scalar with a new object

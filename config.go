@@ -533,7 +533,12 @@ func parseBytes(s string) (int64, error) {
 		return 0, err
 	}
 	prod := f * float64(mult)
-	if prod > math.MaxInt64 || prod < math.MinInt64 {
+	// float64(math.MaxInt64) rounds UP to 2^63 (9223372036854775808.0), so
+	// "prod > math.MaxInt64" is equivalent to "prod > 2^63" — it passes 2^63
+	// itself (e.g. "8.0E" = 8×2^60 = 2^63) and then int64(prod) traps in
+	// implementation-defined behaviour.  Use math.Exp2(63) (which IS exactly
+	// representable as float64) so the boundary is caught correctly.
+	if math.IsInf(prod, 0) || math.IsNaN(prod) || prod >= math.Exp2(63) || prod < math.MinInt64 {
 		return 0, fmt.Errorf("byte size %q overflows int64 representable range", s)
 	}
 	return int64(prod), nil

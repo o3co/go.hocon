@@ -70,27 +70,73 @@ func TestS21_4_BSL_GetBytes(t *testing.T) {
 
 // TestS21_4_Overflow asserts that values exceeding int64 max produce an error
 // via GetBytesOption (returns None) rather than a corrupted positive value.
-// 8E = 8 × 2^60 = 2^63 = MaxInt64+1 → overflow.
-// 9E = 9 × 2^60 ≈ 1.04e19 → overflow.
+//
+// Boundary cases for the float64 precision fix (go-I1 / go-T1 convergent):
+//   - "8E"  = 8×2^60 = 2^63 exactly  → overflow (boundary, must error)
+//   - "8.0E"= 8.0×2^60 = 2^63 exactly → overflow (float path, must error)
+//   - "8.001E"                         → overflow (above boundary)
+//   - "10.0E"                          → overflow
+//   - "9E"  = 9×2^60 ≈ 1.04e19        → overflow
+//
+// Non-overflow cases for the same boundary:
+//   - "7E"  = 7×2^60 = 8070450532247928832 → success
+//   - "7.999E"                              → success (just below 2^63)
 func TestS21_4_Overflow(t *testing.T) {
-	overflowCases := []string{`v: "8E"`, `v: "9E"`}
-	for _, src := range overflowCases {
-		src := src
-		t.Run(src, func(t *testing.T) {
-			cfg, err := hocon.ParseString(src)
-			if err != nil {
-				// parse error is acceptable, though unlikely for these inputs
-				return
-			}
-			// GetBytesOption returns None on error (overflow included).
-			opt := cfg.GetBytesOption("v")
-			if opt.IsSome() {
-				got, _ := opt.Get()
-				if got > 0 {
-					t.Errorf("GetBytesOption with overflow input %q: expected None or non-positive, got %d", src, got)
+	t.Run("overflow_cases", func(t *testing.T) {
+		overflowCases := []string{
+			`v: "8E"`,
+			`v: "8.0E"`,
+			`v: "8.001E"`,
+			`v: "10.0E"`,
+			`v: "9E"`,
+		}
+		for _, src := range overflowCases {
+			src := src
+			t.Run(src, func(t *testing.T) {
+				cfg, err := hocon.ParseString(src)
+				if err != nil {
+					// parse error is acceptable
+					return
 				}
-			}
-			// None is the correct result for overflow — no further assertion needed.
-		})
-	}
+				opt := cfg.GetBytesOption("v")
+				if opt.IsSome() {
+					got, _ := opt.Get()
+					// Strictly: any integer value here is a bug — overflow must not
+					// produce a positive or wrapped result.
+					t.Errorf("GetBytesOption with overflow input %q: expected None, got %d", src, got)
+				}
+			})
+		}
+	})
+
+	t.Run("non_overflow_cases", func(t *testing.T) {
+		type tc struct {
+			src  string
+			want int64
+		}
+		// 7E = 7 * 2^60
+		const exp2_60 = int64(1) << 60
+		cases := []tc{
+			{`v: "7E"`, 7 * exp2_60},                              // = 8070450532247928832
+			{`v: "7.999E"`, int64(7.999 * float64(int64(1)<<60))}, // below 2^63
+		}
+		for _, c := range cases {
+			c := c
+			t.Run(c.src, func(t *testing.T) {
+				cfg, err := hocon.ParseString(c.src)
+				if err != nil {
+					t.Fatalf("ParseString(%q): unexpected error %v", c.src, err)
+				}
+				opt := cfg.GetBytesOption("v")
+				if !opt.IsSome() {
+					t.Errorf("GetBytesOption(%q): expected Some, got None", c.src)
+					return
+				}
+				got, _ := opt.Get()
+				if got != c.want {
+					t.Errorf("GetBytesOption(%q) = %d, want %d", c.src, got, c.want)
+				}
+			})
+		}
+	})
 }
