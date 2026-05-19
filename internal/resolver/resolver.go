@@ -954,9 +954,13 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 				}
 			} else {
 				// non-object overwrite: save prior value for self-referential substitution support.
-				// Store on the parent object's priorValues so that nested-path self-ref
-				// look-back (resolveSubst isSelfRef → parent.priorValues check) can find it.
-				r.priorValues[segmentsToKey(segments)] = existing
+				// Store ONLY on the parent object's per-object priorValues so that nested-path
+				// self-ref look-back (resolveSubst isSelfRef → parent.priorValues check) can find it.
+				// Do NOT write r.priorValues here: segments is the bare leaf key (e.g. "a" from
+				// "foo.a"), which would collide with an unrelated top-level "a" key in r.priorValues.
+				// Top-level keys are handled by the len(field.Key)==1 branch in buildObject, which
+				// writes r.priorValues with the correct full key; the parent.priorValues entry alone
+				// is sufficient for nested self-ref look-back (see resolveSubst L508-516).
 				obj.priorValues[key] = existing
 			}
 		}
