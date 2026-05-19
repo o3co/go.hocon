@@ -480,6 +480,13 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// isSelfRef branch must NOT fire, and the normal resolveVal path at the
 		// bottom of this block will resolve a's value correctly (the inner
 		// ${?a} hit r.resolving["a"]==true and returns nil, giving "foo").
+		//
+		// Spec deviation: the S13a.13 spec ★1 decision #1 specified path-equality
+		// preservation for self-ref detection. Round-2 multi-agent-review surfaced
+		// a false-positive on external lookups; the criterion was tightened to
+		// AST-node pointer-identity (sp == s) — strictly narrower than path-
+		// equality. Spec amendment deferred to a follow-up xx.hocon PR (see
+		// Phase 6 #3f close-out notes).
 		isSelfRef := false
 		switch v := val.(type) {
 		case *substPlaceholder:
