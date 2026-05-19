@@ -283,6 +283,46 @@ func TestUnterminatedSubstitution(t *testing.T) {
 	}
 }
 
+// TestSubstListSuffix_EOFErrors covers the two EOF-truncation paths inside a
+// substitution that uses the `[]` list-suffix grammar. Both are TokenError
+// branches inside the substitution lexer; the existing list-suffix table
+// covers `}`-truncated forms but not bare EOF, so these spec-aligned message
+// assertions pin the specific branches.
+func TestSubstListSuffix_EOFErrors(t *testing.T) {
+	cases := []struct {
+		name        string
+		src         string
+		wantMsgSub  string
+		wantTokType lexer.TokenType
+	}{
+		{
+			name:        "eof-after-open-bracket",
+			src:         "${X[",
+			wantMsgSub:  "expected ']' after '['",
+			wantTokType: lexer.TokenError,
+		},
+		{
+			name:        "eof-after-empty-suffix",
+			src:         "${X[]",
+			wantMsgSub:  "unterminated substitution after '[]' suffix",
+			wantTokType: lexer.TokenError,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			l := lexer.New(tc.src)
+			tok := l.Next()
+			if tok.Type != tc.wantTokType {
+				t.Fatalf("src=%q: token type = %v, want %v (value=%q)", tc.src, tok.Type, tc.wantTokType, tok.Value)
+			}
+			if !strings.Contains(tok.Value, tc.wantMsgSub) {
+				t.Errorf("src=%q: error message = %q; want substring %q", tc.src, tok.Value, tc.wantMsgSub)
+			}
+		})
+	}
+}
+
 func TestUnterminatedTripleQuotedString(t *testing.T) {
 	tests := []string{
 		`a = """unterminated`,
