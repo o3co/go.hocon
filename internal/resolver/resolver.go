@@ -1197,18 +1197,15 @@ func propsToObjectVal(props map[string]string) *ObjectVal {
 		parts := strings.Split(key, ".")
 		cur := root
 		for i, part := range parts {
-			isLeaf := i == len(parts)-1
-			existing, has := cur.values[part]
-			if isLeaf {
-				// Object wins: if an object already occupies this slot, skip
-				// the scalar — do not overwrite (HOCON.md L1485).
-				if _, isObj := existing.(*ObjectVal); has && isObj {
-					break
-				}
+			if i == len(parts)-1 {
+				// Leaf: sort.Strings above guarantees parent paths process
+				// before child paths, so an existing object at this slot
+				// cannot occur — object-wins (HOCON.md L1485) is enforced
+				// by the non-leaf scalar-replace branch below.
 				cur.set(part, &ScalarVal{Raw: value, Type: ScalarString})
 				break
 			}
-			// Non-leaf segment:
+			existing, has := cur.values[part]
 			if !has {
 				child := newObjectVal()
 				cur.set(part, child)
