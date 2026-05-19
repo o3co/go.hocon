@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -436,6 +435,17 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 	segStrs := segTexts(s.segments)
 	key := segmentsToKey(segStrs)
 
+	// Fast path: if this key is already fully resolved (e.g. `b = ${a}` where
+	// `a` was processed first), return the cached value immediately.  This
+	// avoids re-entering the placeholder resolution loop and prevents the
+	// "foofoo" double-expansion that would otherwise occur when the cached
+	// value gets returned by the inner ${?a} re-entrant call.
+	if !r.resolving[key] {
+		if cached, ok := r.resolvedCache[key]; ok {
+			return cached, nil
+		}
+	}
+
 	if r.resolving[key] {
 		// Check if a previously resolved value exists (self-referential substitution).
 		// e.g. path=${path}["/extra"] — the ${path} should resolve to the prior value.
@@ -457,19 +467,28 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 
 	val, ok := r.lookupPath(root, segStrs)
 	if ok {
-		// If the found value is still a placeholder that references the SAME path
-		// (actual self-reference like b=${b}), use the prior value instead.
-		// A placeholder referencing a DIFFERENT path is not self-referential and
-		// should be resolved normally.
+		// If the found value is still a placeholder that IS (or contains) this
+		// same substitution node s, we have a genuine self-referential definition
+		// (e.g. `a = ${?a}foo`).  We must NOT recursively resolve that value or
+		// it would double-expand ("foofoo").  Instead, use the prior value or
+		// short-circuit.
+		//
+		// Crucially, only fire when val contains s itself (pointer equality).
+		// If val is a different concat that merely *mentions* the same path name
+		// (e.g. `b = ${a}` where `a = ${?a}foo`), the lookup returns a/a's
+		// definition which contains a *different* substPlaceholder node — the
+		// isSelfRef branch must NOT fire, and the normal resolveVal path at the
+		// bottom of this block will resolve a's value correctly (the inner
+		// ${?a} hit r.resolving["a"]==true and returns nil, giving "foo").
 		isSelfRef := false
 		switch v := val.(type) {
 		case *substPlaceholder:
-			if slices.Equal(segTexts(v.segments), segStrs) {
+			if v == s {
 				isSelfRef = true
 			}
 		case *concatPlaceholder:
 			for _, cv := range v.vals {
-				if sp, spOk := cv.(*substPlaceholder); spOk && slices.Equal(segTexts(sp.segments), segStrs) {
+				if sp, spOk := cv.(*substPlaceholder); spOk && sp == s {
 					isSelfRef = true
 					break
 				}

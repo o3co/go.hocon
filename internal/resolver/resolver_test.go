@@ -1421,6 +1421,68 @@ func TestSpecS13a_13_SelfRefLookback(t *testing.T) {
 	})
 }
 
+// TestSpecS13a_13_ExternalReferenceToSelfRefField verifies that when a field
+// other than `a` references `a`, and `a` is defined with an optional self-ref
+// (e.g. `a = ${?a}foo`), the referencing field resolves correctly to `a`'s
+// resolved value rather than returning an error.
+// Regression test for Codex P1: the isSelfRef short-circuit incorrectly fired
+// when resolving `b = ${a}`, treating `a`'s structural self-ref as if `b`'s
+// required substitution was an unresolved self-reference.
+// Spec HOCON.md L837–L854 (S13a.13 self-referential look-back).
+func TestSpecS13a_13_ExternalReferenceToSelfRefField(t *testing.T) {
+	res := resolve(t, "a = ${?a}foo\nb = ${a}")
+	aVal, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	bVal, ok := res.Root.Get("b")
+	if !ok {
+		t.Fatal("b not found")
+	}
+	aSv, ok := aVal.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("a: expected ScalarVal, got %T", aVal)
+	}
+	bSv, ok := bVal.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("b: expected ScalarVal, got %T", bVal)
+	}
+	if aSv.Raw != "foo" {
+		t.Errorf("a = %q, want %q", aSv.Raw, "foo")
+	}
+	if bSv.Raw != "foo" {
+		t.Errorf("b = %q, want %q", bSv.Raw, "foo")
+	}
+
+	// Also verify reverse declaration order (b before a): b must still resolve
+	// to "foo" even when a has not yet been processed when b is first seen.
+	t.Run("reverse_order", func(t *testing.T) {
+		res2 := resolve(t, "b = ${a}\na = ${?a}foo")
+		aVal2, ok := res2.Root.Get("a")
+		if !ok {
+			t.Fatal("a not found")
+		}
+		bVal2, ok := res2.Root.Get("b")
+		if !ok {
+			t.Fatal("b not found")
+		}
+		aSv2, ok := aVal2.(*resolver.ScalarVal)
+		if !ok {
+			t.Fatalf("a: expected ScalarVal, got %T", aVal2)
+		}
+		bSv2, ok := bVal2.(*resolver.ScalarVal)
+		if !ok {
+			t.Fatalf("b: expected ScalarVal, got %T", bVal2)
+		}
+		if aSv2.Raw != "foo" {
+			t.Errorf("a = %q, want %q", aSv2.Raw, "foo")
+		}
+		if bSv2.Raw != "foo" {
+			t.Errorf("b = %q, want %q", bSv2.Raw, "foo")
+		}
+	})
+}
+
 // -----------------------------------------------------------------------------
 // S13c — env-var list expansion unit tests (Steps 3–6).
 // NOTE: no t.Parallel() — t.Setenv mutates the process environment.
