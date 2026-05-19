@@ -488,6 +488,13 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 					}
 				}
 			}
+			// Spec HOCON.md L841: no prior + self-ref → short-circuit.
+			// Do NOT resolve the found current value (which is the concat-in-progress);
+			// that would produce "foofoo" for `a = ${?a}foo` with no prior `a`.
+			if n.Optional {
+				return nil, nil
+			}
+			return nil, &ResolveError{Message: "unresolved self-referential substitution", Path: key, Line: n.Line(), Col: n.Col()}
 		}
 		resolved, err := r.resolveVal(val, root, key)
 		if err != nil {
@@ -920,8 +927,11 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 					val = deepMerge(nv, eo) // new over existing: nv=dst wins
 				}
 			} else {
-				// non-object overwrite: save prior value for self-referential substitution support
+				// non-object overwrite: save prior value for self-referential substitution support.
+				// Store on the parent object's priorValues so that nested-path self-ref
+				// look-back (resolveSubst isSelfRef → parent.priorValues check) can find it.
 				r.priorValues[segmentsToKey(segments)] = existing
+				obj.priorValues[key] = existing
 			}
 		}
 		obj.set(key, val)
