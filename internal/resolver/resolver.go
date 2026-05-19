@@ -1172,18 +1172,17 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 }
 
 // propsToObjectVal converts a flat map[string]string (from a .properties file)
-// into a nested *ObjectVal applying the HOCON.md L1485 "object wins" rule:
-//
-//   - Non-leaf segment + existing scalar: replace the scalar with a new object
-//     and descend (the string is discarded per L1487 "object wins throws out
-//     at most one value, the string").
-//   - Leaf segment + existing object: skip — do not overwrite the object with
-//     the scalar (the object wins).
-//   - All other cases: normal insertion or descent.
+// into a nested *ObjectVal applying the HOCON.md L1485 "object wins" rule.
 //
 // Keys are processed in sorted order (sort.Strings) so conflict resolution is
 // deterministic regardless of the input line order in the .properties file
-// (per HOCON.md L1476–1479: Java properties do not preserve file order).
+// (per HOCON.md L1476–1479: Java properties do not preserve file order). The
+// sort guarantees parent paths (e.g. "a") are processed before child paths
+// (e.g. "a.b"), so the only conflict shape that surfaces at iteration time is
+// non-leaf-meets-existing-scalar — handled by replacing the scalar with a new
+// object and descending (the string is discarded per L1487 "object wins throws
+// out at most one value, the string"). The reverse case (leaf scalar meets
+// existing object) cannot occur under this ordering.
 func propsToObjectVal(props map[string]string) *ObjectVal {
 	keys := make([]string, 0, len(props))
 	for k := range props {
