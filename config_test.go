@@ -972,10 +972,6 @@ func TestConfig_DelayedMergeNestedSubstitution(t *testing.T) {
 // Option accessors return None instead of an error for object/array type mismatches.
 const specIssueS17_7_8 = 72
 
-// specIssueS21_4 is the GitHub issue number for the S21.4 spec violation.
-// Single-letter byte abbreviations (K, k, M, m, …) are not recognised.
-const specIssueS21_4 = 73
-
 // TestSpec_S15_1_NumericObjectToArray verifies that an object with integer keys
 // {"0":"a","1":"b"} is converted to ["a","b"] when array access is requested.
 // Fixed in fix/s15-numeric-obj-array, see issue #71.
@@ -1195,7 +1191,6 @@ func TestSpec_S21_4_SingleLetterByteAbbreviations(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.src, func(t *testing.T) {
-			t.Skipf("spec violation: single-letter byte abbreviations not supported, see #%d", specIssueS21_4)
 			cfg := mustParseCfg(t, tc.src)
 			got := cfg.GetBytes("v")
 			if got != tc.want {

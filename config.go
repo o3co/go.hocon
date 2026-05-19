@@ -10,6 +10,7 @@ package hocon
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -488,6 +489,14 @@ func parseBytes(s string) (int64, error) {
 	multipliers := map[string]int64{
 		"":  1, // S18.4: no unit → bytes (HOCON.md L1341)
 		"B": 1, "byte": 1, "bytes": 1,
+		// S21.4: single-letter abbreviations → powers of two (HOCON.md L1385,
+		// java -Xmx convention). Both upper- and lower-case are accepted.
+		"K": 1 << 10, "k": 1 << 10,
+		"M": 1 << 20, "m": 1 << 20,
+		"G": 1 << 30, "g": 1 << 30,
+		"T": 1 << 40, "t": 1 << 40,
+		"P": 1 << 50, "p": 1 << 50,
+		"E": 1 << 60, "e": 1 << 60,
 		"KB": 1000, "kilobyte": 1000, "kilobytes": 1000,
 		"KiB": 1024, "kibibyte": 1024, "kibibytes": 1024,
 		"MB": 1_000_000, "megabyte": 1_000_000, "megabytes": 1_000_000,
@@ -509,13 +518,25 @@ func parseBytes(s string) (int64, error) {
 		if err != nil {
 			return 0, err
 		}
+		// Overflow check: detect int64 multiplication overflow (e.g. 8E = 8×2^60 > MaxInt64).
+		if mult != 0 && n != 0 {
+			result := n * mult
+			if result/mult != n {
+				return 0, fmt.Errorf("byte size %q overflows int64 representable range", s)
+			}
+			return result, nil
+		}
 		return n * mult, nil
 	}
 	f, err := strconv.ParseFloat(numStr, 64)
 	if err != nil {
 		return 0, err
 	}
-	return int64(f * float64(mult)), nil
+	prod := f * float64(mult)
+	if prod > math.MaxInt64 || prod < math.MinInt64 {
+		return 0, fmt.Errorf("byte size %q overflows int64 representable range", s)
+	}
+	return int64(prod), nil
 }
 
 // ── slices ────────────────────────────────────────────────────────

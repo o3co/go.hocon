@@ -17,12 +17,6 @@ import (
 
 // ── issue constants ────────────────────────────────────────────────────────────
 
-// specIssueS3_1_EmptyFile is the GitHub issue/PR number tracking S3.1:
-// empty file should be invalid but is silently accepted by ParseString("").
-// (References PR #75 where the violation was first surfaced; a follow-up
-// issue may be filed in Phase 6.)
-const specIssueS3_1_EmptyFile = 75
-
 // specIssueS8_2_SlashSlash is the GitHub issue number for S8.2:
 // "//" inside an unquoted string should start a comment, but the lexer
 // treats it as literal content when there is no preceding whitespace.
@@ -63,11 +57,6 @@ const specIssueS19_2_Micro = 82
 // error, but the impl silently merges the arrays.
 const specIssueS10_15_QuotedWS = 83
 
-// specIssueS23_4_ObjectWins is the GitHub issue number for S23.4:
-// when a .properties key conflicts (both leaf and parent), the object should
-// win; the impl keeps the leaf string instead.
-const specIssueS23_4_ObjectWins = 84
-
 // ── S1.1: files must be valid UTF-8 ──────────────────────────────────────────
 // Go `string` is a `[]byte` that is NOT guaranteed to be valid UTF-8 — arbitrary
 // bytes (e.g. `string([]byte{0xff})`) reach the parser via ParseString, and
@@ -106,24 +95,27 @@ func TestSpec_S1_1_InvalidUTF8_Spec(t *testing.T) {
 
 // ── S3.1: empty file is invalid ──────────────────────────────────────────────
 
-// TestSpec_S3_1_EmptyFileInvalid_Pin pins the current (non-conformant) behaviour
-// where ParseString("") returns nil error. Spec HOCON.md L130 (§Omit root braces)
-// requires empty files to be invalid documents.
-func TestSpec_S3_1_EmptyFileInvalid_Pin(t *testing.T) {
-	// pin: see #75 — ParseString("") currently returns no error
-	_ = specIssueS3_1_EmptyFile
-	_, err := hocon.ParseString("")
-	if err != nil {
-		t.Errorf("[pin] empty file currently parses without error, but got: %v", err)
+// TestSpec_S3_1_EmptyFileInvalid asserts that empty and comment-only inputs are
+// rejected by ParseString with a non-nil error (HOCON.md L130, fixed in cluster 3h).
+// Positive guards (explicit empty object, single field, comment+field) must succeed.
+func TestSpec_S3_1_EmptyFileInvalid(t *testing.T) {
+	errInputs := []string{"", "   ", "\n\n", "# only comment\n", "\xef\xbb\xbf", "  # x \n  \n"}
+	for _, src := range errInputs {
+		src := src
+		t.Run("error/"+fmt.Sprintf("%q", src), func(t *testing.T) {
+			if _, err := hocon.ParseString(src); err == nil {
+				t.Errorf("expected error for empty input %q, got nil", src)
+			}
+		})
 	}
-}
-
-// TestSpec_S3_1_EmptyFileInvalid_Spec is the spec-correct assertion: empty file must error.
-func TestSpec_S3_1_EmptyFileInvalid_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S3.1 — ParseString(\"\") returns nil error; see #%d", specIssueS3_1_EmptyFile)
-	_, err := hocon.ParseString("")
-	if err == nil {
-		t.Error("expected error for empty file, got nil")
+	okInputs := []string{"{}", "a = 1", "# c\na = 1"}
+	for _, src := range okInputs {
+		src := src
+		t.Run("ok/"+fmt.Sprintf("%q", src), func(t *testing.T) {
+			if _, err := hocon.ParseString(src); err != nil {
+				t.Errorf("expected success for %q, got error: %v", src, err)
+			}
+		})
 	}
 }
 
@@ -700,47 +692,50 @@ func TestSpec_S23_2_EmptyPathElementsPreserved(t *testing.T) {
 
 // ── S23.4: object wins over string on conflicting property key ────────────────
 
-// TestSpec_S23_4_ObjectWinsOverString_Pin pins the current (non-conformant)
-// behaviour: when "a=hello" and "a.b=world" both appear in a .properties file,
-// the impl keeps the string "hello" for "a" and loses "a.b=world".
-// Spec HOCON.md L1485-1489: the object must win; string is discarded.
-func TestSpec_S23_4_ObjectWinsOverString_Pin(t *testing.T) {
-	// pin: see #84 — string "hello" wins over object {b: "world"} in current impl
-	_ = specIssueS23_4_ObjectWins
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.properties")
-	if err := os.WriteFile(path, []byte("a=hello\na.b=world\n"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	slashPath := filepath.ToSlash(path)
-	cfg := mustParseCfg(t, fmt.Sprintf(`include file("%s")`, slashPath))
-	// Current impl: a = "hello", a.b is inaccessible (object was dropped)
-	aStr, aOk := cfg.GetStringOption("a").Get()
-	if !aOk || aStr != "hello" {
-		t.Errorf("[pin] expected a=%q (string wins currently), got ok=%v val=%q", "hello", aOk, aStr)
-	}
-	if cfg.GetStringOption("a.b").IsSome() {
-		t.Error("[pin] a.b should be absent in current impl (object was discarded)")
-	}
-}
-
-// TestSpec_S23_4_ObjectWinsOverString_Spec is the spec-correct assertion.
-func TestSpec_S23_4_ObjectWinsOverString_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S23.4 — string wins over object in .properties conflict; see #%d", specIssueS23_4_ObjectWins)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.properties")
-	if err := os.WriteFile(path, []byte("a=hello\na.b=world\n"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	slashPath := filepath.ToSlash(path)
-	cfg := mustParseCfg(t, fmt.Sprintf(`include file("%s")`, slashPath))
-	// spec: object {b:"world"} wins; string "hello" is discarded
-	got, ok := cfg.GetStringOption("a.b").Get()
-	if !ok || got != "world" {
-		t.Errorf("expected a.b=%q (object wins), got ok=%v val=%q", "world", ok, got)
-	}
-	// "a" as a string must be gone
-	if cfg.GetStringOption("a").IsSome() {
-		t.Error("a must not be a string (object wins — string discarded)")
-	}
+// TestSpec_S23_4_ObjectWinsOverString asserts that in a .properties file, when a
+// dotted key (e.g. "a.b=world") conflicts with a scalar key ("a=hello"), the
+// object always wins (HOCON.md L1485, fixed in cluster 3h).
+func TestSpec_S23_4_ObjectWinsOverString(t *testing.T) {
+	t.Run("forward", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "test.properties")
+		if err := os.WriteFile(path, []byte("a=hello\na.b=world\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		slashPath := filepath.ToSlash(path)
+		cfg := mustParseCfg(t, fmt.Sprintf(`include file("%s")`, slashPath))
+		got, ok := cfg.GetStringOption("a.b").Get()
+		if !ok || got != "world" {
+			t.Errorf("a.b = %q (ok=%v), want %q (object wins)", got, ok, "world")
+		}
+		if cfg.GetStringOption("a").IsSome() {
+			t.Error("a must not be a string — object wins over scalar")
+		}
+	})
+	t.Run("reverse", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "test.properties")
+		if err := os.WriteFile(path, []byte("a.b=world\na=hello\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		slashPath := filepath.ToSlash(path)
+		cfg := mustParseCfg(t, fmt.Sprintf(`include file("%s")`, slashPath))
+		got, ok := cfg.GetStringOption("a.b").Get()
+		if !ok || got != "world" {
+			t.Errorf("a.b = %q (ok=%v), want %q (reverse order, sort makes identical)", got, ok, "world")
+		}
+	})
+	t.Run("deep", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "test.properties")
+		if err := os.WriteFile(path, []byte("a.b.c=v1\na.b=v2\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		slashPath := filepath.ToSlash(path)
+		cfg := mustParseCfg(t, fmt.Sprintf(`include file("%s")`, slashPath))
+		got, ok := cfg.GetStringOption("a.b.c").Get()
+		if !ok || got != "v1" {
+			t.Errorf("a.b.c = %q (ok=%v), want %q (object wins at depth 2)", got, ok, "v1")
+		}
+	})
 }

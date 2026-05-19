@@ -39,6 +39,18 @@ testdata:
 	  mkdir -p testdata/hocon/include-reservation && \
 	  cp "$$tmpdir/testdata/hocon/include-reservation/"*.conf testdata/hocon/include-reservation/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/empty-file" ]; then \
+	  mkdir -p testdata/hocon/empty-file && \
+	  cp "$$tmpdir/testdata/hocon/empty-file/"* testdata/hocon/empty-file/ 2>/dev/null || true; \
+	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/byte-single-letter" ]; then \
+	  mkdir -p testdata/hocon/byte-single-letter && \
+	  cp "$$tmpdir/testdata/hocon/byte-single-letter/"*.conf testdata/hocon/byte-single-letter/ 2>/dev/null || true; \
+	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/properties-conflict" ]; then \
+	  mkdir -p testdata/hocon/properties-conflict && \
+	  cp "$$tmpdir/testdata/hocon/properties-conflict/"* testdata/hocon/properties-conflict/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 
