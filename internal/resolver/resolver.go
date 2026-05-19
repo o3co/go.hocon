@@ -1172,9 +1172,18 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 }
 
 // propsToObjectVal converts a flat map[string]string (from a .properties file)
-// into a nested ObjectVal. Dotted keys are expanded into nested objects:
-// "server.host" = "x" becomes {server: {host: "x"}}.
-// All leaf values are ScalarVal with string type, per .properties spec.
+// into a nested *ObjectVal applying the HOCON.md L1485 "object wins" rule:
+//
+//   - Non-leaf segment + existing scalar: replace the scalar with a new object
+//     and descend (the string is discarded per L1487 "object wins throws out
+//     at most one value, the string").
+//   - Leaf segment + existing object: skip — do not overwrite the object with
+//     the scalar (the object wins).
+//   - All other cases: normal insertion or descent.
+//
+// Keys are processed in sorted order (sort.Strings) so conflict resolution is
+// deterministic regardless of the input line order in the .properties file
+// (per HOCON.md L1476–1479: Java properties do not preserve file order).
 func propsToObjectVal(props map[string]string) *ObjectVal {
 	keys := make([]string, 0, len(props))
 	for k := range props {
@@ -1188,21 +1197,34 @@ func propsToObjectVal(props map[string]string) *ObjectVal {
 		parts := strings.Split(key, ".")
 		cur := root
 		for i, part := range parts {
-			if i == len(parts)-1 {
-				cur.set(part, &ScalarVal{Raw: value, Type: ScalarString})
-			} else {
-				existing, ok := cur.values[part]
-				if !ok {
-					child := newObjectVal()
-					cur.set(part, child)
-					cur = child
-				} else if child, ok := existing.(*ObjectVal); ok {
-					cur = child
-				} else {
-					// Conflict: scalar already set for this segment — leaf wins, skip.
+			isLeaf := i == len(parts)-1
+			existing, has := cur.values[part]
+			if isLeaf {
+				// Object wins: if an object already occupies this slot, skip
+				// the scalar — do not overwrite (HOCON.md L1485).
+				if _, isObj := existing.(*ObjectVal); has && isObj {
 					break
 				}
+				cur.set(part, &ScalarVal{Raw: value, Type: ScalarString})
+				break
 			}
+			// Non-leaf segment:
+			if !has {
+				child := newObjectVal()
+				cur.set(part, child)
+				cur = child
+				continue
+			}
+			if child, isObj := existing.(*ObjectVal); isObj {
+				cur = child
+				continue
+			}
+			// Existing value is a scalar but we need to descend: replace the
+			// scalar with a new object (object wins, scalar discarded per
+			// HOCON.md L1487).
+			child := newObjectVal()
+			cur.set(part, child)
+			cur = child
 		}
 	}
 	return root

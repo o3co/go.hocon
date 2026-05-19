@@ -66,8 +66,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S3. Omit root braces
 
 - **S3.1** Empty file is invalid — §Omit root braces (L130)
-  tests: spec_phase5_test.go (TestSpec_S3_1_EmptyFileInvalid_Pin, TestSpec_S3_1_EmptyFileInvalid_Spec)
-  status: ❌ (tracked alongside [PR #75](https://github.com/o3co/go.hocon/pull/75)) — `ParseString("")` returns `nil` error instead of rejecting an empty document. Spec L130 requires empty files to be invalid (the omitted-braces rule applies only when there is content). Distinct from S1.1 (which is about UTF-8 validity, not empty input).
+  tests: s3_1_empty_file_test.go (TestS3_1_EmptyFile_Error, TestS3_1_NonEmpty_Accepted); spec_phase5_test.go (TestSpec_S3_1_EmptyFileInvalid)
+  status: ✅ — Fixed in cluster 3h (Phase 6). `parseRoot` now rejects EOF-only token streams with a parse error per HOCON.md L130. Covers empty string, whitespace-only, newlines-only, comment-only, BOM-only, and mixed ws+comment inputs. Explicit empty object `{}` and files with content are unaffected.
 
 - **S3.2** Root non-object/non-array is invalid (when explicitly enclosed) — §Omit root braces (L131)
   tests: internal/parser/parser_test.go:532 (TestSpecS3_2_RootNonObjectNonArrayInvalid)
@@ -868,9 +868,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S21.4** Single-letter abbreviations → powers of 2 (java -Xmx convention) — §Size in bytes format (L1385)
-  tests: config_test.go (TestSpec_S21_4_SingleLetterByteAbbreviations)
-  status: ❌
-  note: K, k, M, m, G, g, T, t, P, p, E, e are not in the parseBytes multiplier map; see issue #73.
+  tests: s21_4_bsl_test.go (TestS21_4_BSL_GetBytes, TestS21_4_Overflow); config_test.go (TestSpec_S21_4_SingleLetterByteAbbreviations); spec_s18_units_default_test.go (ub05-bytes-with-unit)
+  status: ✅ — Fixed in cluster 3h (Phase 6). K/k/M/m/G/g/T/t/P/p/E/e added to `multipliers` map as powers of two per HOCON.md L1385. Overflow-checked multiplication added for integer path (8E and above return error). Fractional overflow checked against math.MaxInt64.
 
 - **S21.5** Fractional values supported (`0.5M`) — §Units format (L1281-1294) + §Size in bytes (L1335-1342)
   tests: config_test.go (TestSpec_S21_5_FractionalByteValues)
@@ -905,8 +904,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S23.4** Object wins over string on conflicting key — §Java properties (L1485)
-  tests: spec_phase5_test.go (TestSpec_S23_4_ObjectWinsOverString_Pin, TestSpec_S23_4_ObjectWinsOverString_Spec)
-  status: ❌ ([#84](https://github.com/o3co/go.hocon/issues/84)) — propsToObjectVal breaks when a scalar is already set for a path segment that later needs to be a parent; string leaf "wins" and the object branch is discarded
+  tests: s23_4_pc_test.go (TestS23_4_PC_ObjectWins, TestS23_4_InlineForwardOrder, TestS23_4_InlineReverseOrder, TestS23_4_DeepNest); spec_phase5_test.go (TestSpec_S23_4_ObjectWinsOverString)
+  status: ✅ — Fixed in cluster 3h (Phase 6). `propsToObjectVal` rewritten: non-leaf scalar conflicts now replace the scalar with a new object (object wins); leaf with existing object skips the scalar write. Sort-based key processing makes resolution deterministic regardless of input line order.
 
 - **S23.5** Multi-line values (backslash continuation) — §Note on Java properties similarity (L1587)
   out-of-scope: declared in each implementation's README — the `.properties` reader supports only basic `key=value` syntax to avoid pulling a full Java properties parser into a non-JVM library.

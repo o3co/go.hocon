@@ -97,9 +97,9 @@ func TestUnitsDefault_Bytes(t *testing.T) {
 		{"ub03-bytes-fractional-truncated", "b", true, 1024},
 		// ub04: negative — accessor rejects (returns None)
 		{"ub04-bytes-negative-accessor-rejects", "b", false, 0},
-		// ub05: "1024K" — single-letter alias; S21.4 not yet implemented in go.hocon (separate ❌).
-		// Fixture present for input coverage; accessor assertion skipped (wantSome=false, treated as parse-error path).
-		{"ub05-bytes-with-unit", "b", false, 0},
+		// ub05: "1024K" — single-letter alias. S21.4 fixed in cluster 3h.
+		// 1024K = 1024 × 2^10 = 2^20 = 1048576 (Lightbend-verified, HOCON.md L1385).
+		{"ub05-bytes-with-unit", "b", true, 1024 * 1024},
 		// ub06: empty string — parse error → None
 		{"ub06-bytes-empty-rejected", "b", false, 0},
 	}
