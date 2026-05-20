@@ -51,6 +51,10 @@ testdata:
 	  mkdir -p testdata/hocon/properties-conflict && \
 	  cp "$$tmpdir/testdata/hocon/properties-conflict/"* testdata/hocon/properties-conflict/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/unquoted-starts" ]; then \
+	  mkdir -p testdata/hocon/unquoted-starts && \
+	  cp "$$tmpdir/testdata/hocon/unquoted-starts/"*.conf testdata/hocon/unquoted-starts/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 
