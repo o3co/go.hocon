@@ -849,11 +849,21 @@ func TestConfig_DotPrefixedFloat_ToObject(t *testing.T) {
 	}
 }
 
-func TestConfig_GetString_OctalLikePreserved(t *testing.T) {
-	// "0100" must be preserved as the raw string, not interpreted as octal.
+func TestConfig_GetString_OctalLikeNormalized(t *testing.T) {
+	// E8 BREAKING (xx.hocon#31 / commit dd102e8): leading-zero integers are
+	// now canonicalized at the lexer via strconv.ParseInt — `0100` parses
+	// as int64 100, and TokenInt.Value (which GetString returns directly)
+	// is the canonical decimal form "100". Pre-E8 this test pinned the raw
+	// "0100" preservation; that surface was retracted with the E8 amendment
+	// to match Lightbend's parseLong behavior. Callers that need the
+	// original token text must read the .conf source themselves; GetInt64
+	// and JSON serialization are unchanged (still produce 100).
 	cfg := mustParseCfg(t, `val = 0100`)
-	if got := cfg.GetString("val"); got != "0100" {
-		t.Errorf("got %q, want %q", got, "0100")
+	if got := cfg.GetString("val"); got != "100" {
+		t.Errorf("got %q, want %q (E8 leading-zero normalization)", got, "100")
+	}
+	if got := cfg.GetInt64("val"); got != 100 {
+		t.Errorf("GetInt64 got %d, want 100", got)
 	}
 }
 

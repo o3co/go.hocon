@@ -182,8 +182,17 @@ func (l *Lexer) nextToken() Token {
 			l.advance()
 			return Token{Type: TokenPlusEquals, Value: "+=", Line: line, Col: col}
 		}
-		// bare '+' — treated as start of unquoted string
-		return l.readUnquoted("+", line, col)
+		// Bare '+' — E8 (xx.hocon#31): the HOCON `+=` operator reservation
+		// extends to value-start and concat-continuation positions; bare `+`
+		// cannot open a value or extend a prior token (matching Lightbend).
+		// Previously go.hocon accepted `+foo` as the start of an unquoted run;
+		// that pre-existing gap is closed here together with the E8 amendment.
+		return Token{
+			Type:  TokenError,
+			Value: "reserved character '+' outside quotes (HOCON `+=` operator reservation, HOCON.md L270-276)",
+			Line:  line,
+			Col:   col,
+		}
 
 	case ch == '$':
 		return l.readSubstitution(line, col)
@@ -191,7 +200,20 @@ func (l *Lexer) nextToken() Token {
 	case ch == '"':
 		return l.readString(line, col)
 
-	case ch == '-' || (ch >= '0' && ch <= '9'):
+	case ch == '-':
+		// E8 (xx.hocon#31, commit dd102e8): dispatch `-` to readNumber only
+		// when the next char is a digit (RFC 8259 JSON-number grammar).
+		// Otherwise route to readUnquotedOrKeyword so bare `-` and `-foo` at
+		// value-position lex as unquoted strings — matching Lightbend's
+		// pragmatic reading of HOCON.md L270-276's "begin" as value-position
+		// begin (first component of a concatenation), not token-position
+		// begin at any lexer offset.
+		if l.pos+1 < len(l.src) && l.src[l.pos+1] >= '0' && l.src[l.pos+1] <= '9' {
+			return l.readNumber(line, col)
+		}
+		return l.readUnquotedOrKeyword(line, col)
+
+	case ch >= '0' && ch <= '9':
 		return l.readNumber(line, col)
 
 	default:
@@ -671,49 +693,32 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 // productions each independently backtrack to the last valid number end if
 // the production cannot be fully consumed (e.g. `1.x` returns number `1` and
 // leaves `.x` for the next-token pass; `1ex` returns number `1` and leaves
-// `ex`). Per HOCON.md L270-276, a leading `-` MUST be followed by a digit;
-// if not, the lexer returns a TokenError rather than falling back to an
-// unquoted string (which would silently coerce `-foo` to "-foo" — the spec
-// non-compliance this PR closes for cluster 3c). See docs/spec-compliance.md
-// §S8.6 for the rationale and the remaining gaps (us13, us15).
+// `ex`). E8 amendment (xx.hocon#31, commit dd102e8): caller dispatch in
+// nextToken now guarantees the leading char is `-` followed by a digit OR a
+// digit directly, so the "no integer digits" branch is unreachable from the
+// main dispatch — the dead-code reject was removed. See docs/spec-compliance.md
+// §S8.6 for the post-E8 reading.
 func (l *Lexer) readNumber(line, col int) Token {
 	startPos := l.pos
 	startCol := col
 
-	// Optional leading '-'
+	// Optional leading '-' (only when dispatch routes here with `-` followed
+	// by a digit, per the nextToken contract).
 	if ch, _ := l.peek(); ch == '-' {
 		l.advance()
 	}
 
-	// Integer part — REQUIRED. Per JSON number grammar:
-	// int = '0' | [1-9][0-9]*
+	// Integer part — REQUIRED, guaranteed non-empty by caller dispatch.
 	// (We accept '0[0-9]*' to match Lightbend behavior; the spec says JSON
-	// numbers reject leading-zero forms like "01", but Lightbend's parser
-	// silently accepts them and downstream callers expect this. The strict
-	// us13 case `01` is documented as a known gap under #60.)
-	if d, ok := l.peek(); ok && d >= '0' && d <= '9' {
-		for {
-			c, ok2 := l.peek()
-			if !ok2 || c < '0' || c > '9' {
-				break
-			}
-			l.advance()
+	// numbers reject leading-zero forms like `01`, but Lightbend's parseLong
+	// silently accepts them. E8 normalizes the resulting Value via
+	// strconv.ParseInt below, so `01` → Value "1", `-0` → Value "0".)
+	for {
+		c, ok := l.peek()
+		if !ok || c < '0' || c > '9' {
+			break
 		}
-	} else {
-		// No integer digits consumed. Caller dispatch invariant (lexer.go
-		// ~L188-189) routes readNumber only when the leading char is `-` or a
-		// digit; the digit case was handled above, so we must have consumed
-		// `-` here. Per HOCON.md L270-276 this is a lex error.
-		next := "EOF"
-		if c, ok := l.peek(); ok {
-			next = fmt.Sprintf("%q", c)
-		}
-		return Token{
-			Type:  TokenError,
-			Value: fmt.Sprintf("unquoted string cannot begin with '-' unless followed by a digit (got '-' then %s, HOCON.md L270-276)", next),
-			Line:  line,
-			Col:   startCol,
-		}
+		l.advance()
 	}
 
 	lastValidEnd := l.pos
@@ -775,11 +780,21 @@ func (l *Lexer) readNumber(line, col int) Token {
 	l.pos = lastValidEnd
 	l.col = lastValidCol
 
+	raw := string(l.src[startPos:lastValidEnd])
 	tt := TokenInt
 	if hasDot || hasExp {
 		tt = TokenFloat
+	} else {
+		// E8 (xx.hocon#31): integer-path normalization. strconv.ParseInt
+		// canonicalizes leading zeros (`01` → 1) and negative-zero sign
+		// (`-0` → 0), matching Lightbend's parseLong. If the raw text
+		// doesn't fit in int64 (extreme range or overflow), keep the raw
+		// form so callers can still see and parse the original digits.
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			raw = strconv.FormatInt(parsed, 10)
+		}
 	}
-	return Token{Type: tt, Value: string(l.src[startPos:lastValidEnd]), Line: line, Col: startCol}
+	return Token{Type: tt, Value: raw, Line: line, Col: startCol}
 }
 
 // isHoconWhitespace reports whether r is a HOCON whitespace character per

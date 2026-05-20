@@ -1,17 +1,23 @@
-// S8.6 — Unquoted strings MUST NOT begin with `-` (unless followed by a digit
-// forming a number prefix) or any digit `0-9` (per HOCON.md L270-276).
-// Issue #60: https://github.com/o3co/go.hocon/issues/60
-// Issue #81 (key numeric support): folded back into s8SuccessFixtures below.
+// S8.6 — Unquoted strings at value-position MAY begin with `-` (treated as
+// unquoted text when not followed by a digit) or with digits (greedy Java
+// numeric semantics, fall back to unquoted on parse failure). Concat-
+// continuation positions accept any unquoted-permissible character except
+// `+` as a continuation of the existing unquoted run.
+//
+// This reading was established by the E8 amendment in
+// xx.hocon/docs/extra-spec-conventions.md (rewritten 2026-05-20 as
+// xx.hocon#32 / commit dd102e8, driven by external issue xx.hocon#31). It
+// adopts Lightbend's pragmatic reading of HOCON.md L270-276 — "begin" =
+// value-position begin (first component of a concatenation), not
+// token-position begin at any lexer offset.
+//
+// Subst-body path expressions (${-foo}) and key-path segments (a.-foo = 1)
+// keep their existing strict checks — those rules are about path-element
+// composition, not value-position unquoted strings, and remain out of E8
+// scope.
 //
 // Fixture-driven conformance tests against xx.hocon ground truth at
 // testdata/hocon/unquoted-starts/.
-//
-// go.hocon's lexer DOES have a separate Number token kind (TokenInt / TokenFloat),
-// so this PR implements Option A — the plan-shaped greedy-with-backtrack
-// `lex_number` algorithm — rather than the unquoted-only Option B used in
-// ts.hocon (PR #96/#97) and rs.hocon (PR #86). See docs/spec-compliance.md §S8.6
-// for the architectural rationale and the Lightbend-quirk gaps (us13, us15)
-// that may remain out of scope depending on number-grammar coverage.
 
 package hocon_test
 
@@ -26,10 +32,14 @@ import (
 )
 
 // Success fixtures: parse must succeed and the resolved JSON must match the
-// xx.hocon ground truth. us08/us09 require parseKey to accept TokenInt+
-// TokenString key-concat and TokenFloat dot-split (cluster-3c follow-up #81).
+// xx.hocon ground truth. us02/us03/us13 joined this list as part of the E8
+// amendment (previously in s8ErrorFixtures / s8GapFixtures under the strict
+// reading). us17-us30 are new concat-continuation fixtures from probe groups
+// A/B/D/E.
 var s8SuccessFixtures = []string{
 	"us01-digit-prefix-with-tail",
+	"us02-hyphen-no-digit",
+	"us03-hyphen-alone",
 	"us04-hyphen-with-digit",
 	"us05-number-then-comment",
 	"us06-embedded-digits",
@@ -39,23 +49,31 @@ var s8SuccessFixtures = []string{
 	"us10-greedy-backtrack-exp",
 	"us11-greedy-backtrack-frac",
 	"us12-hex-prefix",
+	"us13-leading-zero",
 	"us14-multi-dot-version",
 	"us16-negative-with-tail",
+	"us17-concat-subst-dash-text",
+	"us18-concat-subst-dash-only",
+	"us19-concat-subst-double-dash",
+	"us20-concat-subst-dash-digit",
+	"us21-concat-subst-digit-text",
+	"us22-concat-subst-dot-text",
+	"us23-concat-subst-underscore",
+	"us24-concat-quoted-dash-text",
+	"us25-concat-quoted-dot-text",
+	"us26-concat-quoted-digit-text",
+	"us27-concat-subst-dash-subst",
+	"us28-concat-subst-dash-subst-other",
+	"us29-concat-unquoted-dash-subst",
+	"us30-concat-quoted-dash-subst",
 }
 
-// Error fixtures: parse must throw (lex or parse error).
-// us02 / us03 are the rule this PR enforces (`-` not followed by a digit
-// at the lex layer).
+// Error fixtures: parse must throw (lex or parse error). us15 (`a = 1e+x`)
+// joined this list as part of the E8 amendment — the `+` reservation enforced
+// at value-start and concat-continuation positions also catches the bare `+`
+// that backtracks out of the exponent in `1e+x`, so the lex-time error fires
+// at the `+` token regardless of Lightbend's value-parser-layer message.
 var s8ErrorFixtures = []string{
-	"us02-hyphen-no-digit",
-	"us03-hyphen-alone",
-}
-
-// Known-gap fixtures: documented gaps that require additional work. Tracked
-// under #60. These tests use t.Skip with a tracking note so they don't rot
-// silently; flip Skip → assert when the gap closes.
-var s8GapFixtures = []string{
-	"us13-leading-zero",
 	"us15-incomplete-exp",
 }
 
@@ -73,11 +91,23 @@ func TestS8_6_SuccessFixtures(t *testing.T) {
 	}
 	for _, name := range s8SuccessFixtures {
 		t.Run(name, func(t *testing.T) {
-			cfg, err := hocon.ParseFile(confPath(name))
+			// Sidecar pre-check with actionable message (mirrors the pattern
+			// requested by Copilot review on the rs.hocon E8 PR — surfacing
+			// missing fixtures/sidecars with the "run `make testdata`" hint
+			// instead of a low-signal os.ReadFile error).
+			fp := confPath(name)
+			jp := expectedPath(name)
+			if _, err := os.Stat(fp); err != nil {
+				t.Fatalf("fixture missing: %s — run `make testdata` to sync from xx.hocon (%v)", fp, err)
+			}
+			if _, err := os.Stat(jp); err != nil {
+				t.Fatalf("expected JSON missing: %s — run `make testdata` to sync from xx.hocon (%v)", jp, err)
+			}
+			cfg, err := hocon.ParseFile(fp)
 			if err != nil {
 				t.Fatalf("ParseFile(%s): %v", name, err)
 			}
-			expectedData, err := os.ReadFile(expectedPath(name))
+			expectedData, err := os.ReadFile(jp)
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
@@ -112,25 +142,127 @@ func TestS8_6_ErrorFixtures(t *testing.T) {
 	}
 }
 
-func TestS8_6_KnownGaps(t *testing.T) {
-	// These fixtures are documented gaps tracked under #60. They are SKIPPED
-	// for now. When the gap closes (i.e. ParseFile starts erroring on these),
-	// remove the Skip and the test will pass automatically — the next reader
-	// will know the gap has closed because the file diff removes the Skip.
-	for _, name := range s8GapFixtures {
-		t.Run(name, func(t *testing.T) {
-			t.Skip("S8.6 known gap (#60): strict spec requires reject, but go.hocon currently accepts; tracked for future tightening")
-			_, err := hocon.ParseFile(confPath(name))
-			if err == nil {
-				t.Errorf("%s: expected ParseError (gap closed), parse succeeded", name)
-			}
-		})
+// ── E8 amendment explicit value-position tests ───────────────────────────────
+
+func TestE8_ValueStartHyphenNoDigit_LexesAsUnquoted(t *testing.T) {
+	// RFC 8259 JSON-number requires a digit after `-`; bare `-foo` therefore
+	// falls outside L270's disallow scope. Lightbend produces `{"a":"-foo"}`.
+	cfg, err := hocon.ParseString("a = -foo")
+	if err != nil {
+		t.Fatalf("E8: `a = -foo` must lex+resolve as unquoted string, got: %v", err)
+	}
+	if got := cfg.GetString("a"); got != "-foo" {
+		t.Errorf("E8: expected GetString(a)=\"-foo\", got %q", got)
 	}
 }
 
-// Regression: S8.6 also applies inside substitution paths and dotted key
-// segments. The check at lex time for `-` no-digit must fire at the substitution
-// segment start, not at value position only.
+func TestE8_ValueStartHyphenAlone_LexesAsUnquoted(t *testing.T) {
+	cfg, err := hocon.ParseString("a = -")
+	if err != nil {
+		t.Fatalf("E8: `a = -` must lex+resolve as unquoted string, got: %v", err)
+	}
+	if got := cfg.GetString("a"); got != "-" {
+		t.Errorf("E8: expected GetString(a)=\"-\", got %q", got)
+	}
+}
+
+func TestE8_ValueStartLeadingZero_NormalizesToNumber(t *testing.T) {
+	// F3 BREAKING: `a = 01` was previously TokenInt{Value: "01"} (raw preserved
+	// by readNumber); E8 normalizes via strconv.ParseInt → TokenInt{Value: "1"}.
+	// JSON serialization is unchanged (Unmarshal already produced 1), but
+	// GetString now returns "1" (was "01") — that's the breaking surface.
+	cfg, err := hocon.ParseString("a = 01")
+	if err != nil {
+		t.Fatalf("E8: `a = 01` must parse, got: %v", err)
+	}
+	if got := cfg.GetString("a"); got != "1" {
+		t.Errorf("E8: expected GetString(a)=\"1\" (normalized), got %q", got)
+	}
+	if got := cfg.GetInt64("a"); got != 1 {
+		t.Errorf("E8: expected GetInt64(a)=1, got %d", got)
+	}
+}
+
+func TestE8_ValueStartNegativeZero_NormalizesToZero(t *testing.T) {
+	// `-0` parses as int 0; canonical form drops the sign (no negative zero in
+	// integer arithmetic). Lightbend's parseLong does the same.
+	cfg, err := hocon.ParseString("a = -0")
+	if err != nil {
+		t.Fatalf("E8: `a = -0` must parse, got: %v", err)
+	}
+	if got := cfg.GetString("a"); got != "0" {
+		t.Errorf("E8: expected GetString(a)=\"0\" (canonicalized), got %q", got)
+	}
+}
+
+func TestE8_PlusReservation_ValueStart(t *testing.T) {
+	// E8 closes the pre-existing go.hocon gap: bare `+` at value-start was
+	// previously accepted as the start of an unquoted run (`+foo` → "+foo"),
+	// but Lightbend rejects per the `+=` operator reservation. go.hocon now
+	// matches by emitting TokenError from the bare-`+` dispatch branch.
+	_, err := hocon.ParseString("a = +foo")
+	if err == nil {
+		t.Error("E8: `a = +foo` must reject (+ reservation per HOCON.md), parse succeeded")
+	}
+}
+
+// ── E8 concat-continuation explicit tests ────────────────────────────────────
+
+func TestE8_ConcatContinuation_SubstDashText(t *testing.T) {
+	cfg, err := hocon.ParseString("a = foo\nb = ${a}-bar")
+	if err != nil {
+		t.Fatalf("E8 concat: ${a}-bar must lex+resolve, got: %v", err)
+	}
+	if got := cfg.GetString("b"); got != "foo-bar" {
+		t.Errorf("E8 concat: expected b=\"foo-bar\", got %q", got)
+	}
+}
+
+func TestE8_ConcatContinuation_QuotedDashText(t *testing.T) {
+	cfg, err := hocon.ParseString(`b = "foo"-bar`)
+	if err != nil {
+		t.Fatalf("E8 concat: \"foo\"-bar must lex+resolve, got: %v", err)
+	}
+	if got := cfg.GetString("b"); got != "foo-bar" {
+		t.Errorf("E8 concat: expected b=\"foo-bar\", got %q", got)
+	}
+}
+
+func TestE8_ConcatContinuation_SubstDigitText(t *testing.T) {
+	cfg, err := hocon.ParseString("a = foo\nb = ${a}1bar")
+	if err != nil {
+		t.Fatalf("E8 concat: ${a}1bar must lex+resolve, got: %v", err)
+	}
+	if got := cfg.GetString("b"); got != "foo1bar" {
+		t.Errorf("E8 concat: expected b=\"foo1bar\", got %q", got)
+	}
+}
+
+func TestE8_ConcatContinuation_SubstDotText(t *testing.T) {
+	cfg, err := hocon.ParseString("a = foo\nb = ${a}.bar")
+	if err != nil {
+		t.Fatalf("E8 concat: ${a}.bar must lex+resolve, got: %v", err)
+	}
+	if got := cfg.GetString("b"); got != "foo.bar" {
+		t.Errorf("E8 concat: expected b=\"foo.bar\", got %q", got)
+	}
+}
+
+func TestE8_PlusReservation_ConcatContinuation(t *testing.T) {
+	// Symmetric with value-start: bare `+` after a value-token must still
+	// reject. Was previously accepted as the start of an unquoted continuation
+	// (`${a}+bar` → "foo+bar"), now rejected via the same bare-`+` dispatch.
+	_, err := hocon.ParseString("a = foo\nb = ${a}+bar")
+	if err == nil {
+		t.Error("E8: ${a}+bar must reject (+ reservation per HOCON.md), parse succeeded")
+	}
+}
+
+// ── Out-of-E8-scope strict checks (unchanged) ────────────────────────────────
+//
+// The following rules apply to path-element composition (substitution body
+// paths and dotted key segments), not to value-position unquoted strings.
+// E8 amendment did not touch these — the strict rule is preserved.
 
 func TestS8_6_SubstPathHyphenNoDigitRejected(t *testing.T) {
 	// Tightened to assert a *lex-time* rejection specifically: a generic
