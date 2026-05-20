@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2026-05-21
+
+v1.3 is a spec-compliance bugfix release. The implementation has been corrected to match the HOCON spec and Lightbend typesafe-config reference behavior across several previously-divergent areas (E8 value-position lexing + leading-zero canonicalization + `+` reservation enforcement, concat type-checking, `include` key reservation, empty-file rejection, single-letter byte units, `.properties` object-wins, duration/bytes default unit, S13c env-var list). The spec did not change; the parser was simply wrong in places.
+
+A subset of these fixes change observable runtime behavior. The most likely user-visible changes are **concat type-check tightening** (e.g. `[1, 2] 3` was permissively coerced to `[1, 2, 3]`; now returns `*ResolveError` per HOCON.md L373/L385) and the **`+` reservation** (`+foo` / `${a}+bar` / `+c = 1` were accepted as unquoted; now rejected per HOCON's `+=` operator reservation — matches ts.hocon/rs.hocon/Lightbend). If your `.conf` files use these patterns, audit them — mitigation is to rewrite as explicit arrays/objects or quote the affected keys/values. Other fixes have narrow practical impact — read `### BREAKING Changes` and `### Fixed` below if your CI fails to upgrade cleanly. We elected MINOR (not MAJOR) because no API or architectural changes occurred; v2.0 is reserved for parser/lexer rewrites or similar structural shifts.
 
 ### BREAKING Changes
 
