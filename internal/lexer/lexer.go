@@ -780,21 +780,18 @@ func (l *Lexer) readNumber(line, col int) Token {
 	l.pos = lastValidEnd
 	l.col = lastValidCol
 
-	raw := string(l.src[startPos:lastValidEnd])
 	tt := TokenInt
 	if hasDot || hasExp {
 		tt = TokenFloat
-	} else {
-		// E8 (xx.hocon#31): integer-path normalization. strconv.ParseInt
-		// canonicalizes leading zeros (`01` → 1) and negative-zero sign
-		// (`-0` → 0), matching Lightbend's parseLong. If the raw text
-		// doesn't fit in int64 (extreme range or overflow), keep the raw
-		// form so callers can still see and parse the original digits.
-		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil {
-			raw = strconv.FormatInt(parsed, 10)
-		}
 	}
-	return Token{Type: tt, Value: raw, Line: line, Col: startCol}
+	// Note: TokenInt.Value carries the raw digit text (no normalization here).
+	// E8 (xx.hocon#31) canonicalization of leading zeros / negative-zero sign
+	// happens at value-position construction in internal/parser/parser.go
+	// `parseSingleValue` TokenInt case — keeping it out of the lexer ensures
+	// parseKey (which reads the same TokenInt.Value as a key path segment)
+	// preserves verbatim key text like `"01"` and `"01abc"`. Without this
+	// split, `01 = x` would silently rename to `"1" = x`.
+	return Token{Type: tt, Value: string(l.src[startPos:lastValidEnd]), Line: line, Col: startCol}
 }
 
 // isHoconWhitespace reports whether r is a HOCON whitespace character per

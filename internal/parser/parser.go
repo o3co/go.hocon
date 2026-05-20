@@ -481,10 +481,15 @@ func (p *parser) parseSingleValue() (Node, error) {
 	case lexer.TokenInt:
 		raw := p.current.Value
 		p.advance()
-		if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
 			return nil, newError(line, col, "invalid int %q", raw)
 		}
-		return &ScalarNode{pos: pos{line, col}, Raw: raw, ValueType: "number"}, nil
+		// E8 (xx.hocon#31): canonicalize leading zeros and negative-zero sign
+		// at value-position only. `parseKey` reads the same TokenInt.Value
+		// upstream, so normalizing in the lexer would silently rewrite keys
+		// (`01 = x` → `1`); keep it confined to the value path.
+		return &ScalarNode{pos: pos{line, col}, Raw: strconv.FormatInt(parsed, 10), ValueType: "number"}, nil
 	case lexer.TokenFloat:
 		raw := p.current.Value
 		p.advance()

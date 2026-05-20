@@ -195,6 +195,51 @@ func TestE8_ValueStartNegativeZero_NormalizesToZero(t *testing.T) {
 	}
 }
 
+func TestE8_KeyPosition_LeadingZeroPreserved(t *testing.T) {
+	// Regression for Codex review finding on PR (not yet opened): E8's
+	// leading-zero normalization is value-position only. `parseKey` reads
+	// the same TokenInt.Value upstream, so the lexer must NOT canonicalize
+	// — keys like `01 = x` must remain under key `"01"`, not silently
+	// renamed to `"1"`. The fix moves normalization out of readNumber and
+	// into parseSingleValue's TokenInt case.
+	cfg, err := hocon.ParseString("01 = x")
+	if err != nil {
+		t.Fatalf("E8: `01 = x` must parse, got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, ok := got["01"]; !ok {
+		t.Errorf("E8: expected key \"01\" (verbatim), got map: %v", got)
+	}
+}
+
+func TestE8_KeyPosition_LeadingZeroWithTextPreserved(t *testing.T) {
+	// Symmetric regression: numeric-key concat (TokenInt + TokenString → key
+	// segment) must also preserve the verbatim TokenInt text.
+	cfg, err := hocon.ParseString("01abc = x")
+	if err != nil {
+		t.Fatalf("E8: `01abc = x` must parse, got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, ok := got["01abc"]; !ok {
+		t.Errorf("E8: expected key \"01abc\" (verbatim), got map: %v", got)
+	}
+}
+
+func TestE8_KeyPosition_PlusReservation(t *testing.T) {
+	// The bare-`+` dispatch reject also fires at key position (`+c = 1`),
+	// which is a BREAKING change vs pre-E8 go.hocon. Documented in CHANGELOG.
+	_, err := hocon.ParseString("+c = 1")
+	if err == nil {
+		t.Error("E8: `+c = 1` must reject (+ reservation per HOCON.md), parse succeeded")
+	}
+}
+
 func TestE8_PlusReservation_ValueStart(t *testing.T) {
 	// E8 closes the pre-existing go.hocon gap: bare `+` at value-start was
 	// previously accepted as the start of an unquoted run (`+foo` → "+foo"),
