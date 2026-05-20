@@ -796,16 +796,19 @@ func TestSpecS6_4_SeparatorsAreWhitespace(t *testing.T) {
 // at a non-key position), which the lex+parse flow rejects as part of normal
 // concat resolution rather than as a dedicated lex-time error.)
 
-// TestSpecS8_6_HyphenStartUnquotedRejected verifies that "-foo" (not a valid
-// JSON number) is rejected. Spec L270.
-// Status: ✅ — readNumber now returns TokenError when '-' is not followed by a
-// digit (fix/s8.6-unquoted-starts). Skip removed; test is GREEN.
-func TestSpecS8_6_HyphenStartUnquotedRejected(t *testing.T) {
-	// "-foo" starts with '-' and is not a valid JSON number, so it should
-	// be rejected. "-123" is a valid number and is not tested here.
-	_, err := lexer.Tokenize("-foo")
-	if err == nil {
-		t.Error("expected error for hyphen-starting non-number '-foo', got nil")
+// TestSpecS8_6_E8_HyphenStartUnquotedAccepted verifies the E8 amendment
+// reading of HOCON.md L270-276 — "-foo" (not a valid JSON number) is admitted
+// as an unquoted string at value-position. Pre-E8 (commit c69f9d5,
+// `fix(s8.6): greedy-with-backtrack readNumber + key/subst segment '-' check
+// (refs #60)`) this was a lex error; the E8 amendment (xx.hocon#31,
+// commit dd102e8) retracts that reject in favor of Lightbend parity.
+func TestSpecS8_6_E8_HyphenStartUnquotedAccepted(t *testing.T) {
+	tokens, err := lexer.Tokenize("-foo")
+	if err != nil {
+		t.Fatalf("E8: `-foo` must lex as unquoted, got: %v", err)
+	}
+	if len(tokens) < 1 || tokens[0].Value != "-foo" {
+		t.Errorf("E8: expected first token Value=\"-foo\", got %+v", tokens)
 	}
 }
 
