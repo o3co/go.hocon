@@ -711,8 +711,12 @@ func (l *Lexer) readNumber(line, col int) Token {
 	// Integer part — REQUIRED, guaranteed non-empty by caller dispatch.
 	// (We accept '0[0-9]*' to match Lightbend behavior; the spec says JSON
 	// numbers reject leading-zero forms like `01`, but Lightbend's parseLong
-	// silently accepts them. E8 normalizes the resulting Value via
-	// strconv.ParseInt below, so `01` → Value "1", `-0` → Value "0".)
+	// silently accepts them. The resulting `TokenInt.Value` is kept verbatim
+	// here — E8 canonicalization (`01` → "1", `-0` → "0") happens at
+	// value-position only, in `parser.parseSingleValue`'s TokenInt case.
+	// Keeping it out of the lexer is required because `parseKey` reads the
+	// same token upstream; lexer-level normalization would silently rewrite
+	// keys like `01 = x` → `"1" = x`.)
 	for {
 		c, ok := l.peek()
 		if !ok || c < '0' || c > '9' {

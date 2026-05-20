@@ -851,13 +851,17 @@ func TestConfig_DotPrefixedFloat_ToObject(t *testing.T) {
 
 func TestConfig_GetString_OctalLikeNormalized(t *testing.T) {
 	// E8 BREAKING (xx.hocon#31 / commit dd102e8): leading-zero integers are
-	// now canonicalized at the lexer via strconv.ParseInt — `0100` parses
-	// as int64 100, and TokenInt.Value (which GetString returns directly)
-	// is the canonical decimal form "100". Pre-E8 this test pinned the raw
-	// "0100" preservation; that surface was retracted with the E8 amendment
-	// to match Lightbend's parseLong behavior. Callers that need the
-	// original token text must read the .conf source themselves; GetInt64
-	// and JSON serialization are unchanged (still produce 100).
+	// canonicalized at value-position in `parser.parseSingleValue`'s
+	// TokenInt case (`strconv.ParseInt` + `FormatInt`) — `0100` parses as
+	// int64 100, and the resulting `ScalarNode.Raw` is `"100"`. GetString
+	// returns ScalarVal.Raw from the resolver, which carries the
+	// normalized form. Pre-E8 this test pinned the raw "0100" preservation;
+	// that surface was retracted with the E8 amendment to match Lightbend's
+	// parseLong behavior. Note: the lexer's `TokenInt.Value` is kept
+	// verbatim (parseKey reads the same token upstream, so normalizing in
+	// the lexer would silently rewrite keys — see PR #97 / commit 0a83805).
+	// Callers that need the original .conf text must read the source
+	// themselves; GetInt64 and JSON serialization are unchanged (still 100).
 	cfg := mustParseCfg(t, `val = 0100`)
 	if got := cfg.GetString("val"); got != "100" {
 		t.Errorf("got %q, want %q (E8 leading-zero normalization)", got, "100")

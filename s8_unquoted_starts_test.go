@@ -1,6 +1,13 @@
 // S8.6 — Unquoted strings at value-position MAY begin with `-` (treated as
 // unquoted text when not followed by a digit) or with digits (greedy Java
-// numeric semantics, fall back to unquoted on parse failure). Concat-
+// numeric semantics — `readNumber` consumes a JSON-shaped int frac? exp?
+// run, with frac/exp parts each backtracking independently at lex time
+// when not fully consumed, e.g. `1ex` → TokenInt(1) + TokenString("ex")
+// for value-concat). Unlike ts/rs, go.hocon has separate TokenInt /
+// TokenFloat kinds, so a successfully-lexed numeric token then validates
+// via strconv.ParseInt / ParseFloat in the parser — failure there is an
+// error, not a string fallback (that case is covered by the lex-time
+// backtrack leaving a suffix for the next-token pass). Concat-
 // continuation positions accept any unquoted-permissible character except
 // `+` as a continuation of the existing unquoted run.
 //
