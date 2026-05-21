@@ -670,7 +670,25 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 	// S13c: env-var list expansion — when '[]' suffix is present, delegate to
 	// resolveEnvList. This branch runs BEFORE scalar env fallback (S13c.5: when
 	// listSuffix=true, the bare scalar env var must NOT be consulted as fallback).
+	//
+	// E12: also gated on UseSystemEnvironment. When env access is disabled,
+	// the list substitution behaves like any other unresolved substitution:
+	// leave the placeholder if lenient; required-substitution error otherwise.
 	if s.listSuffix {
+		if !r.opts.UseSystemEnvironment {
+			if n.Optional {
+				return nil, nil // optional ${?X[]} → drop the field
+			}
+			if r.lenient {
+				return s, nil // leave placeholder for re-resolution
+			}
+			return nil, &ResolveError{
+				Message: fmt.Sprintf("required env-var list ${%s[]} cannot be resolved (UseSystemEnvironment=false)", strings.Join(segStrs, ".")),
+				Path:    strings.Join(segStrs, "."),
+				Line:    n.Line(),
+				Col:     n.Col(),
+			}
+		}
 		return r.resolveEnvList(s, segStrs, n)
 	}
 
@@ -704,8 +722,10 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		return nil, nil // field will be dropped
 	}
 	if r.lenient {
-		// In lenient mode (child resolver for includes), leave unresolved
-		// substitutions as placeholders for the parent resolver to handle.
+		// In lenient mode (include child resolver OR AllowUnresolved=true in
+		// a top-level ResolveTree call), leave unresolved substitutions as
+		// placeholders for the caller to handle (re-resolve after WithFallback,
+		// or surface NotResolved via getter).
 		return s, nil
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
@@ -807,6 +827,12 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line,
 		resolved = append(resolved, rv)
 	}
 
+	// Lenient guard (E12 § "s10 × AllowUnresolved"): if any operand could not be
+	// resolved (the lenient path returned the placeholder unchanged), defer the
+	// entire concat as a concatPlaceholder. The deferred placeholder carries a
+	// mix of fully-resolved values (scalars/objects/arrays) and residual sub-
+	// placeholders; a subsequent ResolveTree call will re-pass each through
+	// resolveVal — safe because resolveVal is idempotent for concrete values.
 	// In lenient (AllowUnresolved) mode, if any resolved element is still a
 	// placeholder, defer the whole concat rather than error or produce a broken
 	// string. The placeholder will be resolved by a subsequent ResolveTree call

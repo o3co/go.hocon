@@ -9,6 +9,7 @@
 package resolver
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -71,6 +72,65 @@ func TestResolveTree_AllowUnresolvedKeepsPlaceholder(t *testing.T) {
 	v, _ := res.Root.Get("a")
 	if _, ok := v.(*substPlaceholder); !ok {
 		t.Fatalf("expected placeholder under allowUnresolved, got %T", v)
+	}
+}
+
+func TestResolveTree_UseSystemEnvironmentFalse_BlocksEnvListSubst(t *testing.T) {
+	ast, err := parser.Parse(`a = ${LISTVAR[]}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	tree, err := BuildTree(ast, Options{})
+	if err != nil {
+		t.Fatalf("BuildTree: %v", err)
+	}
+	// Strict mode: required env list with no env access → ResolveError.
+	_, err = ResolveTree(tree, Options{UseSystemEnvironment: false})
+	if err == nil {
+		t.Fatal("expected ResolveError for required ${LISTVAR[]} with UseSystemEnvironment=false")
+	}
+	var re *ResolveError
+	if !errors.As(err, &re) {
+		t.Fatalf("expected *ResolveError, got %T", err)
+	}
+}
+
+func TestResolveTree_UseSystemEnvironmentFalse_LenientKeepsEnvListPlaceholder(t *testing.T) {
+	ast, err := parser.Parse(`a = ${LISTVAR[]}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	tree, err := BuildTree(ast, Options{})
+	if err != nil {
+		t.Fatalf("BuildTree: %v", err)
+	}
+	// Lenient mode: leave the env-list substitution as a placeholder.
+	res, err := ResolveTree(tree, Options{UseSystemEnvironment: false, AllowUnresolved: true})
+	if err != nil {
+		t.Fatalf("ResolveTree: %v", err)
+	}
+	v, _ := res.Root.Get("a")
+	if _, ok := v.(*substPlaceholder); !ok {
+		t.Fatalf("expected placeholder under UseSystemEnvironment=false+AllowUnresolved, got %T", v)
+	}
+}
+
+func TestResolveTree_UseSystemEnvironmentFalse_OptionalEnvListDropsField(t *testing.T) {
+	ast, err := parser.Parse(`a = ${?LISTVAR[]}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	tree, err := BuildTree(ast, Options{})
+	if err != nil {
+		t.Fatalf("BuildTree: %v", err)
+	}
+	// Optional env list under UseSystemEnvironment=false → field is dropped.
+	res, err := ResolveTree(tree, Options{UseSystemEnvironment: false})
+	if err != nil {
+		t.Fatalf("ResolveTree: %v", err)
+	}
+	if _, ok := res.Root.Get("a"); ok {
+		t.Fatal("expected optional env-list field to be dropped with UseSystemEnvironment=false")
 	}
 }
 
