@@ -83,6 +83,77 @@ func (o *ObjectVal) Set(key string, v Val) { o.set(key, v) }
 // GetVal returns the value for key (exported).
 func (o *ObjectVal) GetVal(key string) (Val, bool) { return o.Get(key) }
 
+// SetPrior records a "prior value" for key (used by E12 WithFallback to
+// propagate fallback values as priors for self-reference lookback in phase 2).
+func (o *ObjectVal) SetPrior(key string, v Val) {
+	o.priorValues[key] = v
+}
+
+// GetPrior returns the prior value associated with key, if any.
+func (o *ObjectVal) GetPrior(key string) (Val, bool) {
+	v, ok := o.priorValues[key]
+	return v, ok
+}
+
+// MergeUnresolved performs the E12 WithFallback merge of two unresolved trees.
+// Receiver's keys win; on non-object collision (or when receiver is non-object),
+// the fallback's value is recorded as a prior on the result for cross-layer
+// self-reference lookback in phase 2. Both-object collisions recurse.
+//
+// This is a binary primitive. The caller (Config.WithFallback) is responsible
+// for the "composition barrier" semantic (HOCON.md L1485) when chaining
+// multiple fallbacks: once a non-object value has barred merging at a path,
+// subsequent fallback objects at that path must not contribute. Config
+// tracks barred paths externally and refrains from calling MergeUnresolved
+// recursively into a barred subtree.
+func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
+	if receiver == nil {
+		return fallback
+	}
+	if fallback == nil {
+		return receiver
+	}
+	result := newObjectVal()
+	// 1. Seed with fallback keys (so receiver-only / new fallback-only keys
+	//    co-exist).
+	for _, k := range fallback.Keys() {
+		v, _ := fallback.Get(k)
+		result.set(k, v)
+	}
+	// Carry fallback's priorValues.
+	for k, v := range fallback.priorValues {
+		result.priorValues[k] = v
+	}
+	// 2. Apply receiver: receiver wins; on non-object collision capture
+	//    fallback's value (existing) as prior for cross-layer self-ref lookback.
+	for _, k := range receiver.Keys() {
+		rv, _ := receiver.Get(k)
+		if existing, hasExisting := result.values[k]; hasExisting {
+			// both objects → recurse
+			if recObj, recOk := rv.(*ObjectVal); recOk {
+				if existObj, existOk := existing.(*ObjectVal); existOk {
+					result.values[k] = MergeUnresolved(recObj, existObj)
+					continue
+				}
+			}
+			// non-object collision: receiver wins; capture fallback's
+			// value (existing) as prior for cross-layer self-ref lookback.
+			result.priorValues[k] = existing
+		}
+		result.set(k, rv)
+	}
+	// 3. Receiver's own priorValues take precedence (in case the same key was
+	//    already a prior on both sides — receiver's history wins).
+	for k, v := range receiver.priorValues {
+		// Only override if receiver actually had this key (otherwise the
+		// fallback's prior is the relevant history).
+		if _, hasOwn := receiver.values[k]; hasOwn {
+			result.priorValues[k] = v
+		}
+	}
+	return result
+}
+
 // deepMerge merges src into dst (dst values take precedence for non-objects).
 func deepMerge(dst, src *ObjectVal) *ObjectVal {
 	result := newObjectVal()
