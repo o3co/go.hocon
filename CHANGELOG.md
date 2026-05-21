@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — lenient optional substitution
+
+- **Optional substitutions in included files now see parent-scope values** ([#45](https://github.com/o3co/go.hocon/issues/45)). Previously, in the lenient resolver pass used by include processing, unresolved optional substitutions (`${?path}`) were dropped immediately, so an included file referencing a parent's value (e.g. `result = ${?parent_val}`) lost the field before the parent's value could be supplied. The fix preserves the placeholder during the lenient pass; the final / strict pass still drops optional substitutions with no value. Found by Copilot review on the include-relativization PR.
+
 ## [1.4.1] - 2026-05-22
 
 Bugfix release: two cgordon-reported include-resolution divergences from Lightbend Config. Pure include-path behaviour; no public API changes; safe drop-in upgrade from v1.4.0.
