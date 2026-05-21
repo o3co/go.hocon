@@ -62,3 +62,53 @@ func TestIssue104RepeatedCommaStillRejected(t *testing.T) {
 		t.Errorf("expected repeated commas to be rejected")
 	}
 }
+
+// Additional coverage from multi-agent review: pin the "comma surrounded by
+// optional newlines" contract in array position too, and the multi-newline
+// case. Array-position negative cases also live in parser_test's S5.4/S5.5
+// spec suite; pinning here as well guards against future suite restructures.
+
+func TestIssue104CommaOnOwnLineInArray(t *testing.T) {
+	input := `a: [1
+,
+2
+,
+3]`
+	cfg, err := hocon.ParseString(input)
+	if err != nil {
+		t.Fatalf("expected to parse, got error: %v", err)
+	}
+	got := cfg.GetIntSlice("a")
+	if len(got) != 3 || got[0] != 1 || got[1] != 2 || got[2] != 3 {
+		t.Errorf("expected [1,2,3], got %v", got)
+	}
+}
+
+func TestIssue104MultipleNewlinesBeforeComma(t *testing.T) {
+	input := `a: 1
+
+
+,
+b: 2`
+	cfg, err := hocon.ParseString(input)
+	if err != nil {
+		t.Fatalf("expected to parse, got error: %v", err)
+	}
+	if cfg.GetInt("a") != 1 || cfg.GetInt("b") != 2 {
+		t.Errorf("expected a=1,b=2, got a=%d,b=%d", cfg.GetInt("a"), cfg.GetInt("b"))
+	}
+}
+
+func TestIssue104LeadingCommaInArrayStillRejected(t *testing.T) {
+	_, err := hocon.ParseString(`a: [,1,2]`)
+	if err == nil {
+		t.Errorf("expected leading comma in array to be rejected")
+	}
+}
+
+func TestIssue104RepeatedCommaInArrayStillRejected(t *testing.T) {
+	_, err := hocon.ParseString(`a: [1,,2]`)
+	if err == nil {
+		t.Errorf("expected repeated commas in array to be rejected")
+	}
+}
