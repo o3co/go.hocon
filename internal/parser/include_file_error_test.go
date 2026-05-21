@@ -70,25 +70,92 @@ func TestIncludeFile_NonStringArgument(t *testing.T) {
 // for the quoted path string. Pre-fix, the skip loop scanned to the next
 // quoted string without stopping at statement boundaries, which would have
 // turned `include file() , b = "x"` into `include "x"` and dropped `b`.
-// Multi-agent review (Claude + Codex) on go.hocon#100 flagged this as
-// silent-data-loss; this test pins the stricter behavior.
+// Multi-agent review (Claude + Codex) on go.hocon#100 + Copilot review on
+// go.hocon#101 flagged this as silent-data-loss; this test pins the
+// stricter behavior.
 func TestIncludeFile_DoesNotSilentlyMaskMalformedIncludes(t *testing.T) {
 	cases := []struct {
 		label string
 		src   string
 	}{
+		// Pre-path skip — non-skippable tokens before the quoted path:
 		{"file-empty-then-comma-field", `include file() , b = "x"`},
 		{"file-int-then-bare-field", `include file(42) b = "x"`},
 		{"required-empty-then-field", `include required() b = "x"`},
 		{"required-unknown-resource", `include required(fileX("bar.conf"))`},
 		{"required-unknown-resource-bare", `include required(abc("bar.conf"))`},
+
+		// Bare resource word without `(` — must reject per grammar:
+		// `include file "x"` should error (the `file(...)` form requires parens
+		// after the resource word, per the docs and existing fixtures). Same
+		// for `required(file "x")` (inner-whitespace form). Copilot review
+		// on PR#101.
+		{"bare-file-no-paren", `include file "x"`},
+		{"required-bare-file-no-paren", `include required(file "x")`},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.label, func(t *testing.T) {
 			_, err := parser.Parse(tc.src)
 			if err == nil {
-				t.Fatalf("Parse(%q): expected error (must NOT silently consume `b = \"x\"` or accept unknown resource name), got nil", tc.src)
+				t.Fatalf("Parse(%q): expected error (must NOT silently consume `b = \"x\"`, accept unknown resource name, or accept bare resource word without `(`), got nil", tc.src)
+			}
+		})
+	}
+}
+
+// TestIncludeFile_DoesNotConsumeNextFieldOnSameLine asserts that the post-path
+// noise loop in parseInclude only consumes trailing `)` close-paren tokens —
+// NOT arbitrary tokens that look like the start of the next field. HOCON
+// allows field separator omission on the same line (see `skipSeparator` in
+// parser.go), so `include file("a") b = "x"` is a valid two-field document.
+// Pre-fix, the post-path loop scanned until newline/`}`/EOF/comma, silently
+// consuming `b = "x"` and dropping the field. Copilot review on PR#101
+// flagged the symmetric pre/post-path bug; this test pins the post-path fix.
+func TestIncludeFile_DoesNotConsumeNextFieldOnSameLine(t *testing.T) {
+	cases := []struct {
+		label string
+		src   string
+	}{
+		{"file-then-trailing-field-same-line", `include file("a") b = "x"`},
+		{"required-file-then-trailing-field-same-line", `include required(file("a")) b = "x"`},
+		{"required-quoted-then-trailing-field-same-line", `include required("a") b = "x"`},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			root, err := parser.Parse(tc.src)
+			// Parse should succeed at the syntax layer (include resolution
+			// happens later in the resolver). Even if include resolution would
+			// fail (no such file), parser.Parse is responsible only for AST
+			// construction.
+			if err != nil {
+				t.Fatalf("Parse(%q): unexpected parse error: %v", tc.src, err)
+			}
+			// We expect exactly 2 root fields: the include + the `b` field.
+			// (The include node is stored as a FieldNode with an IncludeNode
+			// value; the `b` field is a regular FieldNode with key ["b"].)
+			if len(root.Fields) != 2 {
+				keys := make([]string, 0, len(root.Fields))
+				for _, f := range root.Fields {
+					if len(f.Key) > 0 {
+						keys = append(keys, f.Key[0])
+					} else {
+						keys = append(keys, "<include>")
+					}
+				}
+				t.Errorf("Parse(%q): expected 2 root fields (include + b), got %d (keys: %v)", tc.src, len(root.Fields), keys)
+			}
+			// The `b` field must be present in the root.
+			foundB := false
+			for _, f := range root.Fields {
+				if len(f.Key) == 1 && f.Key[0] == "b" {
+					foundB = true
+					break
+				}
+			}
+			if !foundB {
+				t.Errorf("Parse(%q): expected `b` field in root, got: %#v", tc.src, root.Fields)
 			}
 		})
 	}

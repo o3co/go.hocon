@@ -154,6 +154,25 @@ func (p *parser) skipSeparator() {
 	p.skipNewlines()
 }
 
+// onlyClosingParens reports whether `s` is a non-empty string consisting
+// solely of `)` characters. Used by parseInclude's post-path noise loop to
+// consume trailing `)` close-paren tokens (`)`, `))`, etc.) without
+// swallowing arbitrary tokens that may be the start of the next field —
+// HOCON allows field separator omission on the same line, so a too-broad
+// post-path skip would silently drop real data (go.hocon#101 Copilot
+// review).
+func onlyClosingParens(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c != ')' {
+			return false
+		}
+	}
+	return true
+}
+
 // isIncludeSkipToken returns true if `tok` is an include-syntax "noise" token
 // that may legitimately appear between an include directive keyword
 // (`include` / `required` / `file`) and the quoted path string. With parens
@@ -277,9 +296,17 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		}
 		if strings.HasPrefix(innerPrefix, "file(") || innerPrefix == "file" {
 			isFile = true
+			// Bare inner `file` (whitespace before `(`): the next token must start with `(`
+			// so `include required(file "x")` is correctly rejected rather than silently
+			// accepted as a file include (go.hocon#101 Copilot review).
+			if innerPrefix == "file" {
+				if p.current.Type != lexer.TokenString || p.current.IsQuoted || !strings.HasPrefix(p.current.Value, "(") {
+					return nil, newError(line, col, "expected '(' after 'file' in include required(file(...))")
+				}
+			}
 		} else if innerPrefix != "" {
 			return nil, newError(line, col,
-				"include required(...) must wrap a quoted string or `file(...)` / `url(...)` / `classpath(...)` form, got: required(%s",
+				"include required(...) inner resource %q is not recognised — must be a quoted string or `file(...)` / `url(...)` / `classpath(...)`",
 				innerPrefix)
 		}
 
@@ -292,23 +319,32 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		}
 		path = p.current.Value
 		p.advance()
-		// Skip until end-of-statement (eats trailing `)` permissively).
-		for p.current.Type != lexer.TokenEOF && p.current.Type != lexer.TokenNewline &&
-			p.current.Type != lexer.TokenRBrace && p.current.Type != lexer.TokenComma {
+		// Consume only trailing `)` close-paren noise — see `onlyClosingParens`
+		// docstring for why this is narrower than a skip-until-newline loop.
+		for p.current.Type == lexer.TokenString && !p.current.IsQuoted && onlyClosingParens(p.current.Value) {
 			p.advance()
 		}
 
 	case isUnquoted && (cur.Value == "file" || strings.HasPrefix(cur.Value, "file(")):
 		// include file(...)
 		isFile = true
+		bareFile := cur.Value == "file"
 		p.advance()
+		// Bare `file` (whitespace before `(`): the next token must start with `(`
+		// so `include file "x"` is correctly rejected rather than silently accepted
+		// as a file include (mirrors the bare-`required` check above; go.hocon#101
+		// Copilot review).
+		if bareFile {
+			if p.current.Type != lexer.TokenString || p.current.IsQuoted || !strings.HasPrefix(p.current.Value, "(") {
+				return nil, newError(line, col, "expected '(' after 'file' in include directive")
+			}
+		}
 		if _, err := p.skipToIncludePath(line, col, "file(...)"); err != nil {
 			return nil, err
 		}
 		path = p.current.Value
 		p.advance()
-		for p.current.Type != lexer.TokenEOF && p.current.Type != lexer.TokenNewline &&
-			p.current.Type != lexer.TokenRBrace && p.current.Type != lexer.TokenComma {
+		for p.current.Type == lexer.TokenString && !p.current.IsQuoted && onlyClosingParens(p.current.Value) {
 			p.advance()
 		}
 
