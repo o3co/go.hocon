@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Include ordering / self-referential append through include** ([#106](https://github.com/o3co/go.hocon/issues/106)). When an `include` directive appeared after an existing key in the parent file, the parent's value was incorrectly kept instead of being overridden by the included file's value. Lightbend Config treats included content as if it had been written inline at the include position; `go.hocon` now matches that semantics. Self-referential appends like `steps = ${steps} [{ name = child }]` placed inside an included file now resolve against the parent's prior value, matching Lightbend. Reported by [@cgordon](https://github.com/cgordon).
+
+### Changed — resolver
+
+- **Lenient self-referential substitution defer (E12 `AllowUnresolved`)**. Under `Resolve(opts.WithAllowUnresolved(true))`, a required self-referential `${k}` with no prior value used to error; it now defers the placeholder so a subsequent merge supplying a prior can complete resolution. This is required by the include-ordering fix above (the include child resolver runs in lenient mode); user-visible behaviour change is limited to `AllowUnresolved=true`, where the error is replaced by an unresolved placeholder.
+
 ## [1.4.0] - 2026-05-21
 
 ### Added — E11 `include package("<id>", "<file>")` qualifier
