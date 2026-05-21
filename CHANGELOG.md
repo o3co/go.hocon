@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-21
+
+### Fixed
+
+- **S8.1/S8.8 — parens `(` `)` in unquoted strings** ([xx.hocon#34](https://github.com/o3co/xx.hocon/issues/34) external report by @cgordon, [go.hocon#100](https://github.com/o3co/go.hocon/issues/100), upstream spec PR [xx.hocon#35](https://github.com/o3co/xx.hocon/pull/35)). Real-world inputs like `description = Build API spec for X (internal)` and `a = hello (world)` previously parse-errored at `(`. They now parse to `{"description":"Build API spec for X (internal)"}` / `{"a":"hello (world)"}`, matching the spec (HOCON.md L274 forbidden set does NOT include `(` or `)`) and the established behavior of ts.hocon and rs.hocon.
+
+  **Root cause** (pre-1.3.1): two layers rejected parens in value position:
+  1. `internal/lexer/lexer.go` emitted `TokenLParen` / `TokenRParen` as standalone tokens unconditionally for every `(` / `)` it saw.
+  2. The lexer's `unquotedForbidden` character set included `()`, breaking any unquoted run on a paren.
+
+  **Fix** (Option C, mirrors `ts.hocon parseInclude` structure): parens become ordinary unquoted-continue chars at the lexer; the parser's `parseInclude` switches to **string-match on the unquoted token value** for the include resource forms — `file(...)`, `required(...)`, `classpath(...)`, `url(...)`. With no whitespace before `(`, the lexer produces a single unquoted token like `file(`, `required(file(`, etc. With whitespace, the next token starts with `(`; both forms are accepted. Trailing `)` is consumed by a "skip until end-of-statement" loop after the path string (newline / `}` / EOF / `,`). `TokenLParen` / `TokenRParen` constants removed from `internal/lexer/lexer.go` (no longer emitted; previously only consumed inside `parseInclude`). All references were `internal/`-scoped per Go's import-path rule — non-breaking.
+
+  **Multi-agent review hardening** (Claude + Codex convergent finding on this PR's review cycle): path discovery is **stricter than the pure ts.hocon mirror** to avoid silent data loss. The new `skipToIncludePath` helper only advances over genuine include-syntax noise tokens (bare `(`, `file`/`url`/`classpath` with optional `(`-prefix). Encountering a statement-boundary token (`,` / `}` / `=` / `:` / `+=` / `{` / a bare identifier / a number) before the quoted path string raises a parse error rather than silently scanning forward. Pre-hardening, inputs like `include file() , b = "x"` would have silently turned into `include "x"` (dropping `b`). The same helper detects `file()` inside `required ( file("foo"))` (whitespace-separated nested form) and correctly sets `IsFile=true` on the include node — this is a divergence from ts.hocon (which misses this case, tracked upstream). Same-token resource-name detection inside `required(...)` is also tightened: `strings.HasPrefix("file")` / `"url"` / `"classpath"` (which false-matched `fileX(` / `urlencode(` / etc.) is replaced with exact `file(` / `url(` / `classpath(` prefix checks. Unknown resource names inside `required(...)` (e.g. `required(abc("..."))`) now raise an explicit error instead of being silently treated as bare-path includes. New regression test: `TestIncludeFile_DoesNotSilentlyMaskMalformedIncludes` (5 cases).
+
+  **Behavior change — permissive close-paren**: `include file("foo"` (missing close `)`) and `include required(file("foo")` (missing outer `)`) now parse successfully instead of raising a parse error. This matches Lightbend's lenient handling and ts.hocon's behavior. Tests `TestIncludeFile_MissingClosingParen` and `TestIncludeRequired_MissingOuterClosingParen` were removed for this reason.
+
+  **Behavior change — error message wording**: `include file(42)` / `include file()` / `include file({a:1})` still parse-error, but the error message changed from `"filename string"` to `"expected include path string in include file(...) directive"` (reflects the skip-until-quoted-string strategy). `TestIncludeFile_NonStringArgument` updated.
+
+  Cross-impl pin: 6 new conformance fixtures `testdata/hocon/unquoted-parens/up01-up06` (mid-token, leading, real-world prose, nested, both unbalanced directions) wired in `s8_unquoted_parens_test.go`. Lightbend typesafe-config 1.4.3 ground truth.
+
+  xx.hocon SHA pin bumped to `5b9c1ba`.
+
+- **Testdata sync (free-rider)**: ev12a / ev12b / ev13 fixtures from xx.hocon's env-var-list suite (cluster 3g, pinned in xx.hocon SHA `5beedfa`) were not committed to this repo during the v1.3.0 cycle. The fresh `make testdata` run on this branch surfaced them; they are committed here so subsequent fetches do not present them as untracked. No behavior change — these fixtures already exercise existing pass paths.
+
 ## [1.3.0] - 2026-05-21
 
 v1.3 is a spec-compliance bugfix release. The implementation has been corrected to match the HOCON spec and Lightbend typesafe-config reference behavior across several previously-divergent areas (E8 value-position lexing + leading-zero canonicalization + `+` reservation enforcement, concat type-checking, `include` key reservation, empty-file rejection, single-letter byte units, `.properties` object-wins, duration/bytes default unit, S13c env-var list). The spec did not change; the parser was simply wrong in places.

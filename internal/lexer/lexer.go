@@ -28,8 +28,6 @@ const (
 	TokenRBrace                        // }
 	TokenLBracket                      // [
 	TokenRBracket                      // ]
-	TokenLParen                        // (
-	TokenRParen                        // )
 	TokenComma                         // ,
 	TokenColon                         // :
 	TokenEquals                        // =
@@ -161,12 +159,6 @@ func (l *Lexer) nextToken() Token {
 	case ch == ']':
 		l.advance()
 		return Token{Type: TokenRBracket, Value: "]", Line: line, Col: col}
-	case ch == '(':
-		l.advance()
-		return Token{Type: TokenLParen, Value: "(", Line: line, Col: col}
-	case ch == ')':
-		l.advance()
-		return Token{Type: TokenRParen, Value: ")", Line: line, Col: col}
 	case ch == ',':
 		l.advance()
 		return Token{Type: TokenComma, Value: ",", Line: line, Col: col}
@@ -838,11 +830,13 @@ func isHoconWhitespace(r rune) bool {
 // whitespace but NOT newlines in HOCON.
 func isHoconNewline(r rune) bool { return r == '\n' }
 
-// unquotedForbidden are characters that terminate an unquoted string.
-// Per spec: $"{}[]:=,+#\^?!@*& plus all whitespace.
-// Parentheses are not in the spec but are included so that
-// `include file(...)` / `include required(...)` can be parsed correctly.
-const unquotedForbidden = `$"{}[]:=,+#\^?!@*&()`
+// unquotedForbidden lists characters that cannot appear inside an unquoted
+// string per HOCON.md L274. Parens `(` and `)` are intentionally NOT in this
+// set — they are ordinary unquoted content outside include resource syntax
+// (`file(...)` / `required(...)` / `classpath(...)` / `url(...)`), which
+// `parseInclude` recognises via string-match on the unquoted token value.
+// See xx.hocon#34, xx.hocon#35.
+const unquotedForbidden = `$"{}[]:=,+#\^?!@*&`
 
 func isUnquotedForbidden(ch rune) bool {
 	return isHoconWhitespace(ch) || strings.ContainsRune(unquotedForbidden, ch)
