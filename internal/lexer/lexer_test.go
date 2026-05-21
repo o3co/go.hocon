@@ -381,23 +381,24 @@ func TestUnicodeEscapeInvalid(t *testing.T) {
 	}
 }
 
-func TestUnquotedParenthesesProduceSeparateTokens(t *testing.T) {
-	// Parentheses are forbidden in unquoted strings so that
-	// `include file(...)` / `include required(...)` can be parsed.
-	// They should produce dedicated LParen/RParen tokens.
+func TestUnquotedParenthesesAreUnquotedContent(t *testing.T) {
+	// Post-xx.hocon#34 (Option C, mirrors ts.hocon): parens `(` and `)` are NOT
+	// in the HOCON.md L274 forbidden set. They are ordinary unquoted-string
+	// content; include resource syntax (`file(...)`, `required(...)`, etc.) is
+	// recognised by the parser via string-match on the unquoted token value, not
+	// by dedicated paren tokens. The previous behavior (separate LParen/RParen
+	// tokens, parens forbidden in unquoted runs) was a pre-existing spec gap.
 	tokens := tokenize("key = foo(bar)")
-	hasLParen := false
-	hasRParen := false
+	want := "foo(bar)"
+	found := false
 	for _, tok := range tokens {
-		if tok.Type == lexer.TokenLParen {
-			hasLParen = true
-		}
-		if tok.Type == lexer.TokenRParen {
-			hasRParen = true
+		if tok.Type == lexer.TokenString && !tok.IsQuoted && tok.Value == want {
+			found = true
+			break
 		}
 	}
-	if !hasLParen || !hasRParen {
-		t.Errorf("parentheses should produce LParen/RParen tokens, got: %v", tokens)
+	if !found {
+		t.Errorf("expected single unquoted TokenString %q in tokens, got: %v", want, tokens)
 	}
 }
 
