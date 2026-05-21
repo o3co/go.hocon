@@ -937,16 +937,29 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line,
 		}
 	}
 
-	// Classify non-nil, non-separator elements to detect array/object involvement.
+	// Classify non-nil, non-separator elements to detect array/object involvement
+	// and whether any concrete (non-nil, non-separator) value is present.
 	hasArrayOrObject := false
+	hasConcreteValue := false
 	for _, rv := range resolved {
 		if rv == nil || isSeparator(rv) {
 			continue
 		}
+		hasConcreteValue = true
 		switch rv.(type) {
 		case *ArrayVal, *ObjectVal:
 			hasArrayOrObject = true
 		}
+	}
+
+	// Per HOCON spec § "Optional substitution materialisation in concat contexts":
+	// when the entire concat consists only of undefined optional substitutions
+	// (all operands resolved to nil, no real scalar/array/object content),
+	// the field is omitted — return nil so the parent drops this key.
+	// This differs from a mixed concat like `${?x} "tail"` where the separator
+	// and the literal "tail" count as concrete values.
+	if !hasConcreteValue {
+		return nil, nil
 	}
 
 	// Pure-scalar concat: pass the full resolved slice (including whitespace-separator
