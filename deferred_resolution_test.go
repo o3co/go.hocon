@@ -26,3 +26,46 @@ func TestConfig_IsResolved_FusedParseAndResolveIsResolved(t *testing.T) {
 		t.Fatal("fused ParseString must produce a resolved Config")
 	}
 }
+
+func TestParseStringWithOptions_ResolveSubstitutionsTrue_EquivalentToParseString(t *testing.T) {
+	a, err := hocon.ParseString(`a = 1`)
+	if err != nil {
+		t.Fatalf("ParseString: %v", err)
+	}
+	b, err := hocon.ParseStringWithOptions(`a = 1`, hocon.DefaultParseOptions())
+	if err != nil {
+		t.Fatalf("ParseStringWithOptions: %v", err)
+	}
+	if !a.IsResolved() || !b.IsResolved() {
+		t.Fatal("both must be resolved")
+	}
+	if a.GetInt("a") != 1 || b.GetInt("a") != 1 {
+		t.Fatalf("a=%d b=%d, want 1", a.GetInt("a"), b.GetInt("a"))
+	}
+}
+
+func TestParseStringWithOptions_ResolveSubstitutionsFalse_IsUnresolvedWhenSubstPresent(t *testing.T) {
+	c, err := hocon.ParseStringWithOptions(
+		`a = ${b}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	if err != nil {
+		t.Fatalf("ParseStringWithOptions: %v", err)
+	}
+	if c.IsResolved() {
+		t.Fatal("expected unresolved Config (a = ${b} unresolved)")
+	}
+}
+
+func TestParseStringWithOptions_ResolveSubstitutionsFalse_NoSubstReturnsResolved(t *testing.T) {
+	c, err := hocon.ParseStringWithOptions(
+		`a = 1`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	if err != nil {
+		t.Fatalf("ParseStringWithOptions: %v", err)
+	}
+	if !c.IsResolved() {
+		t.Fatal("expected resolved (no substitutions present)")
+	}
+}
