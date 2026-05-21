@@ -49,15 +49,33 @@ func isHoconWS(r rune) bool {
 	return false
 }
 
-// Config wraps a resolved HOCON value tree.
+// Config wraps a HOCON value tree.  When resolved is true, the tree contains
+// no substitution/concat placeholders and all getters succeed (modulo
+// type-mismatch panics per existing semantics).  When resolved is false, the
+// tree contains placeholders for unresolved substitutions; getters on paths
+// touching a placeholder panic with ErrNotResolved.
 // All *Config values are safe for concurrent read access.
 type Config struct {
-	root *resolver.ObjectVal
+	root              *resolver.ObjectVal
+	resolved          bool
+	parseBaseDir      string // base directory for relative include re-runs (unused in v1)
+	originDescription string // E12 ParseOptions.OriginDescription
 }
 
-// newConfig wraps an ObjectVal.
+// newConfig wraps an ObjectVal as a fully resolved Config.
 func newConfig(obj *resolver.ObjectVal) *Config {
-	return &Config{root: obj}
+	return &Config{root: obj, resolved: true}
+}
+
+// newUnresolvedConfig wraps an ObjectVal that may contain placeholders.
+// Computes the resolved flag by checking the tree once.
+func newUnresolvedConfig(obj *resolver.ObjectVal, baseDir, originDescription string) *Config {
+	return &Config{
+		root:              obj,
+		resolved:          !resolver.ContainsPlaceholders(obj),
+		parseBaseDir:      baseDir,
+		originDescription: originDescription,
+	}
 }
 
 // ── path resolution ──────────────────────────────────────────────
@@ -131,6 +149,18 @@ func lookupSegments(obj *resolver.ObjectVal, segments []string) (resolver.Val, b
 }
 
 // ── Has / Keys ────────────────────────────────────────────────────
+
+// IsResolved reports whether the Config's value tree contains any unresolved
+// substitution placeholders.  Returns true if the tree is fully resolved.
+// Whole-config granularity (no per-value isResolved).  Matches Lightbend
+// Config.isResolved(). Per E12 decision 11.
+func (c *Config) IsResolved() bool {
+	if c.resolved {
+		return true
+	}
+	// re-check (defensive) in case priorValues mutation outpaced the flag.
+	return !resolver.ContainsPlaceholders(c.root)
+}
 
 // Has returns true if the path exists, including when the value is null.
 func (c *Config) Has(path string) bool {

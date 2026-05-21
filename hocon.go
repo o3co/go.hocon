@@ -55,7 +55,7 @@ func parseWith(input, filePath string) (*Config, error) {
 	if err != nil {
 		return nil, wrapResolveError(err)
 	}
-	return &Config{root: res.Root}, nil
+	return newConfig(res.Root), nil
 }
 
 func dirOf(path string) string {
