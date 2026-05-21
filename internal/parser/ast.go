@@ -88,14 +88,19 @@ func (n *SubstNode) Line() int { return n.line }
 func (n *SubstNode) Col() int { return n.col }
 
 // IncludeNode represents an include directive.
-// Only file-based includes are supported in v1.0.
-// Required=true means the file must exist (include required(...) form);
+// Required=true means the resource must exist (include required(...) form);
 // Required=false means missing files are silently ignored per HOCON spec.
+// For package includes (IsPackage=true), lookup failure is always a hard
+// error regardless of Required (E11 decision 4).
 type IncludeNode struct {
 	pos
-	Path     string
-	Required bool
-	IsFile   bool
+	Path      string // for file/bare includes
+	Required  bool
+	IsFile    bool
+	// E11 package include fields — populated when IsPackage=true.
+	IsPackage bool   // true when qualifier is package(...)
+	PkgID     string // package identifier (only when IsPackage)
+	PkgFile   string // package file path (only when IsPackage)
 }
 
 func (n *IncludeNode) node() {}
