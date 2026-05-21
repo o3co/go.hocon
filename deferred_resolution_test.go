@@ -176,3 +176,104 @@ func TestWithFallback_ObjectMergeRecursive(t *testing.T) {
 		t.Fatalf("a.x=%d a.y=%d, want 1 2", m.GetInt("a.x"), m.GetInt("a.y"))
 	}
 }
+
+func TestResolve_OnAlreadyResolvedIsIdempotent(t *testing.T) {
+	c, _ := hocon.ParseString(`a = 1`)
+	r1, err := c.Resolve(hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !r1.IsResolved() {
+		t.Fatal("Resolve(resolved) must remain resolved")
+	}
+	// Double-resolve.
+	r2, err := r1.Resolve(hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("double Resolve: %v", err)
+	}
+	if r2.GetInt("a") != 1 {
+		t.Fatalf("double resolve drift: a=%d", r2.GetInt("a"))
+	}
+}
+
+func TestResolve_DeferredPathSucceeds(t *testing.T) {
+	c, _ := hocon.ParseStringWithOptions(
+		`a = ${b}
+b = 1`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	r, err := c.Resolve(hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !r.IsResolved() {
+		t.Fatal("Resolve must produce resolved Config")
+	}
+	if r.GetInt("a") != 1 {
+		t.Fatalf("a=%d, want 1", r.GetInt("a"))
+	}
+}
+
+func TestResolve_FallbackThenResolve_IssueNinetyNineExample(t *testing.T) {
+	// dr01 minimal: receiver references CI_RUN_NUMBER and shortversion;
+	// runtime FromMap is not yet available (T11), so use ParseString fallback.
+	r, _ := hocon.ParseStringWithOptions(
+		`version = ${shortversion}-${CI_RUN_NUMBER}
+variables { shortversion = "1.2.3" }`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	rt, _ := hocon.ParseStringWithOptions(
+		`CI_RUN_NUMBER = "42"`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	vars := r.GetConfig("variables")
+	merged := r.WithFallback(rt).WithFallback(vars)
+	resolved, err := merged.Resolve(hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := resolved.GetString("version"); got != "1.2.3-42" {
+		t.Fatalf("version=%q, want 1.2.3-42", got)
+	}
+}
+
+func TestResolve_NoSystemEnvironment(t *testing.T) {
+	t.Setenv("SHOULD_NOT_BE_READ", "from-env")
+	c, _ := hocon.ParseStringWithOptions(
+		`a = ${SHOULD_NOT_BE_READ}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	_, err := c.Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err == nil {
+		t.Fatal("expected ResolveError when env disabled and var absent from config")
+	}
+	var re *hocon.ResolveError
+	if !errors.As(err, &re) {
+		t.Fatalf("expected *ResolveError, got %T (%v)", err, err)
+	}
+}
+
+func TestResolve_AllowUnresolved_DoesNotError(t *testing.T) {
+	c, _ := hocon.ParseStringWithOptions(
+		`a = ${avail}
+b = ${unavail}
+avail = "hello"`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	r, err := c.Resolve(hocon.DefaultResolveOptions().
+		WithAllowUnresolved(true).
+		WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve(allowUnresolved): %v", err)
+	}
+	if r.IsResolved() {
+		t.Fatal("expected unresolved (b still has placeholder)")
+	}
+	if got := r.GetString("a"); got != "hello" {
+		t.Fatalf("a=%q, want hello", got)
+	}
+	// Getter on b must panic NotResolved.
+	defer func() {
+		rec := recover()
+		ce, ok := rec.(*hocon.ConfigError)
+		if !ok || !errors.Is(ce, hocon.ErrNotResolved) {
+			t.Fatalf("expected NotResolved panic on b, got %T %v", rec, rec)
+		}
+	}()
+	_ = r.GetString("b")
+}

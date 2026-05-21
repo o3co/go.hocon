@@ -830,6 +830,45 @@ func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
 
 // ── merge ─────────────────────────────────────────────────────────
 
+// Resolve performs substitution resolution over the value tree, producing a
+// fully resolved Config.  Per E12 § "Resolution":
+//   - On an already-resolved Config: returns an equivalent Config (idempotent
+//     no-op equivalent to Lightbend's documented behaviour).
+//   - On an unresolved Config: performs a single top-level resolve operation
+//     over the entire tree (including merged fallback layers), with transitive
+//     recursive substitution evaluation.
+//
+// opts.UseSystemEnvironment=false makes resolution hermetic (no os.Environ
+// lookup for substitutions not satisfied in-tree).
+// opts.AllowUnresolved=true leaves required-but-unsatisfied placeholders in
+// place; getter on those paths panics ErrNotResolved.
+func (c *Config) Resolve(opts ResolveOptions) (*Config, error) {
+	if c.IsResolved() {
+		// Idempotent: return a fresh wrapper (or the receiver) — both
+		// satisfy the spec.  Returning a copy avoids aliasing surprises.
+		return &Config{
+			root:              c.root,
+			resolved:          true,
+			parseBaseDir:      c.parseBaseDir,
+			originDescription: c.originDescription,
+		}, nil
+	}
+	res, err := resolver.ResolveTree(c.root, resolver.Options{
+		BaseDir:              c.parseBaseDir,
+		UseSystemEnvironment: opts.UseSystemEnvironment(),
+		AllowUnresolved:      opts.AllowUnresolved(),
+	})
+	if err != nil {
+		return nil, wrapResolveError(err)
+	}
+	return &Config{
+		root:              res.Root,
+		resolved:          !resolver.ContainsPlaceholders(res.Root),
+		parseBaseDir:      c.parseBaseDir,
+		originDescription: c.originDescription,
+	}, nil
+}
+
 // WithFallback returns a new Config that deep-merges receiver over fallback.
 // Neither receiver nor fallback is mutated. If fallback is nil, returns receiver.
 //
