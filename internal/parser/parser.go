@@ -260,7 +260,7 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 
 		// Bare `required` (whitespace before `(`): the next token must start with `(`.
 		if bareRequired {
-			if !(p.current.Type == lexer.TokenString && !p.current.IsQuoted && strings.HasPrefix(p.current.Value, "(")) {
+			if p.current.Type != lexer.TokenString || p.current.IsQuoted || !strings.HasPrefix(p.current.Value, "(") {
 				return nil, newError(line, col, "expected '(' after 'required' in include directive")
 			}
 		}
