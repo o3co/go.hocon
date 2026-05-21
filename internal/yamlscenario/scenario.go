@@ -40,8 +40,8 @@ type Step struct {
 	Op                   string `yaml:"op"`
 	Source               string `yaml:"source,omitempty"` // for `take`, `resolveWith`
 	This                 string `yaml:"this,omitempty"`
-	Other                string `yaml:"other,omitempty"`  // for `withFallback`
-	Path                 string `yaml:"path,omitempty"`   // for `extract`
+	Other                string `yaml:"other,omitempty"` // for `withFallback`
+	Path                 string `yaml:"path,omitempty"`  // for `extract`
 	AllowUnresolved      *bool  `yaml:"allowUnresolved,omitempty"`
 	UseSystemEnvironment *bool  `yaml:"useSystemEnvironment,omitempty"`
 	As                   string `yaml:"as"`

@@ -331,12 +331,12 @@ avail = "hello"`,
 
 func TestFromMap_ScalarTypes(t *testing.T) {
 	c, err := hocon.FromMap(map[string]any{
-		"flag":   true,
-		"count":  42,
-		"ratio":  3.14,
-		"label":  "hello",
-		"items":  []any{int64(1), int64(2), int64(3)},
-		"nested": map[string]any{"inner": "deep"},
+		"flag":    true,
+		"count":   42,
+		"ratio":   3.14,
+		"label":   "hello",
+		"items":   []any{int64(1), int64(2), int64(3)},
+		"nested":  map[string]any{"inner": "deep"},
 		"nothing": nil,
 	}, "")
 	if err != nil {
