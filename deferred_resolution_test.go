@@ -129,3 +129,50 @@ func TestGetterOption_OnUnresolvedReturnsNone(t *testing.T) {
 		t.Fatal("expected None for unresolved path via GetStringOption")
 	}
 }
+
+func TestWithFallback_BothResolved_PreservesExistingSemantics(t *testing.T) {
+	a, _ := hocon.ParseString(`a = 1
+b = 2`)
+	b, _ := hocon.ParseString(`b = 99
+c = 3`)
+	m := a.WithFallback(b)
+	if !m.IsResolved() {
+		t.Fatal("both inputs resolved → result resolved")
+	}
+	if m.GetInt("a") != 1 || m.GetInt("b") != 2 || m.GetInt("c") != 3 {
+		t.Fatalf("a=%d b=%d c=%d, want 1 2 3", m.GetInt("a"), m.GetInt("b"), m.GetInt("c"))
+	}
+}
+
+func TestWithFallback_UnresolvedAndResolved_ResultIsUnresolved(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${b}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	f, _ := hocon.ParseString(`b = 7`)
+	m := r.WithFallback(f)
+	if m.IsResolved() {
+		t.Fatal("receiver unresolved → merged result unresolved (until Resolve())")
+	}
+}
+
+func TestWithFallback_NilFallback_ReturnsReceiver(t *testing.T) {
+	c, _ := hocon.ParseString(`a = 1`)
+	if c.WithFallback(nil) != c {
+		t.Fatal("nil fallback must return receiver verbatim")
+	}
+}
+
+func TestWithFallback_ObjectMergeRecursive(t *testing.T) {
+	a, _ := hocon.ParseStringWithOptions(
+		`a { x = 1 }`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	b, _ := hocon.ParseStringWithOptions(
+		`a { y = 2 }`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	m := a.WithFallback(b)
+	if !m.IsResolved() {
+		t.Fatal("both inputs are resolvable (no subs) → result must be resolved")
+	}
+	if m.GetInt("a.x") != 1 || m.GetInt("a.y") != 2 {
+		t.Fatalf("a.x=%d a.y=%d, want 1 2", m.GetInt("a.x"), m.GetInt("a.y"))
+	}
+}

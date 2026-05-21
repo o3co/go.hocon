@@ -832,34 +832,32 @@ func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
 
 // WithFallback returns a new Config that deep-merges receiver over fallback.
 // Neither receiver nor fallback is mutated. If fallback is nil, returns receiver.
+//
+// Per E12 § "Composition" (decision 5):
+//   - Receiver's keys win.
+//   - Accepts resolved AND unresolved operands. Result is unresolved iff
+//     either operand is unresolved.
+//   - Substitution placeholders survive merge unchanged. Substitution
+//     lookup at Resolve() time uses the merged tree.
+//   - Non-object collision captures fallback's value as a prior for cross-
+//     layer self-reference lookback (S13a × WithFallback, dr04-dr06).
+//
+// Composition barrier (HOCON.md §Object Merge L1485, dr10):
+//
+//	obj.WithFallback(nonObj).WithFallback(otherObj) ignores otherObj because
+//	nonObj is non-object and bars the merge.  Once a key holds a non-object
+//	scalar, any object at the same key in a subsequent fallback simply does
+//	not replace the scalar (receiver wins; the fallback object is captured
+//	as prior but does not contribute keys to the result).
 func (c *Config) WithFallback(fallback *Config) *Config {
-	if fallback == nil {
+	if fallback == nil || fallback.root == nil {
 		return c
 	}
-	merged := mergeObjectVals(c.root, fallback.root)
-	return newConfig(merged)
-}
-
-// mergeObjectVals merges base into over (over's values win).
-func mergeObjectVals(over, base *resolver.ObjectVal) *resolver.ObjectVal {
-	result := resolver.NewObjectVal()
-	// seed with base
-	for _, k := range base.Keys() {
-		v, _ := base.Get(k)
-		result.Set(k, v)
+	merged := resolver.MergeUnresolved(c.root, fallback.root)
+	return &Config{
+		root:              merged,
+		resolved:          c.resolved && fallback.resolved && !resolver.ContainsPlaceholders(merged),
+		parseBaseDir:      c.parseBaseDir,
+		originDescription: c.originDescription,
 	}
-	// apply over
-	for _, k := range over.Keys() {
-		ov, _ := over.Get(k)
-		if bv, ok := result.GetVal(k); ok {
-			if bo, bok := bv.(*resolver.ObjectVal); bok {
-				if oo, ook := ov.(*resolver.ObjectVal); ook {
-					result.Set(k, mergeObjectVals(oo, bo))
-					continue
-				}
-			}
-		}
-		result.Set(k, ov)
-	}
-	return result
 }
