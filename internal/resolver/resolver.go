@@ -1477,9 +1477,10 @@ func isEmptyOrCommentOnlyHocon(data []byte) bool {
 		// Decode one rune so we treat all HOCON whitespace (NBSP, U+2028,
 		// U+FEFF, etc. — multi-byte under UTF-8) consistently with the lexer.
 		r, size := utf8.DecodeRuneInString(s[i:])
-		// HOCON whitespace (per lexer.isHoconWhitespace) covers newlines too;
-		// also covers BOM at any position, not just the leading byte.
-		if lexer.IsHoconWhitespace(r) || r == '\n' {
+		// HOCON whitespace (per lexer.isHoconWhitespace) covers LF as well as
+		// BOM at any position, not just the leading byte — so a single
+		// IsHoconWhitespace check is sufficient.
+		if lexer.IsHoconWhitespace(r) {
 			i += size
 			continue
 		}

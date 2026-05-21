@@ -103,9 +103,10 @@ func TestIssue105_WhitespaceOnlyIncludeFile(t *testing.T) {
 func TestIssue105_UnicodeWhitespaceOnlyIncludeFile(t *testing.T) {
 	dir := t.TempDir()
 	uwsFile := filepath.Join(dir, "uws.conf")
-	// Build content from Go \u escapes to avoid editor-encoding surprises:
 	// NBSP (U+00A0), en-quad (U+2000), line separator (U+2028), then LF.
-	content := []byte("   \n")
+	// Use explicit \u escapes so the literal is reviewable byte-for-byte
+	// rather than depending on invisible characters surviving copy/paste.
+	content := []byte("\u00A0\u2000\u2028\n")
 	if err := os.WriteFile(uwsFile, content, 0644); err != nil {
 		t.Fatal(err)
 	}
