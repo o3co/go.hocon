@@ -166,6 +166,14 @@ type Options struct {
 	// E11: child resolvers created during include resolution MUST copy this field from the
 	// parent so that package includes within included files are resolved correctly.
 	PackageLookup func(identifier, file string) ([]byte, error)
+	// UseSystemEnvironment, when false, disables fallback to os.LookupEnv for
+	// unresolved substitution paths (E12 ResolveOptions.UseSystemEnvironment).
+	// Default zero-value is false; the public Config layer must pass true to
+	// preserve current behaviour for fused parseAndResolve.
+	UseSystemEnvironment bool
+	// AllowUnresolved, when true, leaves unresolved (non-optional) substitution
+	// placeholders in place instead of returning a ResolveError (E12 ResolveOptions.AllowUnresolved).
+	AllowUnresolved bool
 }
 
 // ResolveError wraps resolution failures.
@@ -192,8 +200,28 @@ func (e *ResolveError) Unwrap() error {
 	return e.Cause
 }
 
-// Resolve transforms an AST into a fully resolved Result.
+// Resolve transforms an AST into a fully resolved Result. Preserved for
+// backward compatibility — equivalent to BuildTree(...) followed by
+// ResolveTree(...) with UseSystemEnvironment=true (current behaviour).
 func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
+	// Phase 1: build tree.
+	tree, err := BuildTree(root, opts)
+	if err != nil {
+		return nil, err
+	}
+	// Phase 2: resolve substitutions. Preserve current behaviour: env is
+	// always consulted for fused parseAndResolve; AllowUnresolved=false.
+	phase2Opts := opts
+	phase2Opts.UseSystemEnvironment = true
+	phase2Opts.AllowUnresolved = false
+	return ResolveTree(tree, phase2Opts)
+}
+
+// BuildTree runs phase 1 — parsing AST into an ObjectVal tree containing
+// substitution/concat placeholders for any unresolved values. Includes are
+// fully expanded (file/url/package). Phase 2 (ResolveTree) replaces the
+// placeholders.
+func BuildTree(root *parser.ObjectNode, opts Options) (*ObjectVal, error) {
 	if opts.BaseDir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -202,17 +230,72 @@ func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
 		opts.BaseDir = wd
 	}
 	stack := make([]string, 0, 8)
-	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val), includeStack: &stack}
-	obj, err := r.resolveObject(root, opts.Fallback, nil)
+	r := &resolver{
+		opts:          opts,
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
+		includeStack:  &stack,
+	}
+	return r.resolveObject(root, opts.Fallback, nil)
+}
+
+// ResolveTree runs phase 2 — replacing substitution and concat placeholders
+// in tree with their resolved values. tree may have been merged from multiple
+// BuildTree results via MergeUnresolved (E12 WithFallback). The opts'
+// UseSystemEnvironment and AllowUnresolved fields control phase-2 behaviour;
+// BaseDir / Fallback / PackageLookup are not consulted (those are phase-1 inputs).
+func ResolveTree(tree *ObjectVal, opts Options) (*Result, error) {
+	r := &resolver{
+		opts:          opts,
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
+		includeStack:  nil, // not used in phase 2
+		lenient:       opts.AllowUnresolved,
+	}
+	// Re-populate top-level priorValues from the tree (phase 1 stored them on
+	// each ObjectVal; phase 2's self-reference lookback consults both the
+	// per-object map AND the resolver's top-level map).
+	for k, v := range tree.priorValues {
+		r.priorValues[k] = v
+	}
+	out, err := r.resolveSubstitutions(tree, tree)
 	if err != nil {
 		return nil, err
 	}
-	// second pass: resolve substitutions with full object context
-	obj2, err := r.resolveSubstitutions(obj, obj)
-	if err != nil {
-		return nil, err
+	return &Result{Root: out}, nil
+}
+
+// ContainsPlaceholders reports whether any value in the tree is an unresolved
+// substitution or concat placeholder. Used by Config.IsResolved.
+func ContainsPlaceholders(tree *ObjectVal) bool {
+	if tree == nil {
+		return false
 	}
-	return &Result{Root: obj2}, nil
+	for _, k := range tree.Keys() {
+		v, _ := tree.Get(k)
+		if valContainsPlaceholders(v) {
+			return true
+		}
+	}
+	return false
+}
+
+func valContainsPlaceholders(v Val) bool {
+	switch vv := v.(type) {
+	case *substPlaceholder, *concatPlaceholder:
+		return true
+	case *ObjectVal:
+		return ContainsPlaceholders(vv)
+	case *ArrayVal:
+		for _, e := range vv.Elements {
+			if valContainsPlaceholders(e) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type resolver struct {
@@ -604,14 +687,18 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			return resolved, nil
 		}
 		// Also try env var with original path (raw dot-join, no quoting)
-		if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
-			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+		if r.opts.UseSystemEnvironment {
+			if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
+				return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+			}
 		}
 	}
 
 	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior
-	if ev, ok := os.LookupEnv(strings.Join(segStrs, ".")); ok {
-		return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+	if r.opts.UseSystemEnvironment {
+		if ev, ok := os.LookupEnv(strings.Join(segStrs, ".")); ok {
+			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+		}
 	}
 	if n.Optional {
 		return nil, nil // field will be dropped
@@ -718,6 +805,21 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line,
 			return nil, err
 		}
 		resolved = append(resolved, rv)
+	}
+
+	// In lenient (AllowUnresolved) mode, if any resolved element is still a
+	// placeholder, defer the whole concat rather than error or produce a broken
+	// string. The placeholder will be resolved by a subsequent ResolveTree call
+	// (e.g. after WithFallback merges the missing value).
+	if r.lenient {
+		for _, rv := range resolved {
+			if _, isSP := rv.(*substPlaceholder); isSP {
+				return &concatPlaceholder{vals: resolved, line: line, col: col}, nil
+			}
+			if _, isCP := rv.(*concatPlaceholder); isCP {
+				return &concatPlaceholder{vals: resolved, line: line, col: col}, nil
+			}
+		}
 	}
 
 	// Classify non-nil, non-separator elements to detect array/object involvement.
