@@ -175,6 +175,9 @@ type ResolveError struct {
 	Line     int
 	Col      int
 	FilePath string
+	// Cause is the underlying error that triggered this resolve error, if any.
+	// Callers can use errors.Is/As to inspect the root cause.
+	Cause error
 }
 
 func (e *ResolveError) Error() string {
@@ -182,6 +185,11 @@ func (e *ResolveError) Error() string {
 		return fmt.Sprintf("resolve error at path %q: %s", e.Path, e.Message)
 	}
 	return "resolve error: " + e.Message
+}
+
+// Unwrap returns the underlying cause, enabling errors.Is/As traversal.
+func (e *ResolveError) Unwrap() error {
+	return e.Cause
 }
 
 // Resolve transforms an AST into a fully resolved Result.
@@ -1222,11 +1230,12 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 		content, lookupErr = r.opts.PackageLookup(identifier, file)
 		if lookupErr != nil {
 			// Preserve the original error cause so callers can distinguish a registry miss
-			// from other lookup failures (I/O error, permission denied, etc.).
+			// from other lookup failures (I/O error, permission denied, etc.) via errors.Is/As.
 			return nil, &ResolveError{
 				Message: fmt.Sprintf("package(%q, %q): %s; "+
 					"if this is a missing registration, ensure the providing package is imported with _ %q in your application",
 					identifier, file, lookupErr.Error(), identifier),
+				Cause: lookupErr,
 			}
 		}
 	} else {
@@ -1242,10 +1251,10 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 		return newObjectVal(), nil
 	}
 
-	// Use a synthetic "virtual path" for the child resolver's BaseDir.
-	// Since package content is not a filesystem file, we use an empty string;
-	// the child resolver defaults BaseDir to the working directory for any nested
-	// file includes within the package content (unusual but valid).
+	// Build a synthetic virtual path used as a descriptive label in error messages.
+	// parseAndResolvePackage inherits r.opts.BaseDir for any nested file includes
+	// within the package content (unusual but valid); BaseDir is not derived from
+	// virtualPath — it comes from the resolver options already set on r.
 	virtualPath := fmt.Sprintf("package:%s:%s", identifier, file)
 	obj, err := r.parseAndResolvePackage(content, virtualPath)
 	if err != nil {

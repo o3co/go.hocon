@@ -11,7 +11,6 @@
 package parser_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -210,5 +209,4 @@ func TestParseIncludePackageNestedInObject(t *testing.T) {
 	if !inc.IsPackage {
 		t.Error("IsPackage should be true")
 	}
-	_ = strings.Contains // suppress unused import warning
 }

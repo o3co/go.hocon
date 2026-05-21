@@ -11,6 +11,7 @@ package resolver_test
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -274,31 +275,44 @@ func TestPackageParseErrorIncludesContext(t *testing.T) {
 
 // TestPackageLookupPropagationToChildResolver verifies that PackageLookup is propagated
 // to child resolvers created when resolving included files (design Codex must-fix #1).
+// The test exercises the full chain: root conf → include "outer.conf" (file include) →
+// include package("foo", "inner.conf") (package include within the included file).
+// PackageLookup must reach the child resolver that handles the file-included content.
 func TestPackageLookupPropagationToChildResolver(t *testing.T) {
-	// The outer include includes "outer.conf", which itself includes package("foo", "inner.conf").
-	// PackageLookup must be available in the child resolver.
-	innerContent := `inner_key = "from_inner"`
+	// outer.conf includes a package; it is written to a temp dir so that a real
+	// file-include chain is exercised (not just direct package resolution).
 	outerContent := `outer_key = "from_outer"
 include package("foo", "inner.conf")`
+	innerContent := `inner_key = "from_inner"`
+
+	tmpDir := t.TempDir()
+	outerFile := tmpDir + "/outer.conf"
+	if err := os.WriteFile(outerFile, []byte(outerContent), 0o644); err != nil {
+		t.Fatalf("write outer.conf: %v", err)
+	}
 
 	pkgs := map[string]string{
 		pkgKey("foo", "inner.conf"): innerContent,
 	}
 
-	// We test this by having the AST directly contain a nested package include.
-	// Simulating file-chain would require actual files; instead we nest within an object.
-	src := outerContent
+	// Root conf performs a file include; the included file performs a package include.
+	src := fmt.Sprintf(`root_key = "root"
+include "%s"`, outerFile)
 	ast, err := parser.Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	res, err := resolver.Resolve(ast, resolver.Options{
+		BaseDir:       tmpDir,
 		PackageLookup: makeLookup(pkgs),
 	})
 	if err != nil {
-		t.Fatalf("resolve (PackageLookup propagation): %v", err)
+		t.Fatalf("resolve (PackageLookup propagation via file include): %v", err)
 	}
 	if _, ok := res.Root.Get("inner_key"); !ok {
-		t.Error("inner_key not found — PackageLookup not propagated to child resolver")
+		t.Error("inner_key not found — PackageLookup not propagated through file-include child resolver")
+	}
+	if _, ok := res.Root.Get("outer_key"); !ok {
+		t.Error("outer_key not found — file include itself did not resolve correctly")
 	}
 }
