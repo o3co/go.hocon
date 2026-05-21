@@ -1218,13 +1218,15 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 	// Lookup content from registry (via injected callback).
 	var content []byte
 	if r.opts.PackageLookup != nil {
-		var err error
-		content, err = r.opts.PackageLookup(identifier, file)
-		if err != nil {
+		var lookupErr error
+		content, lookupErr = r.opts.PackageLookup(identifier, file)
+		if lookupErr != nil {
+			// Preserve the original error cause so callers can distinguish a registry miss
+			// from other lookup failures (I/O error, permission denied, etc.).
 			return nil, &ResolveError{
-				Message: fmt.Sprintf("package(%q, %q) not found in registry; "+
-					"ensure the providing package is imported with _ %q in your application",
-					identifier, file, identifier),
+				Message: fmt.Sprintf("package(%q, %q): %s; "+
+					"if this is a missing registration, ensure the providing package is imported with _ %q in your application",
+					identifier, file, lookupErr.Error(), identifier),
 			}
 		}
 	} else {
@@ -1253,11 +1255,16 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 }
 
 // parseAndResolvePackage is like parseAndResolve but for package content (no BaseDir from filePath).
+// virtualPath is a descriptive label of the form "package:<identifier>:<file>" used in error messages.
 // Uses opts.BaseDir as the base for any nested file includes.
 func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*ObjectVal, error) {
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
-		return nil, err
+		// Wrap raw parser error with package context so the user knows which package failed.
+		return nil, &ResolveError{
+			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
+			FilePath: virtualPath,
+		}
 	}
 	childResolver := &resolver{
 		opts: Options{
@@ -1270,12 +1277,22 @@ func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*Obj
 		includeStack:  r.includeStack,
 		lenient:       true,
 	}
-	_ = virtualPath // kept for debugging / future use
 	obj, err := childResolver.resolveObject(ast, nil, nil)
 	if err != nil {
-		return nil, err
+		// Wrap resolve error with package context.
+		return nil, &ResolveError{
+			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
+			FilePath: virtualPath,
+		}
 	}
-	return childResolver.resolveSubstitutions(obj, obj)
+	result, err := childResolver.resolveSubstitutions(obj, obj)
+	if err != nil {
+		return nil, &ResolveError{
+			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
+			FilePath: virtualPath,
+		}
+	}
+	return result, nil
 }
 
 // propsToObjectVal converts a flat map[string]string (from a .properties file)

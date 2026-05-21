@@ -19,6 +19,15 @@ import (
 // ValidatePackageFile checks E11 decision 6 constraints on the <file> argument
 // of a package(...) include. Returns a non-nil error if any constraint is violated.
 // Called at parse time (returns *Error via newError wrapper) and at registration time.
+//
+// Constraints (OS-independent):
+//   - must be non-empty
+//   - must not start with "/" (Unix absolute)
+//   - must not contain "\" (Windows separator)
+//   - must not contain "//" (consecutive slashes)
+//   - must not contain "." or ".." path segments (directory traversal)
+//   - must not start with a Windows drive prefix (e.g. "C:" or "c:")
+//   - must not have an empty trailing segment (i.e. must not end with "/")
 func ValidatePackageFile(file string) error {
 	if file == "" {
 		return fmt.Errorf("include package(...) file argument must be non-empty")
@@ -29,12 +38,25 @@ func ValidatePackageFile(file string) error {
 	if strings.Contains(file, "\\") {
 		return fmt.Errorf("include package(...) file argument must use forward-slash separators (backslash not allowed): %q", file)
 	}
+	// Windows drive-prefix check (e.g. "C:/..." or "C:...") — reject regardless of OS.
+	// A drive prefix is a single ASCII letter followed by ':'.
+	if len(file) >= 2 && file[1] == ':' {
+		ch := file[0]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+			return fmt.Errorf("include package(...) file argument must not be a Windows absolute path: %q", file)
+		}
+	}
 	if strings.Contains(file, "//") {
 		return fmt.Errorf("include package(...) file argument must not contain consecutive slashes: %q", file)
 	}
 	for _, seg := range strings.Split(file, "/") {
 		if seg == "." || seg == ".." {
 			return fmt.Errorf(`include package(...) file argument must not contain "." or ".." segments: %q`, file)
+		}
+		if seg == "" {
+			// Empty segment: either leading "/" (caught above) or trailing "/" or "//"
+			// (caught above). Any remaining empty segment means a trailing slash.
+			return fmt.Errorf("include package(...) file argument must not end with a slash (empty trailing segment): %q", file)
 		}
 	}
 	return nil

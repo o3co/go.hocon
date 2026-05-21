@@ -165,6 +165,13 @@ func TestValidatePackageFile(t *testing.T) {
 		{"conf\\x.conf", true},
 		{"conf//x.conf", true},
 		{"conf/./x.conf", true},
+		// Windows drive-prefix paths must be rejected (OS-independent safety).
+		{"C:/secret.conf", true},
+		{"C:secret.conf", true},
+		{"c:/path/to/file", true},
+		// Trailing slash is an empty segment and must be rejected.
+		{"dir/", true},
+		{"dir/sub/", true},
 	}
 	for _, tc := range cases {
 		err := parser.ValidatePackageFile(tc.file)

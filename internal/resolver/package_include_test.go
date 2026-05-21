@@ -228,6 +228,50 @@ func TestPackageLookupMutualCycleDetection(t *testing.T) {
 	}
 }
 
+// TestPackageLookupErrorIsPreserved verifies that a non-miss error from PackageLookup
+// (e.g. I/O error, permission denied) is preserved in the returned error, not replaced
+// by a generic "not found" message. (review must-fix: convergent Claude+Codex finding)
+func TestPackageLookupErrorIsPreserved(t *testing.T) {
+	const sentinelMsg = "permission denied reading package store"
+	lookup := func(id, file string) ([]byte, error) {
+		return nil, fmt.Errorf("%s", sentinelMsg)
+	}
+	src := `include package("foo", "bar.conf")`
+	ast, err := parser.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{PackageLookup: lookup})
+	if err == nil {
+		t.Fatal("expected resolve error, got nil")
+	}
+	if !strings.Contains(err.Error(), sentinelMsg) {
+		t.Errorf("expected error to contain %q, got: %v", sentinelMsg, err)
+	}
+}
+
+// TestPackageParseErrorIncludesContext verifies that a parse failure in registered
+// package content wraps the error with the package identifier and file, rather than
+// leaking a raw parser error. (review must-fix: convergent Claude+Codex finding)
+func TestPackageParseErrorIncludesContext(t *testing.T) {
+	lookup := func(id, file string) ([]byte, error) {
+		return []byte(`{ unclosed`), nil // deliberately malformed HOCON
+	}
+	src := `include package("github.com/example/lib", "bad.conf")`
+	ast, err := parser.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, err = resolver.Resolve(ast, resolver.Options{PackageLookup: lookup})
+	if err == nil {
+		t.Fatal("expected resolve error from malformed package content, got nil")
+	}
+	// Error must mention the package identifier so the user knows which package failed.
+	if !strings.Contains(err.Error(), "github.com/example/lib") {
+		t.Errorf("expected error to mention package identifier, got: %v", err)
+	}
+}
+
 // TestPackageLookupPropagationToChildResolver verifies that PackageLookup is propagated
 // to child resolvers created when resolving included files (design Codex must-fix #1).
 func TestPackageLookupPropagationToChildResolver(t *testing.T) {
