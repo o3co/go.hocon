@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Lenient self-referential substitution defer (E12 `AllowUnresolved`)**. Under `Resolve(opts.WithAllowUnresolved(true))`, a required self-referential `${k}` with no prior value used to error; it now defers the placeholder so a subsequent merge supplying a prior can complete resolution. This is required by the include-ordering fix above (the include child resolver runs in lenient mode); user-visible behaviour change is limited to `AllowUnresolved=true`, where the error is replaced by an unresolved placeholder.
 
+### Changed — include path
+
+- **Empty / comment-only / whitespace-only included files contribute an empty config** ([#105](https://github.com/o3co/go.hocon/issues/105), Lightbend compatibility). Previously, `include "empty.conf"` (or comment-only / whitespace-only / BOM-only content) errored with `empty file is not a valid HOCON document (HOCON.md L130)`. This blocked the common optional-override-file pattern. The carve-out is **narrow** — applies only to the file-include code path; top-level empty parses (`ParseString("")`, `ParseFile` on an empty file as the root) still error per S3.1. Reported by [@cgordon](https://github.com/cgordon).
+
 ## [1.4.0] - 2026-05-21
 
 ### Added — E11 `include package("<id>", "<file>")` qualifier

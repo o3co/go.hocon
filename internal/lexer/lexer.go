@@ -790,6 +790,12 @@ func (l *Lexer) readNumber(line, col int) Token {
 	return Token{Type: tt, Value: string(l.src[startPos:lastValidEnd]), Line: line, Col: startCol}
 }
 
+// IsHoconWhitespace reports whether r is a HOCON whitespace character.
+// Exported wrapper around isHoconWhitespace so other internal packages
+// (e.g. the resolver's empty-include probe at #105) can ask the same
+// question without re-encoding the spec definition.
+func IsHoconWhitespace(r rune) bool { return isHoconWhitespace(r) }
+
 // isHoconWhitespace reports whether r is a HOCON whitespace character per
 // HOCON.md §Whitespace (L165-184). The set is:
 //
