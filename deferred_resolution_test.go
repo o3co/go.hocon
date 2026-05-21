@@ -13,6 +13,9 @@ package hocon_test
 
 import (
 	"errors"
+	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -672,6 +675,152 @@ func TestOriginDescription_AppearsInResolveError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "test-config") {
 		t.Errorf("expected error to contain 'test-config', got: %s", err.Error())
+	}
+}
+
+// ── Coverage-uplift tests for E12 (codecov/patch) ────────────────────────────
+
+func TestFromMap_AllNumericTypes(t *testing.T) {
+	// Exercise every integer/float branch in coerceValue.
+	c, err := hocon.FromMap(map[string]any{
+		"i":   int(1),
+		"i8":  int8(2),
+		"i16": int16(3),
+		"i32": int32(4),
+		"i64": int64(5),
+		"u":   uint(6),
+		"u8":  uint8(7),
+		"u16": uint16(8),
+		"u32": uint32(9),
+		"u64": uint64(10),
+		"f32": float32(1.5),
+		"f64": float64(2.5),
+	}, "all-numerics")
+	if err != nil {
+		t.Fatalf("FromMap: %v", err)
+	}
+	if !c.IsResolved() {
+		t.Fatal("expected resolved")
+	}
+	if c.GetInt("i") != 1 || c.GetInt("i8") != 2 || c.GetInt("i16") != 3 ||
+		c.GetInt("i32") != 4 || c.GetInt("i64") != 5 ||
+		c.GetInt("u") != 6 || c.GetInt("u8") != 7 || c.GetInt("u16") != 8 ||
+		c.GetInt("u32") != 9 || c.GetInt("u64") != 10 {
+		t.Fatalf("integer round-trip: %+v", c.Keys())
+	}
+	if c.GetFloat64("f32") != 1.5 || c.GetFloat64("f64") != 2.5 {
+		t.Fatalf("float round-trip: f32=%v f64=%v", c.GetFloat64("f32"), c.GetFloat64("f64"))
+	}
+}
+
+func TestFromMap_NestedListErrorPropagates(t *testing.T) {
+	// Nested list with bad element type → error wraps the path.
+	_, err := hocon.FromMap(map[string]any{
+		"list": []any{1, make(chan int)},
+	}, "")
+	if err == nil {
+		t.Fatal("expected error for bad nested element type")
+	}
+}
+
+func TestFromMap_NestedMapErrorPropagates(t *testing.T) {
+	_, err := hocon.FromMap(map[string]any{
+		"nested": map[string]any{
+			"bad": make(chan int),
+		},
+	}, "")
+	if err == nil {
+		t.Fatal("expected error for bad nested map value type")
+	}
+}
+
+func TestFromMap_NaN_Errors(t *testing.T) {
+	_, err := hocon.FromMap(map[string]any{
+		"bad": math.NaN(),
+	}, "")
+	if err == nil {
+		t.Fatal("expected error for NaN")
+	}
+}
+
+func TestFromMap_Inf_Errors(t *testing.T) {
+	_, err := hocon.FromMap(map[string]any{
+		"bad": math.Inf(1),
+	}, "")
+	if err == nil {
+		t.Fatal("expected error for +Inf")
+	}
+}
+
+func TestParseFileWithOptions_DeferredPath(t *testing.T) {
+	// Write a temp file, then ParseFileWithOptions with ResolveSubstitutions=false.
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.conf")
+	if err := os.WriteFile(path, []byte("a = ${b}\nb = 1"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	c, err := hocon.ParseFileWithOptions(path, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("ParseFileWithOptions: %v", err)
+	}
+	if c.IsResolved() {
+		t.Fatal("expected unresolved")
+	}
+	resolved, err := c.Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.GetInt("a") != 1 {
+		t.Fatalf("a=%d, want 1", resolved.GetInt("a"))
+	}
+}
+
+func TestParseFileWithOptions_FusedPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.conf")
+	if err := os.WriteFile(path, []byte("x = 42"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	c, err := hocon.ParseFileWithOptions(path, hocon.DefaultParseOptions())
+	if err != nil {
+		t.Fatalf("ParseFileWithOptions: %v", err)
+	}
+	if !c.IsResolved() {
+		t.Fatal("fused path must produce resolved Config")
+	}
+	if c.GetInt("x") != 42 {
+		t.Fatalf("x=%d, want 42", c.GetInt("x"))
+	}
+}
+
+func TestParseFileWithOptions_FileNotFound(t *testing.T) {
+	_, err := hocon.ParseFileWithOptions("/nonexistent/test.conf", hocon.DefaultParseOptions())
+	if err == nil {
+		t.Fatal("expected file-not-found error")
+	}
+	var pe *hocon.ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ParseError, got %T", err)
+	}
+}
+
+func TestRenderJSON_FloatAndString(t *testing.T) {
+	c, _ := hocon.ParseString(`
+		i = 1
+		f = 3.14
+		s = "with \"quotes\""
+		n = null
+		b = true
+	`)
+	got, err := hocon.RenderJSON_ForTest(c)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	// Check each scalar branch is hit.
+	for _, frag := range []string{`"i":1`, `"f":3.14`, `"with \"quotes\""`, `"n":null`, `"b":true`} {
+		if !strings.Contains(got, frag) {
+			t.Errorf("missing fragment %q in output: %s", frag, got)
+		}
 	}
 }
 
