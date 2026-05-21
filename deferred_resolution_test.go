@@ -327,3 +327,111 @@ avail = "hello"`,
 	}()
 	_ = r.GetString("b")
 }
+
+func TestFromMap_ScalarTypes(t *testing.T) {
+	c, err := hocon.FromMap(map[string]any{
+		"flag":   true,
+		"count":  42,
+		"ratio":  3.14,
+		"label":  "hello",
+		"items":  []any{int64(1), int64(2), int64(3)},
+		"nested": map[string]any{"inner": "deep"},
+		"nothing": nil,
+	}, "")
+	if err != nil {
+		t.Fatalf("FromMap: %v", err)
+	}
+	if !c.IsResolved() {
+		t.Fatal("FromMap must produce resolved Config")
+	}
+	if c.GetBool("flag") != true {
+		t.Fatalf("flag=%v", c.GetBool("flag"))
+	}
+	if c.GetInt("count") != 42 {
+		t.Fatalf("count=%d", c.GetInt("count"))
+	}
+	if c.GetFloat64("ratio") != 3.14 {
+		t.Fatalf("ratio=%v", c.GetFloat64("ratio"))
+	}
+	if c.GetString("label") != "hello" {
+		t.Fatalf("label=%q", c.GetString("label"))
+	}
+	if c.GetString("nested.inner") != "deep" {
+		t.Fatalf("nested.inner=%q", c.GetString("nested.inner"))
+	}
+	if got := c.GetIntSlice("items"); len(got) != 3 || got[0] != 1 || got[2] != 3 {
+		t.Fatalf("items=%v", got)
+	}
+	// `nothing` is null: GetStringOption returns None.
+	if !c.GetStringOption("nothing").IsNone() {
+		t.Fatal("nothing must be None (null)")
+	}
+}
+
+func TestFromMap_NilMap_ReturnsEmpty(t *testing.T) {
+	c, err := hocon.FromMap(nil, "")
+	if err != nil {
+		t.Fatalf("FromMap(nil): %v", err)
+	}
+	if !c.IsResolved() {
+		t.Fatal("must be resolved (no substitutions)")
+	}
+	if len(c.Keys()) != 0 {
+		t.Fatalf("expected empty, got %v", c.Keys())
+	}
+}
+
+func TestFromMap_Uint64Overflow_Errors(t *testing.T) {
+	_, err := hocon.FromMap(map[string]any{
+		"big": uint64(1<<63 + 1), // exceeds int64 range
+	}, "")
+	if err == nil {
+		t.Fatal("expected overflow error for uint64 > int64.Max")
+	}
+}
+
+func TestFromMap_UnsupportedType_Errors(t *testing.T) {
+	_, err := hocon.FromMap(map[string]any{
+		"oops": make(chan int),
+	}, "")
+	if err == nil {
+		t.Fatal("expected error for unsupported type chan int")
+	}
+}
+
+func TestEmpty_HasNoKeys(t *testing.T) {
+	c := hocon.Empty("")
+	if !c.IsResolved() {
+		t.Fatal("Empty must be resolved")
+	}
+	if len(c.Keys()) != 0 {
+		t.Fatalf("expected empty, got %v", c.Keys())
+	}
+}
+
+func TestEmpty_AsFallbackIsNoOp(t *testing.T) {
+	c, _ := hocon.ParseString(`a = 1`)
+	m := c.WithFallback(hocon.Empty(""))
+	if m.GetInt("a") != 1 {
+		t.Fatalf("Empty() fallback must be no-op; a=%d", m.GetInt("a"))
+	}
+}
+
+func TestEmpty_AsReceiverWithFallback(t *testing.T) {
+	c, _ := hocon.ParseString(`a = 1
+b = 2`)
+	m := hocon.Empty("").WithFallback(c)
+	if m.GetInt("a") != 1 || m.GetInt("b") != 2 {
+		t.Fatalf("Empty().WithFallback(c) must expose c's keys; a=%d b=%d", m.GetInt("a"), m.GetInt("b"))
+	}
+}
+
+func TestEmpty_Resolve_IsNoOp(t *testing.T) {
+	r, err := hocon.Empty("").Resolve(hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("Resolve(Empty): %v", err)
+	}
+	if !r.IsResolved() || len(r.Keys()) != 0 {
+		t.Fatalf("Empty().Resolve() must be {}; keys=%v", r.Keys())
+	}
+}
