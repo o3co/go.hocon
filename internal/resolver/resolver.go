@@ -414,10 +414,49 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 			if err != nil {
 				return nil, err
 			}
-			merged := deepMerge(obj, included)
-			// preserve obj's original keys order, then add new ones
-			for _, k := range merged.keys {
-				obj.set(k, merged.values[k])
+			// Apply the included object's fields as if they had been written
+			// inline at the include's position: included assignments override
+			// earlier parent assignments, and for non-object collisions the
+			// parent's prior value is recorded so a self-referential ${k}
+			// inside the include resolves to the parent's value (#106).
+			for _, k := range included.keys {
+				iv := included.values[k]
+				if existing, exists := obj.Get(k); exists {
+					if eo, eok := existing.(*ObjectVal); eok {
+						if io, iok := iv.(*ObjectVal); iok {
+							// both objects → deep merge with included on top
+							obj.set(k, deepMerge(io, eo))
+							continue
+						}
+					}
+					// Non-object override: prior value for self-reference lookback.
+					// If included carries its own prior chain for k, that prior
+					// is the immediately-prior value within the include's own
+					// dup-key chain (what an inline-equivalent reader would
+					// see). Otherwise the parent's existing value becomes the
+					// prior.
+					prior := existing
+					if inclPrior, hasInclPrior := included.priorValues[k]; hasInclPrior {
+						prior = inclPrior
+					}
+					// Write r.priorValues ONLY at top of the current resolver's
+					// scope. When the include is nested (pathPrefix != []), `k`
+					// is just a leaf name and would collide with an unrelated
+					// top-level key of the same name; see setPath L1239-1247
+					// for the same rule applied to regular field overwrite.
+					if len(pathPrefix) == 0 {
+						r.priorValues[segmentsToKey([]string{k})] = prior
+					}
+					obj.priorValues[k] = prior
+				} else if inclPrior, hasInclPrior := included.priorValues[k]; hasInclPrior {
+					// No collision in parent, but include's own dup-key chain
+					// produced a prior. Preserve it (with the same scope rule).
+					if len(pathPrefix) == 0 {
+						r.priorValues[segmentsToKey([]string{k})] = inclPrior
+					}
+					obj.priorValues[k] = inclPrior
+				}
+				obj.set(k, iv)
 			}
 			continue
 		}
@@ -707,6 +746,15 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			// that would produce "foofoo" for `a = ${?a}foo` with no prior `a`.
 			if n.Optional {
 				return nil, nil
+			}
+			// Lenient mode: defer the placeholder so a later resolution pass
+			// (with prior values supplied by a parent or fallback) can complete
+			// it. Used by include resolution (#106): the included file's own
+			// `${k}` against a parent-only `k` reaches this branch because the
+			// child resolver has no prior; the parent's include-merge step
+			// installs the prior and a subsequent ResolveTree pass succeeds.
+			if r.lenient {
+				return s, nil
 			}
 			return nil, &ResolveError{Message: "unresolved self-referential substitution", Path: key, Line: n.Line(), Col: n.Col()}
 		}
