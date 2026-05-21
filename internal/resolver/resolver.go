@@ -132,7 +132,7 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 			// both objects → recurse
 			if recObj, recOk := rv.(*ObjectVal); recOk {
 				if existObj, existOk := existing.(*ObjectVal); existOk {
-					result.values[k] = MergeUnresolved(recObj, existObj)
+					result.set(k, MergeUnresolved(recObj, existObj))
 					continue
 				}
 			}
@@ -142,14 +142,13 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 		}
 		result.set(k, rv)
 	}
-	// 3. Receiver's own priorValues take precedence (in case the same key was
-	//    already a prior on both sides — receiver's history wins).
+	// 3. Receiver's own priorValues take precedence over any priors propagated
+	//    from fallback. This preserves the receiver's full self-reference
+	//    history across iterated WithFallback calls — including priors that
+	//    were installed by an earlier merge where the receiver itself was a
+	//    merged result and a key came from that earlier fallback.
 	for k, v := range receiver.priorValues {
-		// Only override if receiver actually had this key (otherwise the
-		// fallback's prior is the relevant history).
-		if _, hasOwn := receiver.values[k]; hasOwn {
-			result.priorValues[k] = v
-		}
+		result.priorValues[k] = v
 	}
 	return result
 }

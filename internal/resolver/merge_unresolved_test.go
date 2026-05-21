@@ -95,6 +95,14 @@ func TestMergeUnresolved_NonObjectReceiverBlocksFallbackObject(t *testing.T) {
 	if sv.Raw != "42" {
 		t.Fatalf("expected 42, got %q", sv.Raw)
 	}
+	// Verify the fallback's object was captured as a prior.
+	prior, ok := merged.GetPrior("a")
+	if !ok {
+		t.Fatal("expected fallback object captured as prior")
+	}
+	if _, isObj := prior.(*ObjectVal); !isObj {
+		t.Fatalf("expected prior to be the fallback ObjectVal, got %T", prior)
+	}
 }
 
 func TestMergeUnresolved_ReceiverObjectBlocksFallbackNonObjectMergeOfThirdLayer(t *testing.T) {
@@ -134,5 +142,55 @@ func TestMergeUnresolved_ReceiverObjectBlocksFallbackNonObjectMergeOfThirdLayer(
 	_, hasY := ao.Get("y")
 	if !hasX || !hasY {
 		t.Fatalf("expected deep-merged {x,y}; got x=%v y=%v", hasX, hasY)
+	}
+}
+
+func TestMergeUnresolved_ReceiverOnlyKeyHasNoPrior(t *testing.T) {
+	receiver := NewObjectVal()
+	receiver.Set("a", &ScalarVal{Raw: "only-in-receiver", Type: ScalarString})
+	fallback := NewObjectVal()
+	merged := MergeUnresolved(receiver, fallback)
+	if _, ok := merged.GetPrior("a"); ok {
+		t.Fatal("receiver-only key must not produce a prior (no fallback value to capture)")
+	}
+}
+
+func TestMergeUnresolved_ThreeLayerPreservesEarlierFallbackAsPrior(t *testing.T) {
+	// Composition: r0.M(fb1).M(fb2)
+	// r0:  { a = "rcv" }
+	// fb1: { b = "fb1-only" }            (fb1 contributes b only)
+	// fb2: { b = "fb2-collides-with-fb1" } (fb2 collides with fb1's b)
+	//
+	// After r0.M(fb1): m1.values = { a: "rcv", b: "fb1-only" }, no priors.
+	// After m1.M(fb2): final.values = { a: "rcv", b: "fb1-only" }. fb2's "b"
+	// collides with m1's "b" (which came from fb1 originally). m1's "b" was
+	// NOT in m1's "receiver" (r0 had no "b"), but m1 still owns it. So step 2
+	// captures fb2's "fb2-collides-with-fb1" as the prior for "b".
+	//
+	// Verifies that prior capture works correctly when the "receiver" in a
+	// merge is itself a previously-merged object whose values came from its
+	// fallback.
+	r0 := NewObjectVal()
+	r0.Set("a", &ScalarVal{Raw: "rcv", Type: ScalarString})
+
+	fb1 := NewObjectVal()
+	fb1.Set("b", &ScalarVal{Raw: "fb1-only", Type: ScalarString})
+
+	fb2 := NewObjectVal()
+	fb2.Set("b", &ScalarVal{Raw: "fb2-collides-with-fb1", Type: ScalarString})
+
+	m1 := MergeUnresolved(r0, fb1)
+	final := MergeUnresolved(m1, fb2)
+
+	bv, _ := final.Get("b")
+	if bv.(*ScalarVal).Raw != "fb1-only" {
+		t.Fatalf("expected m1 (receiver in second merge) wins, got %q", bv.(*ScalarVal).Raw)
+	}
+	prior, ok := final.GetPrior("b")
+	if !ok {
+		t.Fatal("expected fb2's value captured as prior for b")
+	}
+	if prior.(*ScalarVal).Raw != "fb2-collides-with-fb1" {
+		t.Fatalf("expected prior 'fb2-collides-with-fb1', got %q", prior.(*ScalarVal).Raw)
 	}
 }
