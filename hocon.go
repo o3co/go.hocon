@@ -48,7 +48,10 @@ func parseWith(input, filePath string) (*Config, error) {
 	if filePath != "" {
 		baseDir = dirOf(filePath)
 	}
-	res, err := resolver.Resolve(ast, resolver.Options{BaseDir: baseDir})
+	res, err := resolver.Resolve(ast, resolver.Options{
+		BaseDir:       baseDir,
+		PackageLookup: globalRegistry.lookup, // E11: inject global package registry
+	})
 	if err != nil {
 		return nil, wrapResolveError(err)
 	}

@@ -16,6 +16,52 @@ import (
 	"github.com/o3co/go.hocon/internal/lexer"
 )
 
+// ValidatePackageFile checks E11 decision 6 constraints on the <file> argument
+// of a package(...) include. Returns a non-nil error if any constraint is violated.
+// Called at parse time (returns *Error via newError wrapper) and at registration time.
+//
+// Constraints (OS-independent):
+//   - must be non-empty
+//   - must not start with "/" (Unix absolute)
+//   - must not contain "\" (Windows separator)
+//   - must not contain "//" (consecutive slashes)
+//   - must not contain "." or ".." path segments (directory traversal)
+//   - must not start with a Windows drive prefix (e.g. "C:" or "c:")
+//   - must not have an empty trailing segment (i.e. must not end with "/")
+func ValidatePackageFile(file string) error {
+	if file == "" {
+		return fmt.Errorf("include package(...) file argument must be non-empty")
+	}
+	if strings.HasPrefix(file, "/") {
+		return fmt.Errorf("include package(...) file argument must not be an absolute path: %q", file)
+	}
+	if strings.Contains(file, "\\") {
+		return fmt.Errorf("include package(...) file argument must use forward-slash separators (backslash not allowed): %q", file)
+	}
+	// Windows drive-prefix check (e.g. "C:/..." or "C:...") — reject regardless of OS.
+	// A drive prefix is a single ASCII letter followed by ':'.
+	if len(file) >= 2 && file[1] == ':' {
+		ch := file[0]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+			return fmt.Errorf("include package(...) file argument must not be a Windows absolute path: %q", file)
+		}
+	}
+	if strings.Contains(file, "//") {
+		return fmt.Errorf("include package(...) file argument must not contain consecutive slashes: %q", file)
+	}
+	for _, seg := range strings.Split(file, "/") {
+		if seg == "." || seg == ".." {
+			return fmt.Errorf(`include package(...) file argument must not contain "." or ".." segments: %q`, file)
+		}
+		if seg == "" {
+			// Empty segment: either leading "/" (caught above) or trailing "/" or "//"
+			// (caught above). Any remaining empty segment means a trailing slash.
+			return fmt.Errorf("include package(...) file argument must not end with a slash (empty trailing segment): %q", file)
+		}
+	}
+	return nil
+}
+
 // Parse parses a HOCON string and returns the root ObjectNode.
 // The input may omit outer braces (root object shorthand).
 func Parse(src string) (*ObjectNode, error) {
@@ -285,7 +331,7 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 		}
 
 		// Reject url(...) / classpath(...) and unknown resource words inside required(...) —
-		// same-token form. Use exact `file(` / `url(` / `classpath(` (or bare word) match
+		// same-token form. Use exact `file(` / `url(` / `classpath(` / `package(` (or bare word) match
 		// so `required(fileX(...))` is correctly rejected as unknown rather than mis-classified
 		// as a file include (go.hocon#100 multi-agent review).
 		if strings.HasPrefix(innerPrefix, "url(") || innerPrefix == "url" {
@@ -304,9 +350,31 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 					return nil, newError(line, col, "expected '(' after 'file' in include required(file(...))")
 				}
 			}
+		} else if strings.HasPrefix(innerPrefix, "package(") || innerPrefix == "package" {
+			// E11: include required(package("id", "file")) — two-arg form mandatory.
+			if innerPrefix == "package" {
+				if p.current.Type != lexer.TokenString || p.current.IsQuoted || !strings.HasPrefix(p.current.Value, "(") {
+					return nil, newError(line, col, "expected '(' after 'package' in include required(package(...))")
+				}
+			}
+			id, file, err := p.parsePackageArgs(line, col)
+			if err != nil {
+				return nil, err
+			}
+			// Consume trailing `)` close-paren noise (one for package, one for required)
+			for p.current.Type == lexer.TokenString && !p.current.IsQuoted && onlyClosingParens(p.current.Value) {
+				p.advance()
+			}
+			return &IncludeNode{
+				pos:       pos{line, col},
+				Required:  true,
+				IsPackage: true,
+				PkgID:     id,
+				PkgFile:   file,
+			}, nil
 		} else if innerPrefix != "" {
 			return nil, newError(line, col,
-				"include required(...) inner resource %q is not recognised — must be a quoted string or `file(...)` / `url(...)` / `classpath(...)`",
+				"include required(...) inner resource %q is not recognised — must be a quoted string or `file(...)` / `url(...)` / `classpath(...)` / `package(...)`",
 				innerPrefix)
 		}
 
@@ -348,6 +416,34 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 			p.advance()
 		}
 
+	case isUnquoted && (cur.Value == "package" || strings.HasPrefix(cur.Value, "package(")):
+		// E11: include package("identifier", "file") — two-arg form mandatory.
+		// Post-#34 token model: `package(` may be a single unquoted token (no whitespace
+		// before `(`), or `package` may be its own token followed by a `(`-prefixed token
+		// (whitespace before `(`). Handle both.
+		barePackage := cur.Value == "package"
+		p.advance() // consume `package` or `package(...)` token
+		if barePackage {
+			if p.current.Type != lexer.TokenString || p.current.IsQuoted || !strings.HasPrefix(p.current.Value, "(") {
+				return nil, newError(line, col, "expected '(' after 'package' in include directive")
+			}
+		}
+		id, file, err := p.parsePackageArgs(line, col)
+		if err != nil {
+			return nil, err
+		}
+		// Consume trailing `)` close-paren noise (one for package).
+		for p.current.Type == lexer.TokenString && !p.current.IsQuoted && onlyClosingParens(p.current.Value) {
+			p.advance()
+		}
+		return &IncludeNode{
+			pos:       pos{line, col},
+			Required:  false,
+			IsPackage: true,
+			PkgID:     id,
+			PkgFile:   file,
+		}, nil
+
 	case isUnquoted && (cur.Value == "url" || strings.HasPrefix(cur.Value, "url(")):
 		return nil, newError(line, col, "include url(...) is not supported in v1.0")
 
@@ -366,6 +462,61 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 	}
 
 	return &IncludeNode{pos: pos{line, col}, Path: path, Required: required, IsFile: isFile}, nil
+}
+
+// parsePackageArgs parses the ("identifier", "file") portion of a package(...)
+// qualifier. On entry the `package(` (or bare `package` + `(`-prefixed token)
+// prefix has already been consumed. On exit the cursor is positioned at the
+// first token after the closing `)` of the package qualifier — callers are
+// responsible for consuming additional trailing `)` (e.g. the outer `required(`
+// close-paren) via the onlyClosingParens loop.
+//
+// Returns the identifier and file (both already HOCON-unescaped by the lexer),
+// or a *parserError positioned at `directiveLine`/`directiveCol`.
+func (p *parser) parsePackageArgs(directiveLine, directiveCol int) (id, file string, err error) {
+	// Skip any `(` / `(file(` etc. noise tokens until we reach the first quoted
+	// string (the identifier). With the post-#34 lexer model, a `package(` token
+	// has been consumed by the caller; if there was whitespace before the `(`,
+	// the next token here is a bare `(` (a TokenString unquoted starting with `(`).
+	if _, err = p.skipToIncludePath(directiveLine, directiveCol, "package(...)"); err != nil {
+		return "", "", err
+	}
+	if p.current.Type != lexer.TokenString || !p.current.IsQuoted {
+		return "", "", newError(directiveLine, directiveCol,
+			"expected quoted identifier string as first argument in include package(...)")
+	}
+	id = p.current.Value
+	p.advance()
+	if id == "" {
+		return "", "", newError(directiveLine, directiveCol,
+			"include package(...) identifier must be non-empty")
+	}
+
+	// Two-arg form mandatory (E11 decision 2). One-arg form `package("id/file")`
+	// would have the cursor at a `)`-only token here.
+	if p.current.Type != lexer.TokenComma {
+		if p.current.Type == lexer.TokenString && !p.current.IsQuoted && onlyClosingParens(p.current.Value) {
+			return "", "", newError(directiveLine, directiveCol,
+				"include package(...) requires two arguments (identifier, file); one-arg form is not supported (E11 decision 2)")
+		}
+		return "", "", newError(directiveLine, directiveCol,
+			"expected ',' after identifier in include package(identifier, file)")
+	}
+	p.advance() // consume ','
+	p.skipNewlines()
+
+	if p.current.Type != lexer.TokenString || !p.current.IsQuoted {
+		return "", "", newError(directiveLine, directiveCol,
+			"expected quoted file string as second argument in include package(...)")
+	}
+	file = p.current.Value
+	p.advance()
+
+	// Validate file argument per E11 decision 6 (after HOCON unescape — lexer already unescaped).
+	if verr := ValidatePackageFile(file); verr != nil {
+		return "", "", newError(directiveLine, directiveCol, "%v", verr)
+	}
+	return id, file, nil
 }
 
 func (p *parser) parseField() (*FieldNode, error) {

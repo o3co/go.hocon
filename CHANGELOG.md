@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **E11 — `include package("<id>", "<file>")` qualifier** (xx.hocon [#33](https://github.com/o3co/xx.hocon/issues/33), [#36](https://github.com/o3co/xx.hocon/pull/36)). A new include qualifier with **service-locator semantics** — looks up `.conf` files registered under a stable name via a global registry. **Not a Java classpath equivalent** (no auto-discovery, no auto `reference.conf` merge, no transitive auto-resolution). Closest analog: JVM `ServiceLoader` / JNDI. New public surface:
+  - `include package("github.com/myorg/pkg", "reference.conf")` syntax — two-arg form mandatory; one-arg + missing-comma rejected at parse time.
+  - `RegisterPackage(identifier, file, content string) error` — global registry, parallel to `database/sql.Register`. Idempotent byte-equal re-registration allowed; different-content collision returns `*PackageCollisionError`. Call from a config-providing package's `init()` after `//go:embed`.
+  - `*RegistrationError` — input validation failures at registration time (empty identifier, file constraint violations including Windows-style `C:/` paths and trailing slash).
+  - `PackageLookup func(id, file string) (string, error)` parser option — overrides the global registry for test injection / custom resolution; correctly propagated to child resolvers across nested include chains.
+  - `ResetPackageRegistry()` — exported behind `//go:build testing` build tag (hidden from production builds). Use for test isolation.
+  - `IncludeNode.PkgID` / `IncludeNode.PkgFile` — new AST fields populated when the include qualifier is `package(...)`.
+  - `ResolveError.Cause` field + `Unwrap()` method — package lookup errors are now `errors.Is`/`errors.As`-discoverable.
+  - File argument validated **after HOCON string unescaping**: rejects empty, absolute, `..`, `./`, backslash, consecutive `/`, Windows drive prefix, trailing slash.
+  - Cycle detection: length-prefixed `"package:N:id:file"` cycle key integrated with existing include-cycle detection.
+  - `include required(package(...))` — registry miss is unconditional hard error regardless of `Required` flag state (per E11 decision 7).
+
 ## [1.3.1] - 2026-05-21
 
 ### Fixed

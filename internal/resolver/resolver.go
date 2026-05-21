@@ -159,6 +159,13 @@ type Options struct {
 	BaseDir string
 	// Fallback is a previously resolved tree used for self-referential substitutions.
 	Fallback *ObjectVal
+	// PackageLookup, if non-nil, is called by resolveInclude for package(...) includes.
+	// It receives the identifier and file and returns the registered HOCON source bytes,
+	// or (nil, non-nil error) on miss. When nil, the resolver returns a ResolveError for
+	// any package include encountered.
+	// E11: child resolvers created during include resolution MUST copy this field from the
+	// parent so that package includes within included files are resolved correctly.
+	PackageLookup func(identifier, file string) ([]byte, error)
 }
 
 // ResolveError wraps resolution failures.
@@ -168,6 +175,9 @@ type ResolveError struct {
 	Line     int
 	Col      int
 	FilePath string
+	// Cause is the underlying error that triggered this resolve error, if any.
+	// Callers can use errors.Is/As to inspect the root cause.
+	Cause error
 }
 
 func (e *ResolveError) Error() string {
@@ -175,6 +185,11 @@ func (e *ResolveError) Error() string {
 		return fmt.Sprintf("resolve error at path %q: %s", e.Path, e.Message)
 	}
 	return "resolve error: " + e.Message
+}
+
+// Unwrap returns the underlying cause, enabling errors.Is/As traversal.
+func (e *ResolveError) Unwrap() error {
+	return e.Cause
 }
 
 // Resolve transforms an AST into a fully resolved Result.
@@ -984,6 +999,18 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 var includeExtensions = []string{".properties", ".json", ".conf"}
 
 func (r *resolver) resolveInclude(inc *parser.IncludeNode, pathPrefix []string) (*ObjectVal, error) {
+	// E11: dispatch package includes to loadPackageInclude.
+	if inc.IsPackage {
+		obj, err := r.loadPackageInclude(inc.PkgID, inc.PkgFile)
+		if err != nil {
+			return nil, err
+		}
+		if len(pathPrefix) > 0 {
+			relativizeVals(obj, pathPrefix)
+		}
+		return obj, nil
+	}
+
 	path := inc.Path
 	if !filepath.IsAbs(path) {
 		if inc.IsFile {
@@ -1157,7 +1184,10 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 		return nil, err
 	}
 	childResolver := &resolver{
-		opts:          Options{BaseDir: filepath.Dir(filePath)},
+		opts: Options{
+			BaseDir:       filepath.Dir(filePath),
+			PackageLookup: r.opts.PackageLookup, // E11: propagate so nested package includes resolve (Codex must-fix #1)
+		},
 		resolving:     make(map[string]bool),
 		resolvedCache: make(map[string]Val),
 		priorValues:   make(map[string]Val),
@@ -1169,6 +1199,109 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 		return nil, err
 	}
 	return childResolver.resolveSubstitutions(obj, obj)
+}
+
+// loadPackageInclude resolves a package(...) include directive (E11).
+// It looks up (identifier, file) via opts.PackageLookup, performs cycle detection
+// using a length-prefixed key in the shared includeStack, then parses and resolves
+// the registered content.
+//
+// Per E11 decision 4: lookup miss is always a hard error, regardless of inc.Required.
+func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, error) {
+	// Build cycle-detection key: length-prefixed to avoid ambiguity (E11 decision 8 / design Decision 10).
+	// Format: "package:<len(identifier)>:<identifier>:<file>"
+	cycleKey := fmt.Sprintf("package:%d:%s:%s", len(identifier), identifier, file)
+	for _, p := range *r.includeStack {
+		if p == cycleKey {
+			return nil, &ResolveError{
+				Message: fmt.Sprintf("circular include: package(%q, %q)", identifier, file),
+			}
+		}
+	}
+	*r.includeStack = append(*r.includeStack, cycleKey)
+	defer func() {
+		*r.includeStack = (*r.includeStack)[:len(*r.includeStack)-1]
+	}()
+
+	// Lookup content from registry (via injected callback).
+	var content []byte
+	if r.opts.PackageLookup != nil {
+		var lookupErr error
+		content, lookupErr = r.opts.PackageLookup(identifier, file)
+		if lookupErr != nil {
+			// Preserve the original error cause so callers can distinguish a registry miss
+			// from other lookup failures (I/O error, permission denied, etc.) via errors.Is/As.
+			return nil, &ResolveError{
+				Message: fmt.Sprintf("package(%q, %q): %s; "+
+					"if this is a missing registration, ensure the providing package is imported with _ %q in your application",
+					identifier, file, lookupErr.Error(), identifier),
+				Cause: lookupErr,
+			}
+		}
+	} else {
+		return nil, &ResolveError{
+			Message: fmt.Sprintf("package(%q, %q) not found in registry; "+
+				"ensure the providing package is imported with _ %q in your application",
+				identifier, file, identifier),
+		}
+	}
+
+	// Empty content is not a failure — contributes empty object per E11 decision 4 note.
+	if len(content) == 0 {
+		return newObjectVal(), nil
+	}
+
+	// Build a synthetic virtual path used as a descriptive label in error messages.
+	// parseAndResolvePackage inherits r.opts.BaseDir for any nested file includes
+	// within the package content (unusual but valid); BaseDir is not derived from
+	// virtualPath — it comes from the resolver options already set on r.
+	virtualPath := fmt.Sprintf("package:%s:%s", identifier, file)
+	obj, err := r.parseAndResolvePackage(content, virtualPath)
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+// parseAndResolvePackage is like parseAndResolve but for package content (no BaseDir from filePath).
+// virtualPath is a descriptive label of the form "package:<identifier>:<file>" used in error messages.
+// Uses opts.BaseDir as the base for any nested file includes.
+func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*ObjectVal, error) {
+	ast, err := parser.ParseBytes(data)
+	if err != nil {
+		// Wrap raw parser error with package context so the user knows which package failed.
+		return nil, &ResolveError{
+			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
+			FilePath: virtualPath,
+		}
+	}
+	childResolver := &resolver{
+		opts: Options{
+			BaseDir:       r.opts.BaseDir, // inherit parent BaseDir for nested file includes
+			PackageLookup: r.opts.PackageLookup,
+		},
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
+		includeStack:  r.includeStack,
+		lenient:       true,
+	}
+	obj, err := childResolver.resolveObject(ast, nil, nil)
+	if err != nil {
+		// Wrap resolve error with package context.
+		return nil, &ResolveError{
+			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
+			FilePath: virtualPath,
+		}
+	}
+	result, err := childResolver.resolveSubstitutions(obj, obj)
+	if err != nil {
+		return nil, &ResolveError{
+			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
+			FilePath: virtualPath,
+		}
+	}
+	return result, nil
 }
 
 // propsToObjectVal converts a flat map[string]string (from a .properties file)
