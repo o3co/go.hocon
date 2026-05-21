@@ -43,12 +43,15 @@ func (o Option[T]) OrElse(def T) T {
 }
 
 // ParseOptions controls parse-phase behaviour.  Construct via DefaultParseOptions()
-// and chain WithX() methods.  The zero-value literal ParseOptions{} is NOT a
-// valid invocation — it would contradict Lightbend defaults (ResolveSubstitutions
-// must default to true).  Per E12 § "Options encoding per language".
+// and chain WithX() methods.  As an ergonomic safety net, the zero-value literal
+// ParseOptions{} is interpreted as DefaultParseOptions() at the public API
+// boundary (silently substituted with Lightbend defaults) — preserves callers
+// from accidentally inverting ResolveSubstitutions=false / OriginDescription="".
+// Per E12 § "Options encoding per language".
 type ParseOptions struct {
 	resolveSubstitutions bool
 	originDescription    string
+	initialized          bool // false for zero-value; treated as DefaultParseOptions() by callers
 }
 
 // DefaultParseOptions returns ParseOptions with Lightbend-equivalent defaults:
@@ -57,6 +60,7 @@ func DefaultParseOptions() ParseOptions {
 	return ParseOptions{
 		resolveSubstitutions: true,
 		originDescription:    "",
+		initialized:          true,
 	}
 }
 
@@ -71,20 +75,27 @@ func (o ParseOptions) OriginDescription() string { return o.originDescription }
 // WithResolveSubstitutions returns a copy with ResolveSubstitutions set to v.
 func (o ParseOptions) WithResolveSubstitutions(v bool) ParseOptions {
 	o.resolveSubstitutions = v
+	o.initialized = true
 	return o
 }
 
 // WithOriginDescription returns a copy with OriginDescription set to s.
 func (o ParseOptions) WithOriginDescription(s string) ParseOptions {
 	o.originDescription = s
+	o.initialized = true
 	return o
 }
 
 // ResolveOptions controls resolve-phase behaviour.  Construct via
-// DefaultResolveOptions() and chain WithX() methods.
+// DefaultResolveOptions() and chain WithX() methods.  As an ergonomic safety
+// net, the zero-value literal ResolveOptions{} is interpreted as
+// DefaultResolveOptions() at the public API boundary (silently substituted
+// with Lightbend defaults) — preserves callers from accidentally disabling
+// UseSystemEnvironment.  Per E12 § "Options encoding per language".
 type ResolveOptions struct {
 	useSystemEnvironment bool
 	allowUnresolved      bool
+	initialized          bool // false for zero-value; treated as DefaultResolveOptions() by callers
 }
 
 // DefaultResolveOptions returns ResolveOptions with Lightbend-equivalent
@@ -93,6 +104,7 @@ func DefaultResolveOptions() ResolveOptions {
 	return ResolveOptions{
 		useSystemEnvironment: true,
 		allowUnresolved:      false,
+		initialized:          true,
 	}
 }
 
@@ -108,11 +120,13 @@ func (o ResolveOptions) AllowUnresolved() bool { return o.allowUnresolved }
 // WithUseSystemEnvironment returns a copy with UseSystemEnvironment set to v.
 func (o ResolveOptions) WithUseSystemEnvironment(v bool) ResolveOptions {
 	o.useSystemEnvironment = v
+	o.initialized = true
 	return o
 }
 
 // WithAllowUnresolved returns a copy with AllowUnresolved set to v.
 func (o ResolveOptions) WithAllowUnresolved(v bool) ResolveOptions {
 	o.allowUnresolved = v
+	o.initialized = true
 	return o
 }

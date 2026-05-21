@@ -49,6 +49,18 @@ var drYAMLSkip = map[string]string{
 	"dr12": "origin format differs from Lightbend — go.hocon position info covered by dr06 / dr08 / dr18 error tests",
 }
 
+// errorContainsSkip lists scenarios where go.hocon's error message format
+// is intentionally different from Lightbend's, so the YAML errorContains
+// substring doesn't apply.  Scenarios listed here still run; only the
+// errorContains substring check is downgraded to t.Logf.
+//
+// dr12 is already in drYAMLSkip; this map is for scenarios that otherwise
+// pass but whose Lightbend-format errorContains hint doesn't match go.hocon's.
+var errorContainsSkip = map[string]string{
+	// (currently empty — dr08 verified to match; expand if cross-impl
+	//  divergence surfaces in new fixtures)
+}
+
 func TestDeferredResolutionFixtures(t *testing.T) {
 	entries, err := os.ReadDir(drYAMLDir)
 	if err != nil {
@@ -124,7 +136,10 @@ func runScenario(t *testing.T, id, yamlPath string) {
 
 func buildSource(src yamlscenario.Source) (*hocon.Config, error) {
 	if src.ParseString != "" {
-		opts := hocon.DefaultParseOptions()
+		// Per fixture-conventions / scenario YAML README: parseString sources
+		// default to ResolveSubstitutions=false (deferred mode).  Caller can
+		// explicitly opt back into fused mode via parseOptions.resolveSubstitutions: true.
+		opts := hocon.DefaultParseOptions().WithResolveSubstitutions(false)
 		if src.ParseOptions != nil {
 			if src.ParseOptions.ResolveSubstitutions != nil {
 				opts = opts.WithResolveSubstitutions(*src.ParseOptions.ResolveSubstitutions)
@@ -280,7 +295,12 @@ func validateError(t *testing.T, id string, sc yamlscenario.Scenario, stepErrors
 		t.Errorf("scenario %s: error category = %T %v, want %s", id, firstErr, firstErr, sc.Expect.ErrorCategory)
 	}
 	if sc.Expect.ErrorContains != "" && !strings.Contains(firstErr.Error(), sc.Expect.ErrorContains) {
-		t.Logf("scenario %s: errorContains hint %q not found in %q (impl-specific message; not failing)", id, sc.Expect.ErrorContains, firstErr.Error())
+		if _, skip := errorContainsSkip[id]; skip {
+			// Known impl-format divergence — record but don't fail.
+			t.Logf("scenario %s: errorContains %q not in %q (impl-specific format, expected)", id, sc.Expect.ErrorContains, firstErr.Error())
+		} else {
+			t.Errorf("scenario %s: error message %q does not contain expected substring %q", id, firstErr.Error(), sc.Expect.ErrorContains)
+		}
 	}
 }
 

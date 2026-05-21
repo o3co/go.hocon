@@ -69,7 +69,7 @@ OQ-1 through OQ-10 from the Open-Questions pass on 2026-05-21:
 | OQ | Decision |
 |---|---|
 | OQ-1 (default `ResolveSubstitutions`) | Keep existing `ParseString`/`ParseFile` fused (parse+resolve) for back-compat. New opt-in `ParseStringWithOptions` for parse-only. Future v2 may flip default; not in scope. |
-| OQ-2 (options shape) | `ParseOptions` / `ResolveOptions` struct passed to `*WithOptions` entry points. No builder pattern. |
+| OQ-2 (options shape) | `ParseOptions` / `ResolveOptions` value types passed to `*WithOptions` entry points. **Go**: builder pattern via `DefaultParseOptions()` / `DefaultResolveOptions()` factories + chainable `WithX()` setters (decision 4 in final spec). **TS**: `Partial<Options>` interface. **Rust**: `Default` impl + chainable builder methods. |
 | OQ-3 (`WithFallback` on unresolved) | Existing `WithFallback` is extended to accept both resolved and unresolved configs. Merge operates at unresolved-tree level when either operand is unresolved. |
 | OQ-4 (`ResolveWith`) | Spec text includes `ResolveWith(source)` (Lightbend semantic: source used for lookup only, not merged into result). Impl conformance: MUST in v1 for the impl where the issue was filed (go.hocon); MAY for ts/rs in v1 (follow-on PR ok). |
 | OQ-5 (`FromMap`) | `FromMap(values, originDescription)` (plain keys, Lightbend `ConfigValueFactory.fromMap`). **`FromAnyRef` deferred to follow-on** (requires public `ConfigValue` type — see § "Value factories"). Path-expression `parseMap` also deferred. |

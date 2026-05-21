@@ -844,6 +844,9 @@ func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
 // opts.AllowUnresolved=true leaves required-but-unsatisfied placeholders in
 // place; getter on those paths panics ErrNotResolved.
 func (c *Config) Resolve(opts ResolveOptions) (*Config, error) {
+	if !opts.initialized {
+		opts = DefaultResolveOptions()
+	}
 	if c.IsResolved() {
 		// Idempotent: return a fresh wrapper (or the receiver) — both
 		// satisfy the spec.  Returning a copy avoids aliasing surprises.
@@ -919,6 +922,9 @@ func filterByReceiverShape(resolved, shape *resolver.ObjectVal) *resolver.Object
 // On an already-resolved receiver, ResolveWith is a no-op (returns an
 // equivalent Config) — matches the idempotency of Resolve.
 func (c *Config) ResolveWith(source *Config, opts ResolveOptions) (*Config, error) {
+	if !opts.initialized {
+		opts = DefaultResolveOptions()
+	}
 	if source != nil && !source.IsResolved() {
 		return nil, fmt.Errorf("ResolveWith source: %w", ErrNotResolved)
 	}

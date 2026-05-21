@@ -218,15 +218,13 @@ b = 1`,
 }
 
 func TestResolve_FallbackThenResolve_IssueNinetyNineExample(t *testing.T) {
-	// dr01 minimal: receiver references CI_RUN_NUMBER and shortversion;
-	// runtime FromMap is not yet available (T11), so use ParseString fallback.
+	// dr01: receiver references CI_RUN_NUMBER and shortversion; FromMap
+	// supplies the runtime value, GetConfig extracts vars subtree.
 	r, _ := hocon.ParseStringWithOptions(
 		`version = ${shortversion}-${CI_RUN_NUMBER}
 variables { shortversion = "1.2.3" }`,
 		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
-	rt, _ := hocon.ParseStringWithOptions(
-		`CI_RUN_NUMBER = "42"`,
-		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	rt, _ := hocon.FromMap(map[string]any{"CI_RUN_NUMBER": "42"}, "")
 	vars := r.GetConfig("variables")
 	merged := r.WithFallback(rt).WithFallback(vars)
 	resolved, err := merged.Resolve(hocon.DefaultResolveOptions())

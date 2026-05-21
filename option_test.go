@@ -115,3 +115,39 @@ func TestResolveOptions_NonMutating(t *testing.T) {
 		t.Fatal("WithAllowUnresolved must produce true")
 	}
 }
+
+func TestParseOptions_ZeroValue_TreatedAsDefaults(t *testing.T) {
+	// ParseOptions{} zero-value at the API boundary is silently substituted
+	// with DefaultParseOptions() (Lightbend defaults). Verify by parsing a
+	// config that contains a substitution — under ResolveSubstitutions=false
+	// (zero-value if we hadn't substituted) the result would be unresolved;
+	// under the substituted default (true) the result is resolved.
+	c, err := hocon.ParseStringWithOptions(`a = 1`, hocon.ParseOptions{})
+	if err != nil {
+		t.Fatalf("ParseStringWithOptions: %v", err)
+	}
+	if !c.IsResolved() {
+		t.Fatal("ParseOptions{} zero-value must be treated as DefaultParseOptions() (ResolveSubstitutions=true)")
+	}
+	if c.GetInt("a") != 1 {
+		t.Fatalf("a=%d, want 1", c.GetInt("a"))
+	}
+}
+
+func TestResolveOptions_ZeroValue_TreatedAsDefaults(t *testing.T) {
+	// ResolveOptions{} zero-value would mean UseSystemEnvironment=false
+	// AllowUnresolved=false. Verify substitution: env-fallback works
+	// because UseSystemEnvironment becomes true (substituted default).
+	t.Setenv("TEST_E12_ZERO_VALUE", "from-env")
+	c, _ := hocon.ParseStringWithOptions(
+		`a = ${TEST_E12_ZERO_VALUE}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	r, err := c.Resolve(hocon.ResolveOptions{}) // zero-value
+	if err != nil {
+		t.Fatalf("Resolve(zero-value ResolveOptions): %v (substitute must enable env)", err)
+	}
+	if r.GetString("a") != "from-env" {
+		t.Fatalf("a=%q, want 'from-env' (env should be enabled under substituted defaults)", r.GetString("a"))
+	}
+}

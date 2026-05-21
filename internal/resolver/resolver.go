@@ -98,14 +98,15 @@ func (o *ObjectVal) GetPrior(key string) (Val, bool) {
 // MergeUnresolved performs the E12 WithFallback merge of two unresolved trees.
 // Receiver's keys win; on non-object collision (or when receiver is non-object),
 // the fallback's value is recorded as a prior on the result for cross-layer
-// self-reference lookback in phase 2. Both-object collisions recurse.
+// self-reference lookback in phase 2. Both-object collisions recurse — unless
+// a composition barrier is active at the key.
 //
-// This is a binary primitive. The caller (Config.WithFallback) is responsible
-// for the "composition barrier" semantic (HOCON.md L1485) when chaining
-// multiple fallbacks: once a non-object value has barred merging at a path,
-// subsequent fallback objects at that path must not contribute. Config
-// tracks barred paths externally and refrains from calling MergeUnresolved
-// recursively into a barred subtree.
+// Composition barrier (HOCON.md §Object Merge L1485, dr10): when the receiver
+// has a non-object priorValues[k] from an earlier merge layer (e.g. the
+// scalar in `obj.WithFallback(scalar).WithFallback(otherObj)`), the recursion
+// into both-object collision is suppressed at that key and the fallback's
+// object is discarded.  The barrier is signalled by receiver.priorValues[k]
+// being non-object — no external bookkeeping required from callers.
 func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 	if receiver == nil {
 		return fallback

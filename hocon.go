@@ -50,6 +50,9 @@ func ParseFileWithOptions(path string, opts ParseOptions) (*Config, error) {
 }
 
 func parseWithOptions(input, filePath string, opts ParseOptions) (*Config, error) {
+	if !opts.initialized {
+		opts = DefaultParseOptions()
+	}
 	ast, err := parser.Parse(input)
 	if err != nil {
 		pe := &ParseError{FilePath: filePath}
