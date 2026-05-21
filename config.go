@@ -869,6 +869,63 @@ func (c *Config) Resolve(opts ResolveOptions) (*Config, error) {
 	}, nil
 }
 
+// ResolveWith resolves substitutions in c by looking them up in source.
+// Source's keys are NOT merged into the result — differs from
+// c.WithFallback(source).Resolve(opts) which DOES include source keys.
+//
+// Per E12 decision 10 (intentional Lightbend divergence): the source
+// argument MUST be resolved.  If source.IsResolved() is false, ResolveWith
+// returns ErrNotResolved BEFORE attempting to resolve the receiver.
+//
+// On an already-resolved receiver, ResolveWith is a no-op (returns an
+// equivalent Config) — matches the idempotency of Resolve.
+func (c *Config) ResolveWith(source *Config, opts ResolveOptions) (*Config, error) {
+	if source != nil && !source.IsResolved() {
+		return nil, fmt.Errorf("ResolveWith source: %w", ErrNotResolved)
+	}
+	if c.IsResolved() {
+		return &Config{
+			root:              c.root,
+			resolved:          true,
+			parseBaseDir:      c.parseBaseDir,
+			originDescription: c.originDescription,
+		}, nil
+	}
+	// Capture receiver's top-level key set before merging.
+	receiverKeys := make(map[string]struct{}, len(c.root.Keys()))
+	for _, k := range c.root.Keys() {
+		receiverKeys[k] = struct{}{}
+	}
+	// Merge source as fallback (lookup-only effect) then resolve.
+	var mergeWith *resolver.ObjectVal
+	if source != nil {
+		mergeWith = source.root
+	}
+	merged := resolver.MergeUnresolved(c.root, mergeWith)
+	res, err := resolver.ResolveTree(merged, resolver.Options{
+		BaseDir:              c.parseBaseDir,
+		UseSystemEnvironment: opts.UseSystemEnvironment(),
+		AllowUnresolved:      opts.AllowUnresolved(),
+	})
+	if err != nil {
+		return nil, wrapResolveError(err)
+	}
+	// Filter: keep only receiver's top-level keys.
+	filtered := resolver.NewObjectVal()
+	for _, k := range res.Root.Keys() {
+		if _, want := receiverKeys[k]; want {
+			v, _ := res.Root.Get(k)
+			filtered.Set(k, v)
+		}
+	}
+	return &Config{
+		root:              filtered,
+		resolved:          !resolver.ContainsPlaceholders(filtered),
+		parseBaseDir:      c.parseBaseDir,
+		originDescription: c.originDescription,
+	}, nil
+}
+
 // WithFallback returns a new Config that deep-merges receiver over fallback.
 // Neither receiver nor fallback is mutated. If fallback is nil, returns receiver.
 //

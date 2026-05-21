@@ -249,6 +249,56 @@ func TestResolve_NoSystemEnvironment(t *testing.T) {
 	}
 }
 
+func TestResolveWith_SourceKeysAbsentFromResult(t *testing.T) {
+	// dr11a equivalent.
+	r, _ := hocon.ParseStringWithOptions(
+		`r = ${value}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	src, _ := hocon.ParseString(`value = "found"`)
+	out, err := r.ResolveWith(src, hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("ResolveWith: %v", err)
+	}
+	if out.GetString("r") != "found" {
+		t.Fatalf("r=%q, want 'found'", out.GetString("r"))
+	}
+	// source's `value` key must NOT appear in the result.
+	if out.Has("value") {
+		t.Fatal("source's key 'value' must not appear in ResolveWith result")
+	}
+}
+
+func TestResolveWith_UnresolvedSource_RaisesNotResolved(t *testing.T) {
+	// dr11b: source is unresolved → ResolveWith MUST raise ErrNotResolved
+	// BEFORE attempting to resolve the receiver (decision 10).
+	r, _ := hocon.ParseStringWithOptions(
+		`r = ${value}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	src, _ := hocon.ParseStringWithOptions(
+		`value = ${still_unresolved}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	_, err := r.ResolveWith(src, hocon.DefaultResolveOptions())
+	if err == nil {
+		t.Fatal("expected ErrNotResolved when source is unresolved")
+	}
+	if !errors.Is(err, hocon.ErrNotResolved) {
+		t.Fatalf("expected errors.Is(err, ErrNotResolved); got %v", err)
+	}
+}
+
+func TestResolveWith_OnResolvedReceiver_IsNoOp(t *testing.T) {
+	r, _ := hocon.ParseString(`r = 5`)
+	src, _ := hocon.ParseString(`unused = 99`)
+	out, err := r.ResolveWith(src, hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("ResolveWith: %v", err)
+	}
+	if out.GetInt("r") != 5 || out.Has("unused") {
+		t.Fatalf("ResolveWith on resolved receiver must be a no-op (r=%d has-unused=%v)",
+			out.GetInt("r"), out.Has("unused"))
+	}
+}
+
 func TestResolve_AllowUnresolved_DoesNotError(t *testing.T) {
 	c, _ := hocon.ParseStringWithOptions(
 		`a = ${avail}
