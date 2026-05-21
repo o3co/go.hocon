@@ -857,15 +857,15 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
 		}
 	}
-	if n.Optional {
-		return nil, nil // field will be dropped
-	}
+	// In lenient mode, do NOT drop optional substitutions yet — the parent
+	// resolver or a subsequent WithFallback may supply the value (#45). The
+	// placeholder is preserved and a later ResolveTree pass will decide:
+	// resolved → use it; still missing → drop per the optional rule.
 	if r.lenient {
-		// In lenient mode (include child resolver OR AllowUnresolved=true in
-		// a top-level ResolveTree call), leave unresolved substitutions as
-		// placeholders for the caller to handle (re-resolve after WithFallback,
-		// or surface NotResolved via getter).
 		return s, nil
+	}
+	if n.Optional {
+		return nil, nil // field will be dropped (final / strict pass)
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
 }
