@@ -8,7 +8,10 @@
 
 package hocon
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ParseError is returned when lexing or parsing fails.
 type ParseError struct {
@@ -58,3 +61,10 @@ func (e *ConfigError) Error() string {
 func panicConfig(path, msg string) {
 	panic(&ConfigError{Path: path, Message: msg})
 }
+
+// ErrNotResolved is the sentinel returned (wrapped) when a getter is called on
+// a Config path whose value (or any transitive parent) contains an unresolved
+// substitution placeholder.  E12 § "Getters on unresolved Config" pins this
+// as a MUST.  Wrap via fmt.Errorf("...: %w", ErrNotResolved, ...) so callers
+// can use errors.Is(err, hocon.ErrNotResolved).
+var ErrNotResolved = errors.New("config: value is not resolved (call Resolve() first)")

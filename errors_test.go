@@ -2,6 +2,7 @@ package hocon_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -42,6 +43,16 @@ func TestParseError_IsError(t *testing.T) {
 	var target *hocon.ParseError
 	if !errors.As(err, &target) {
 		t.Fatal("errors.As failed for ParseError")
+	}
+}
+
+func TestErrNotResolved_Sentinel(t *testing.T) {
+	if hocon.ErrNotResolved == nil {
+		t.Fatal("ErrNotResolved must be defined as a sentinel")
+	}
+	wrapped := fmt.Errorf("getter at path %q: %w", "foo.bar", hocon.ErrNotResolved)
+	if !errors.Is(wrapped, hocon.ErrNotResolved) {
+		t.Fatal("errors.Is must match ErrNotResolved through wrapping")
 	}
 }
 
