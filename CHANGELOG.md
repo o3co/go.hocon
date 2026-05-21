@@ -21,6 +21,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cycle detection: length-prefixed `"package:N:id:file"` cycle key integrated with existing include-cycle detection.
   - `include required(package(...))` — registry miss is unconditional hard error regardless of `Required` flag state (per E11 decision 7).
 
+## [1.4.0] - 2026-05-21
+
+### Added — E12 deferred substitution resolution (closes [#99](https://github.com/o3co/go.hocon/issues/99))
+
+This release adds the Lightbend-aligned `parse → withFallback → resolve()`
+lifecycle requested by [@cgordon in #99](https://github.com/o3co/go.hocon/issues/99).
+Existing `ParseString` / `ParseFile` behaviour is unchanged (still
+parse-and-resolve in one call); the new API surface is purely additive.
+
+**New entry points:**
+
+- `ParseStringWithOptions(input, opts ParseOptions)` and
+  `ParseFileWithOptions(path, opts ParseOptions)` — `opts.ResolveSubstitutions()=false`
+  produces an unresolved `Config` whose `IsResolved()` is `false` when the input
+  contains any `${...}`.
+- `FromMap(values map[string]any, originDescription string)` — construct a
+  Config from an in-memory map.  Lightbend `ConfigValueFactory.fromMap`
+  parallel.
+- `Empty(originDescription string)` — empty Config.
+
+**New methods on `*Config`:**
+
+- `Resolve(opts ResolveOptions) (*Config, error)` — single top-level resolve
+  over the entire merged fallback stack.  Idempotent on already-resolved
+  configs.
+- `ResolveWith(source *Config, opts ResolveOptions) (*Config, error)` —
+  resolves receiver using source for substitution lookup; source's keys are
+  NOT merged into the result.  Precondition: source must be resolved
+  (otherwise returns `ErrNotResolved`).
+- `IsResolved() bool` — reports whole-config resolution state.
+- `WithFallback(other *Config) *Config` — now accepts unresolved operands;
+  preserves substitution placeholders into the merged tree.  Receiver-wins
+  semantics unchanged.  Result is resolved iff both inputs are resolved.
+
+**New types:**
+
+- `ParseOptions` — builder via `DefaultParseOptions().WithResolveSubstitutions(...)`
+  and `.WithOriginDescription(...)`.  `ParseOptions{}` zero-value literal is
+  NOT a valid invocation (documented).
+- `ResolveOptions` — builder via `DefaultResolveOptions().WithUseSystemEnvironment(...)`
+  and `.WithAllowUnresolved(...)`.
+
+**New errors:**
+
+- `ErrNotResolved` sentinel.  Getters on unresolved paths panic with
+  `*ConfigError` whose `Unwrap()` returns `ErrNotResolved` — use
+  `errors.Is(err, hocon.ErrNotResolved)`.
+
+**Cross-spec amendments (no behavioural changes for callers using the existing
+fused `ParseString`; only relevant when using the deferred-resolution lifecycle):**
+
+- S13a × WithFallback: self-reference lookback walks across fallback
+  layers.  Receiver `a = ${?a} extra` with fallback `a = base` resolves
+  to `a = "base extra"`.
+- S10 × AllowUnresolved: type-incompatible concat errors fire even under
+  `AllowUnresolved=true`; only missing-value errors are deferred.
+- Hidden substitutions in overridden values are not evaluated (HOCON.md
+  §Substitutions L670-703 already-specified behaviour, now explicitly
+  pinned for the deferred lifecycle).
+
+### Fixed
+
+- S13.15 multi-optional-undef concat materialisation: `a = ${?x}${?y}` with
+  both `x` and `y` undefined now correctly omits the field (was producing
+  `{"a":""}` empty string).  Per HOCON.md L640.  Bundled with E12 since
+  the dr28 fixture surfaced the spec divergence.
+
+**Spec source:** [xx.hocon#37](https://github.com/o3co/xx.hocon/issues/37) /
+E12 in `docs/extra-spec-conventions.md`.
+
 ## [1.3.1] - 2026-05-21
 
 ### Fixed
