@@ -129,10 +129,29 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 	for _, k := range receiver.Keys() {
 		rv, _ := receiver.Get(k)
 		if existing, hasExisting := result.values[k]; hasExisting {
-			// both objects → recurse
+			// both objects → recurse, but only when no composition barrier is in effect.
+			// A composition barrier exists when the receiver already has a non-object
+			// priorValues[k] from a previous merge (e.g. r.WithFallback(scalar).WithFallback(obj)):
+			// the scalar in the middle layer bars subsequent object layers from contributing.
+			// HOCON.md §Object Merge L1485 / dr10.
 			if recObj, recOk := rv.(*ObjectVal); recOk {
 				if existObj, existOk := existing.(*ObjectVal); existOk {
-					result.set(k, MergeUnresolved(recObj, existObj))
+					// Check composition barrier: receiver's own prior for k is non-object.
+					barrierActive := false
+					if recPrior, hasPrior := receiver.priorValues[k]; hasPrior {
+						if _, priorIsObj := recPrior.(*ObjectVal); !priorIsObj {
+							barrierActive = true
+						}
+					}
+					if !barrierActive {
+						result.set(k, MergeUnresolved(recObj, existObj))
+						continue
+					}
+					// Barrier active: receiver's object wins; discard fallback's object.
+					// Do NOT update result.priorValues[k] — the existing prior (the scalar)
+					// already represents the barrier and must not be overwritten by the object.
+					_ = existObj // fallback's object is intentionally discarded
+					result.set(k, rv)
 					continue
 				}
 			}

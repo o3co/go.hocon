@@ -435,3 +435,175 @@ func TestEmpty_Resolve_IsNoOp(t *testing.T) {
 		t.Fatalf("Empty().Resolve() must be {}; keys=%v", r.Keys())
 	}
 }
+
+// ── E12 Layer-1 programmatic conformance tests (T12) ──────────────────────────
+// Covers spec edges not directly expressible in YAML scenarios.
+
+func TestS13a_OptionalSelfRefAcrossFallback_Dr04(t *testing.T) {
+	// receiver: a = ${?a} extra
+	// fallback: a = base
+	// result:   a = "base extra"
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${?a} extra`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	f, _ := hocon.ParseStringWithOptions(
+		`a = base`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	resolved, err := r.WithFallback(f).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := resolved.GetString("a"); got != "base extra" {
+		t.Fatalf("a=%q, want 'base extra'", got)
+	}
+}
+
+func TestS13a_RequiredSelfRefWithFallbackPrior_Dr05(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${a} extra`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	f, _ := hocon.ParseStringWithOptions(
+		`a = base`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	resolved, err := r.WithFallback(f).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := resolved.GetString("a"); got != "base extra" {
+		t.Fatalf("a=%q, want 'base extra'", got)
+	}
+}
+
+func TestS13a_RequiredSelfRefNoFallback_Dr06(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${a} extra`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	_, err := r.Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err == nil {
+		t.Fatal("required self-ref with no prior must error")
+	}
+}
+
+func TestTransitive_CrossLayer_Dr21(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${b}`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	f1, _ := hocon.ParseStringWithOptions(
+		`b = ${c}`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	f2, _ := hocon.ParseStringWithOptions(
+		`c = 1`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	resolved, err := r.WithFallback(f1).WithFallback(f2).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := resolved.GetInt("a"); got != 1 {
+		t.Fatalf("a=%d, want 1", got)
+	}
+}
+
+func TestHidden_AcrossLayers_Dr23(t *testing.T) {
+	// Receiver foo = 42, fallback foo = ${nonexist} → {foo:42} no error.
+	r, _ := hocon.ParseStringWithOptions(
+		`foo = 42`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	f, _ := hocon.ParseStringWithOptions(
+		`foo = ${nonexist}`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	resolved, err := r.WithFallback(f).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("hidden substitution must not error; got %v", err)
+	}
+	if got := resolved.GetInt("foo"); got != 42 {
+		t.Fatalf("foo=%d, want 42", got)
+	}
+}
+
+func TestCrossLayerCycle_Dr18(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${b}`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	f, _ := hocon.ParseStringWithOptions(
+		`b = ${a}`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	_, err := r.WithFallback(f).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err == nil {
+		t.Fatal("cross-layer cycle must raise ResolveError")
+	}
+}
+
+func TestOptionalUndefMaterialisation_Standalone(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${?x}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	resolved, err := r.Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.Has("a") {
+		t.Fatal("standalone optional undefined → field must be omitted")
+	}
+}
+
+func TestOptionalUndefMaterialisation_StringConcat(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a = ${?x} "tail"`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	resolved, err := r.Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := resolved.GetString("a"); got != " tail" {
+		t.Fatalf("a=%q, want ' tail' (leading space preserved)", got)
+	}
+}
+
+func TestDr10_CompositionBarrier(t *testing.T) {
+	r, _ := hocon.ParseStringWithOptions(
+		`a { x = 1 }`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	fb1, _ := hocon.ParseStringWithOptions(
+		`a = "scalar"`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	fb2, _ := hocon.ParseStringWithOptions(
+		`a { y = 2 }`, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	m := r.WithFallback(fb1).WithFallback(fb2)
+	resolved, err := m.Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.GetInt("a.x") != 1 {
+		t.Fatalf("a.x=%d, want 1", resolved.GetInt("a.x"))
+	}
+	if resolved.GetConfig("a").Has("y") {
+		t.Fatal("composition barrier: fb2's y must not contribute")
+	}
+}
+
+func TestDr17_E11PackageIncludeDeferred(t *testing.T) {
+	// Register a package that itself contains a substitution.  After parse-
+	// only, the include is expanded — the substitution placeholder remains.
+	// After Resolve with a FromMap providing EXTERNAL, value resolves.
+	hocon.ResetPackageRegistry()
+	t.Cleanup(hocon.ResetPackageRegistry)
+
+	pkgContent := []byte(`value = ${EXTERNAL}`)
+	if err := hocon.RegisterPackage("dr17-test-pkg", "ref.conf", pkgContent); err != nil {
+		t.Fatalf("RegisterPackage: %v", err)
+	}
+	defer hocon.UnregisterPackage("dr17-test-pkg", "ref.conf")
+
+	r, err := hocon.ParseStringWithOptions(
+		`include package("dr17-test-pkg", "ref.conf")
+outer = "top"`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("ParseStringWithOptions: %v", err)
+	}
+	if r.IsResolved() {
+		t.Fatal("expected unresolved (EXTERNAL placeholder remains)")
+	}
+	fb, _ := hocon.FromMap(map[string]any{"EXTERNAL": "injected"}, "")
+	resolved, err := r.WithFallback(fb).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.GetString("value") != "injected" {
+		t.Fatalf("value=%q, want 'injected'", resolved.GetString("value"))
+	}
+	if resolved.GetString("outer") != "top" {
+		t.Fatalf("outer=%q, want 'top'", resolved.GetString("outer"))
+	}
+}
