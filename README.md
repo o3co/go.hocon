@@ -78,7 +78,9 @@ On top of that, HOCON combines the readability of YAML with the structure of JSO
 - Byte size parsing (`1KB`, `1KiB`, `1MB`, …)
 - Generic `Option[T]` for safe optional access
 - Struct unmarshalling with `hocon` struct tags
-- No external dependencies — standard library only
+- Deferred resolution: separate `Parse` / `WithFallback` / `Resolve` lifecycle for runtime-supplied substitution values (v1.4.0+)
+- `FromMap` / `Empty` value factories for in-memory fallback layers (v1.4.0+)
+- No external runtime dependencies — `gopkg.in/yaml.v3` used only in test code (fixture scenario runner)
 
 ## API
 
@@ -87,7 +89,40 @@ On top of that, HOCON combines the readability of YAML with the structure of JSO
 ```go
 hocon.ParseString(input string) (*Config, error)
 hocon.ParseFile(path string)    (*Config, error)
+
+// Deferred parse (v1.4.0+): returns an unresolved Config when the input
+// contains `${...}` and you want to layer fallback values via WithFallback
+// before resolving.
+hocon.ParseStringWithOptions(input string, opts hocon.ParseOptions) (*Config, error)
+hocon.ParseFileWithOptions(path string,    opts hocon.ParseOptions) (*Config, error)
+hocon.FromMap(values map[string]any, originDescription string)     (*Config, error)
+hocon.Empty(originDescription string)                              *Config
 ```
+
+#### Deferred resolution example (v1.4.0+)
+
+Use when a substitution references a value only available at runtime (e.g. CI
+build number) — see [#99](https://github.com/o3co/go.hocon/issues/99).
+
+```go
+cfg, _ := hocon.ParseStringWithOptions(
+    `version = ${shortversion}-${CI_RUN_NUMBER}
+     variables { shortversion = "1.2.3" }`,
+    hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+)
+runtime, _ := hocon.FromMap(map[string]any{"CI_RUN_NUMBER": "42"}, "")
+vars := cfg.GetConfig("variables")
+resolved, _ := cfg.
+    WithFallback(runtime).
+    WithFallback(vars).
+    Resolve(hocon.DefaultResolveOptions())
+fmt.Println(resolved.GetString("version")) // "1.2.3-42"
+```
+
+Use `ResolveOptions.WithUseSystemEnvironment(false)` for hermetic resolution
+(no `os.Environ` fallback) or `.WithAllowUnresolved(true)` for partial resolve
+(unresolved paths remain placeholders; getter on them returns
+`hocon.ErrNotResolved`).
 
 ### Scalar Getters
 
@@ -244,6 +279,8 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 | Struct unmarshal | ✅ | ❌ |
 | `Option[T]` safe access | ✅ | ❌ |
 | Env variable fallback | ✅ | ✅ |
+| Deferred resolution (parse / withFallback / resolve) | ✅ (v1.4.0) | ❌ |
+| `FromMap` / `Empty` value factories | ✅ (v1.4.0) | ❌ |
 
 ### Config Framework
 

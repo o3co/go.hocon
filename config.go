@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -49,15 +50,33 @@ func isHoconWS(r rune) bool {
 	return false
 }
 
-// Config wraps a resolved HOCON value tree.
+// Config wraps a HOCON value tree.  When resolved is true, the tree contains
+// no substitution/concat placeholders and all getters succeed (modulo
+// type-mismatch panics per existing semantics).  When resolved is false, the
+// tree contains placeholders for unresolved substitutions; getters on paths
+// touching a placeholder panic with ErrNotResolved.
 // All *Config values are safe for concurrent read access.
 type Config struct {
-	root *resolver.ObjectVal
+	root              *resolver.ObjectVal
+	resolved          bool
+	parseBaseDir      string // base directory for relative include re-runs (unused in v1)
+	originDescription string // E12 ParseOptions.OriginDescription
 }
 
-// newConfig wraps an ObjectVal.
+// newConfig wraps an ObjectVal as a fully resolved Config.
 func newConfig(obj *resolver.ObjectVal) *Config {
-	return &Config{root: obj}
+	return &Config{root: obj, resolved: true}
+}
+
+// newUnresolvedConfig wraps an ObjectVal that may contain placeholders.
+// Computes the resolved flag by checking the tree once.
+func newUnresolvedConfig(obj *resolver.ObjectVal, baseDir, originDescription string) *Config {
+	return &Config{
+		root:              obj,
+		resolved:          !resolver.ContainsPlaceholders(obj),
+		parseBaseDir:      baseDir,
+		originDescription: originDescription,
+	}
 }
 
 // ── path resolution ──────────────────────────────────────────────
@@ -67,7 +86,55 @@ func (c *Config) lookup(path string) (resolver.Val, bool) {
 		panicConfig(path, "empty path")
 	}
 	segments := splitPath(path)
-	return lookupSegments(c.root, segments)
+	v, ok := lookupSegments(c.root, segments)
+	if !c.resolved && ok && isUnresolvedPlaceholder(v) {
+		panicNotResolved(path)
+	}
+	return v, ok
+}
+
+// lookupSoft is like lookup but returns (nil, false) for unresolved placeholders
+// instead of panicking.  Used by GetXxxOption getters which must not panic
+// on unresolved paths.
+func (c *Config) lookupSoft(path string) (resolver.Val, bool) {
+	if path == "" {
+		panicConfig(path, "empty path")
+	}
+	segments := splitPath(path)
+	v, ok := lookupSegments(c.root, segments)
+	if !c.resolved && ok && isUnresolvedPlaceholder(v) {
+		return nil, false
+	}
+	return v, ok
+}
+
+// isUnresolvedPlaceholder reports whether v is (or directly contains) an
+// unresolved substitution / concat placeholder.  Used by lookup() to convert
+// getter access into an ErrNotResolved-wrapped panic.
+func isUnresolvedPlaceholder(v resolver.Val) bool {
+	if v == nil {
+		return false
+	}
+	switch vv := v.(type) {
+	case *resolver.ObjectVal:
+		return resolver.ContainsPlaceholders(vv)
+	default:
+		// Wrap as a single-key object to reuse the existing recursive walker.
+		// Synthetic key "$" is invisible to the caller.
+		wrap := resolver.NewObjectVal()
+		wrap.Set("$", vv)
+		return resolver.ContainsPlaceholders(wrap)
+	}
+}
+
+// panicNotResolved panics with a *ConfigError whose error chain includes
+// ErrNotResolved (for errors.Is matching).
+func panicNotResolved(path string) {
+	panic(&ConfigError{
+		Path:    path,
+		Message: "value is not resolved (call Resolve() first)",
+		cause:   ErrNotResolved,
+	})
 }
 
 func splitPath(path string) []string {
@@ -132,9 +199,27 @@ func lookupSegments(obj *resolver.ObjectVal, segments []string) (resolver.Val, b
 
 // ── Has / Keys ────────────────────────────────────────────────────
 
+// IsResolved reports whether the Config's value tree contains any unresolved
+// substitution placeholders.  Returns true if the tree is fully resolved.
+// Whole-config granularity (no per-value isResolved).  Matches Lightbend
+// Config.isResolved(). Per E12 decision 11.
+func (c *Config) IsResolved() bool {
+	if c.resolved {
+		return true
+	}
+	// re-check (defensive) in case priorValues mutation outpaced the flag.
+	return !resolver.ContainsPlaceholders(c.root)
+}
+
 // Has returns true if the path exists, including when the value is null.
+// Unresolved-but-present keys return true (the key exists, value just isn't
+// resolved yet).  Bypasses lookup() / lookupSoft() to avoid placeholder panic.
 func (c *Config) Has(path string) bool {
-	_, ok := c.lookup(path)
+	if path == "" {
+		return false
+	}
+	segments := splitPath(path)
+	_, ok := lookupSegments(c.root, segments)
 	return ok
 }
 
@@ -169,7 +254,7 @@ func (c *Config) GetString(path string) string {
 }
 
 func (c *Config) GetStringOption(path string) Option[string] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[string]()
 	}
@@ -190,7 +275,7 @@ func (c *Config) GetInt64(path string) int64 {
 }
 
 func (c *Config) GetInt64Option(path string) Option[int64] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[int64]()
 	}
@@ -224,7 +309,7 @@ func (c *Config) GetFloat64(path string) float64 {
 }
 
 func (c *Config) GetFloat64Option(path string) Option[float64] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[float64]()
 	}
@@ -258,7 +343,7 @@ func (c *Config) GetBool(path string) bool {
 }
 
 func (c *Config) GetBoolOption(path string) Option[bool] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[bool]()
 	}
@@ -551,7 +636,7 @@ func parseBytes(s string) (int64, error) {
 // (nil, false) when the path is missing or the value cannot be converted.
 // The caller must NOT call this when the path is expected to panic (use getArray).
 func (c *Config) lookupArray(path string) (*resolver.ArrayVal, bool) {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return nil, false
 	}
@@ -700,7 +785,7 @@ func (c *Config) GetConfig(path string) *Config {
 }
 
 func (c *Config) GetConfigOption(path string) Option[*Config] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[*Config]()
 	}
@@ -746,36 +831,238 @@ func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
 
 // ── merge ─────────────────────────────────────────────────────────
 
-// WithFallback returns a new Config that deep-merges receiver over fallback.
-// Neither receiver nor fallback is mutated. If fallback is nil, returns receiver.
-func (c *Config) WithFallback(fallback *Config) *Config {
-	if fallback == nil {
-		return c
+// Resolve performs substitution resolution over the value tree, producing a
+// fully resolved Config.  Per E12 § "Resolution":
+//   - On an already-resolved Config: returns an equivalent Config (idempotent
+//     no-op equivalent to Lightbend's documented behaviour).
+//   - On an unresolved Config: performs a single top-level resolve operation
+//     over the entire tree (including merged fallback layers), with transitive
+//     recursive substitution evaluation.
+//
+// opts.UseSystemEnvironment=false makes resolution hermetic (no os.Environ
+// lookup for substitutions not satisfied in-tree).
+// opts.AllowUnresolved=true leaves required-but-unsatisfied placeholders in
+// place; getter on those paths panics ErrNotResolved.
+func (c *Config) Resolve(opts ResolveOptions) (*Config, error) {
+	if !opts.initialized {
+		opts = DefaultResolveOptions()
 	}
-	merged := mergeObjectVals(c.root, fallback.root)
-	return newConfig(merged)
+	if c.IsResolved() {
+		// Idempotent: return a fresh wrapper (or the receiver) — both
+		// satisfy the spec.  Returning a copy avoids aliasing surprises.
+		return &Config{
+			root:              c.root,
+			resolved:          true,
+			parseBaseDir:      c.parseBaseDir,
+			originDescription: c.originDescription,
+		}, nil
+	}
+	res, err := resolver.ResolveTree(c.root, resolver.Options{
+		BaseDir:              c.parseBaseDir,
+		UseSystemEnvironment: opts.UseSystemEnvironment(),
+		AllowUnresolved:      opts.AllowUnresolved(),
+	})
+	if err != nil {
+		wrapped := wrapResolveError(err)
+		if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+			re.OriginDescription = c.originDescription
+		}
+		return nil, wrapped
+	}
+	return &Config{
+		root:              res.Root,
+		resolved:          !resolver.ContainsPlaceholders(res.Root),
+		parseBaseDir:      c.parseBaseDir,
+		originDescription: c.originDescription,
+	}, nil
 }
 
-// mergeObjectVals merges base into over (over's values win).
-func mergeObjectVals(over, base *resolver.ObjectVal) *resolver.ObjectVal {
-	result := resolver.NewObjectVal()
-	// seed with base
-	for _, k := range base.Keys() {
-		v, _ := base.Get(k)
-		result.Set(k, v)
+// filterByReceiverShape walks `resolved` and keeps only keys/paths that
+// existed in `shape` (the receiver's pre-merge tree).  At any node where
+// `shape` had a scalar/array (non-object), the resolved value at that path
+// is kept verbatim (the substitution resolved against source's lookup
+// context, but the path "belonged to" the receiver).  Where `shape` had
+// an object, recurse: keep only keys present in shape's object.
+func filterByReceiverShape(resolved, shape *resolver.ObjectVal) *resolver.ObjectVal {
+	out := resolver.NewObjectVal()
+	if shape == nil {
+		return out
 	}
-	// apply over
-	for _, k := range over.Keys() {
-		ov, _ := over.Get(k)
-		if bv, ok := result.GetVal(k); ok {
-			if bo, bok := bv.(*resolver.ObjectVal); bok {
-				if oo, ook := ov.(*resolver.ObjectVal); ook {
-					result.Set(k, mergeObjectVals(oo, bo))
-					continue
-				}
+	for _, k := range shape.Keys() {
+		rv, has := resolved.Get(k)
+		if !has {
+			continue
+		}
+		shapeVal, _ := shape.Get(k)
+		// If shape had an object, recurse into the resolved object (if it is one).
+		if shapeObj, shapeIsObj := shapeVal.(*resolver.ObjectVal); shapeIsObj {
+			if resolvedObj, resOk := rv.(*resolver.ObjectVal); resOk {
+				out.Set(k, filterByReceiverShape(resolvedObj, shapeObj))
+				continue
+			}
+			// Shape was object, resolved is non-object — composition barrier
+			// replaced receiver's object with source's scalar.  Take resolved
+			// verbatim (receiver's type lost at merge, source's value kept).
+		}
+		// Shape was non-object (scalar/array/placeholder) → keep the resolved
+		// value at this path verbatim.
+		out.Set(k, rv)
+	}
+	return out
+}
+
+// ResolveWith resolves substitutions in c by looking them up in source.
+// Source's keys are NOT merged into the result — differs from
+// c.WithFallback(source).Resolve(opts) which DOES include source keys.
+//
+// Per E12 decision 10 (intentional Lightbend divergence): the source
+// argument MUST be resolved.  If source.IsResolved() is false, ResolveWith
+// returns ErrNotResolved BEFORE attempting to resolve the receiver.
+//
+// On an already-resolved receiver, ResolveWith is a no-op (returns an
+// equivalent Config) — matches the idempotency of Resolve.
+func (c *Config) ResolveWith(source *Config, opts ResolveOptions) (*Config, error) {
+	if !opts.initialized {
+		opts = DefaultResolveOptions()
+	}
+	if source != nil && !source.IsResolved() {
+		return nil, fmt.Errorf("ResolveWith source: %w", ErrNotResolved)
+	}
+	if c.IsResolved() {
+		return &Config{
+			root:              c.root,
+			resolved:          true,
+			parseBaseDir:      c.parseBaseDir,
+			originDescription: c.originDescription,
+		}, nil
+	}
+	// Capture receiver's shape (the pre-merge tree) for recursive filtering.
+	shape := c.root
+	// Merge source as fallback (lookup-only effect) then resolve.
+	var mergeWith *resolver.ObjectVal
+	if source != nil {
+		mergeWith = source.root
+	}
+	merged := resolver.MergeUnresolved(c.root, mergeWith)
+	res, err := resolver.ResolveTree(merged, resolver.Options{
+		BaseDir:              c.parseBaseDir,
+		UseSystemEnvironment: opts.UseSystemEnvironment(),
+		AllowUnresolved:      opts.AllowUnresolved(),
+	})
+	if err != nil {
+		wrapped := wrapResolveError(err)
+		if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+			re.OriginDescription = c.originDescription
+		}
+		return nil, wrapped
+	}
+	// Filter recursively by receiver's pre-merge shape — keeps only paths that
+	// existed in the receiver, at any nesting depth.
+	filtered := filterByReceiverShape(res.Root, shape)
+	return &Config{
+		root:              filtered,
+		resolved:          !resolver.ContainsPlaceholders(filtered),
+		parseBaseDir:      c.parseBaseDir,
+		originDescription: c.originDescription,
+	}, nil
+}
+
+// ── renderJSON ────────────────────────────────────────────────────
+
+// renderJSON walks the resolved value tree and emits canonical JSON
+// (sorted-key objects, no whitespace).  Errors on unresolved placeholders.
+// Used by Layer-2 fixture tests to compare against Lightbend ground truth.
+func (c *Config) renderJSON() (string, error) {
+	var sb strings.Builder
+	if err := writeValJSON(&sb, c.root); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
+}
+
+func writeValJSON(sb *strings.Builder, v resolver.Val) error {
+	switch vv := v.(type) {
+	case nil:
+		sb.WriteString("null")
+	case *resolver.ObjectVal:
+		sb.WriteByte('{')
+		keys := vv.Keys()
+		sort.Strings(keys)
+		for i, k := range keys {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(strconv.Quote(k))
+			sb.WriteByte(':')
+			sub, _ := vv.Get(k)
+			if err := writeValJSON(sb, sub); err != nil {
+				return err
 			}
 		}
-		result.Set(k, ov)
+		sb.WriteByte('}')
+	case *resolver.ArrayVal:
+		sb.WriteByte('[')
+		for i, e := range vv.Elements {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			if err := writeValJSON(sb, e); err != nil {
+				return err
+			}
+		}
+		sb.WriteByte(']')
+	case *resolver.ScalarVal:
+		switch vv.Type {
+		case resolver.ScalarNull:
+			sb.WriteString("null")
+		case resolver.ScalarBoolean:
+			sb.WriteString(vv.Raw)
+		case resolver.ScalarNumber:
+			// Emit as-is if it's a valid number literal; otherwise quote.
+			if _, err := strconv.ParseFloat(vv.Raw, 64); err == nil {
+				sb.WriteString(vv.Raw)
+			} else {
+				sb.WriteString(strconv.Quote(vv.Raw))
+			}
+		case resolver.ScalarString:
+			sb.WriteString(strconv.Quote(vv.Raw))
+		default:
+			sb.WriteString(strconv.Quote(vv.Raw))
+		}
+	default:
+		return fmt.Errorf("renderJSON: unsupported value type %T (contains unresolved placeholder?)", v)
 	}
-	return result
+	return nil
+}
+
+// WithFallback returns a new Config that deep-merges receiver over fallback.
+// Neither receiver nor fallback is mutated. If fallback is nil, returns receiver.
+//
+// Per E12 § "Composition" (decision 5):
+//   - Receiver's keys win.
+//   - Accepts resolved AND unresolved operands. Result is unresolved iff
+//     either operand is unresolved.
+//   - Substitution placeholders survive merge unchanged. Substitution
+//     lookup at Resolve() time uses the merged tree.
+//   - Non-object collision captures fallback's value as a prior for cross-
+//     layer self-reference lookback (S13a × WithFallback, dr04-dr06).
+//
+// Composition barrier (HOCON.md §Object Merge L1485, dr10):
+//
+//	obj.WithFallback(nonObj).WithFallback(otherObj) ignores otherObj because
+//	nonObj is non-object and bars the merge.  Once a key holds a non-object
+//	scalar, any object at the same key in a subsequent fallback simply does
+//	not replace the scalar (receiver wins; the fallback object is captured
+//	as prior but does not contribute keys to the result).
+func (c *Config) WithFallback(fallback *Config) *Config {
+	if fallback == nil || fallback.root == nil {
+		return c
+	}
+	merged := resolver.MergeUnresolved(c.root, fallback.root)
+	return &Config{
+		root:              merged,
+		resolved:          c.resolved && fallback.resolved && !resolver.ContainsPlaceholders(merged),
+		parseBaseDir:      c.parseBaseDir,
+		originDescription: c.originDescription,
+	}
 }

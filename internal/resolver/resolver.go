@@ -83,6 +83,96 @@ func (o *ObjectVal) Set(key string, v Val) { o.set(key, v) }
 // GetVal returns the value for key (exported).
 func (o *ObjectVal) GetVal(key string) (Val, bool) { return o.Get(key) }
 
+// SetPrior records a "prior value" for key (used by E12 WithFallback to
+// propagate fallback values as priors for self-reference lookback in phase 2).
+func (o *ObjectVal) SetPrior(key string, v Val) {
+	o.priorValues[key] = v
+}
+
+// GetPrior returns the prior value associated with key, if any.
+func (o *ObjectVal) GetPrior(key string) (Val, bool) {
+	v, ok := o.priorValues[key]
+	return v, ok
+}
+
+// MergeUnresolved performs the E12 WithFallback merge of two unresolved trees.
+// Receiver's keys win; on non-object collision (or when receiver is non-object),
+// the fallback's value is recorded as a prior on the result for cross-layer
+// self-reference lookback in phase 2. Both-object collisions recurse — unless
+// a composition barrier is active at the key.
+//
+// Composition barrier (HOCON.md §Object Merge L1485, dr10): when the receiver
+// has a non-object priorValues[k] from an earlier merge layer (e.g. the
+// scalar in `obj.WithFallback(scalar).WithFallback(otherObj)`), the recursion
+// into both-object collision is suppressed at that key and the fallback's
+// object is discarded.  The barrier is signalled by receiver.priorValues[k]
+// being non-object — no external bookkeeping required from callers.
+func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
+	if receiver == nil {
+		return fallback
+	}
+	if fallback == nil {
+		return receiver
+	}
+	result := newObjectVal()
+	// 1. Seed with fallback keys (so receiver-only / new fallback-only keys
+	//    co-exist).
+	for _, k := range fallback.Keys() {
+		v, _ := fallback.Get(k)
+		result.set(k, v)
+	}
+	// Carry fallback's priorValues.
+	for k, v := range fallback.priorValues {
+		result.priorValues[k] = v
+	}
+	// 2. Apply receiver: receiver wins; on non-object collision capture
+	//    fallback's value (existing) as prior for cross-layer self-ref lookback.
+	for _, k := range receiver.Keys() {
+		rv, _ := receiver.Get(k)
+		if existing, hasExisting := result.values[k]; hasExisting {
+			// both objects → recurse, but only when no composition barrier is in effect.
+			// A composition barrier exists when the receiver already has a non-object
+			// priorValues[k] from a previous merge (e.g. r.WithFallback(scalar).WithFallback(obj)):
+			// the scalar in the middle layer bars subsequent object layers from contributing.
+			// HOCON.md §Object Merge L1485 / dr10.
+			if recObj, recOk := rv.(*ObjectVal); recOk {
+				if existObj, existOk := existing.(*ObjectVal); existOk {
+					// Check composition barrier: receiver's own prior for k is non-object.
+					barrierActive := false
+					if recPrior, hasPrior := receiver.priorValues[k]; hasPrior {
+						if _, priorIsObj := recPrior.(*ObjectVal); !priorIsObj {
+							barrierActive = true
+						}
+					}
+					if !barrierActive {
+						result.set(k, MergeUnresolved(recObj, existObj))
+						continue
+					}
+					// Barrier active: receiver's object wins; discard fallback's object.
+					// Do NOT update result.priorValues[k] — the existing prior (the scalar)
+					// already represents the barrier and must not be overwritten by the object.
+					_ = existObj // fallback's object is intentionally discarded
+					result.set(k, rv)
+					continue
+				}
+			}
+			// non-object collision: receiver wins; capture fallback's
+			// value (existing) as prior for cross-layer self-ref lookback.
+			result.priorValues[k] = existing
+		}
+		result.set(k, rv)
+	}
+	// 3. Receiver's own priorValues take precedence over any priors propagated
+	//    from fallback. This preserves the receiver's full self-reference
+	//    history across iterated WithFallback calls — including priors that
+	//    were installed by an earlier merge where the receiver itself was a
+	//    merged result and a key came from that earlier fallback.
+	for k, v := range receiver.priorValues {
+		result.priorValues[k] = v
+	}
+	return result
+}
+
 // deepMerge merges src into dst (dst values take precedence for non-objects).
 func deepMerge(dst, src *ObjectVal) *ObjectVal {
 	result := newObjectVal()
@@ -166,6 +256,14 @@ type Options struct {
 	// E11: child resolvers created during include resolution MUST copy this field from the
 	// parent so that package includes within included files are resolved correctly.
 	PackageLookup func(identifier, file string) ([]byte, error)
+	// UseSystemEnvironment, when false, disables fallback to os.LookupEnv for
+	// unresolved substitution paths (E12 ResolveOptions.UseSystemEnvironment).
+	// Default zero-value is false; the public Config layer must pass true to
+	// preserve current behaviour for fused parseAndResolve.
+	UseSystemEnvironment bool
+	// AllowUnresolved, when true, leaves unresolved (non-optional) substitution
+	// placeholders in place instead of returning a ResolveError (E12 ResolveOptions.AllowUnresolved).
+	AllowUnresolved bool
 }
 
 // ResolveError wraps resolution failures.
@@ -192,8 +290,28 @@ func (e *ResolveError) Unwrap() error {
 	return e.Cause
 }
 
-// Resolve transforms an AST into a fully resolved Result.
+// Resolve transforms an AST into a fully resolved Result. Preserved for
+// backward compatibility — equivalent to BuildTree(...) followed by
+// ResolveTree(...) with UseSystemEnvironment=true (current behaviour).
 func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
+	// Phase 1: build tree.
+	tree, err := BuildTree(root, opts)
+	if err != nil {
+		return nil, err
+	}
+	// Phase 2: resolve substitutions. Preserve current behaviour: env is
+	// always consulted for fused parseAndResolve; AllowUnresolved=false.
+	phase2Opts := opts
+	phase2Opts.UseSystemEnvironment = true
+	phase2Opts.AllowUnresolved = false
+	return ResolveTree(tree, phase2Opts)
+}
+
+// BuildTree runs phase 1 — parsing AST into an ObjectVal tree containing
+// substitution/concat placeholders for any unresolved values. Includes are
+// fully expanded (file/url/package). Phase 2 (ResolveTree) replaces the
+// placeholders.
+func BuildTree(root *parser.ObjectNode, opts Options) (*ObjectVal, error) {
 	if opts.BaseDir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -202,17 +320,72 @@ func Resolve(root *parser.ObjectNode, opts Options) (*Result, error) {
 		opts.BaseDir = wd
 	}
 	stack := make([]string, 0, 8)
-	r := &resolver{opts: opts, resolving: make(map[string]bool), resolvedCache: make(map[string]Val), priorValues: make(map[string]Val), includeStack: &stack}
-	obj, err := r.resolveObject(root, opts.Fallback, nil)
+	r := &resolver{
+		opts:          opts,
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
+		includeStack:  &stack,
+	}
+	return r.resolveObject(root, opts.Fallback, nil)
+}
+
+// ResolveTree runs phase 2 — replacing substitution and concat placeholders
+// in tree with their resolved values. tree may have been merged from multiple
+// BuildTree results via MergeUnresolved (E12 WithFallback). The opts'
+// UseSystemEnvironment and AllowUnresolved fields control phase-2 behaviour;
+// BaseDir / Fallback / PackageLookup are not consulted (those are phase-1 inputs).
+func ResolveTree(tree *ObjectVal, opts Options) (*Result, error) {
+	r := &resolver{
+		opts:          opts,
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
+		includeStack:  nil, // not used in phase 2
+		lenient:       opts.AllowUnresolved,
+	}
+	// Re-populate top-level priorValues from the tree (phase 1 stored them on
+	// each ObjectVal; phase 2's self-reference lookback consults both the
+	// per-object map AND the resolver's top-level map).
+	for k, v := range tree.priorValues {
+		r.priorValues[k] = v
+	}
+	out, err := r.resolveSubstitutions(tree, tree)
 	if err != nil {
 		return nil, err
 	}
-	// second pass: resolve substitutions with full object context
-	obj2, err := r.resolveSubstitutions(obj, obj)
-	if err != nil {
-		return nil, err
+	return &Result{Root: out}, nil
+}
+
+// ContainsPlaceholders reports whether any value in the tree is an unresolved
+// substitution or concat placeholder. Used by Config.IsResolved.
+func ContainsPlaceholders(tree *ObjectVal) bool {
+	if tree == nil {
+		return false
 	}
-	return &Result{Root: obj2}, nil
+	for _, k := range tree.Keys() {
+		v, _ := tree.Get(k)
+		if valContainsPlaceholders(v) {
+			return true
+		}
+	}
+	return false
+}
+
+func valContainsPlaceholders(v Val) bool {
+	switch vv := v.(type) {
+	case *substPlaceholder, *concatPlaceholder:
+		return true
+	case *ObjectVal:
+		return ContainsPlaceholders(vv)
+	case *ArrayVal:
+		for _, e := range vv.Elements {
+			if valContainsPlaceholders(e) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type resolver struct {
@@ -587,7 +760,25 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 	// S13c: env-var list expansion — when '[]' suffix is present, delegate to
 	// resolveEnvList. This branch runs BEFORE scalar env fallback (S13c.5: when
 	// listSuffix=true, the bare scalar env var must NOT be consulted as fallback).
+	//
+	// E12: also gated on UseSystemEnvironment. When env access is disabled,
+	// the list substitution behaves like any other unresolved substitution:
+	// leave the placeholder if lenient; required-substitution error otherwise.
 	if s.listSuffix {
+		if !r.opts.UseSystemEnvironment {
+			if n.Optional {
+				return nil, nil // optional ${?X[]} → drop the field
+			}
+			if r.lenient {
+				return s, nil // leave placeholder for re-resolution
+			}
+			return nil, &ResolveError{
+				Message: fmt.Sprintf("required env-var list ${%s[]} cannot be resolved (UseSystemEnvironment=false)", strings.Join(segStrs, ".")),
+				Path:    strings.Join(segStrs, "."),
+				Line:    n.Line(),
+				Col:     n.Col(),
+			}
+		}
 		return r.resolveEnvList(s, segStrs, n)
 	}
 
@@ -604,21 +795,27 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			return resolved, nil
 		}
 		// Also try env var with original path (raw dot-join, no quoting)
-		if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
-			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+		if r.opts.UseSystemEnvironment {
+			if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
+				return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+			}
 		}
 	}
 
 	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior
-	if ev, ok := os.LookupEnv(strings.Join(segStrs, ".")); ok {
-		return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+	if r.opts.UseSystemEnvironment {
+		if ev, ok := os.LookupEnv(strings.Join(segStrs, ".")); ok {
+			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+		}
 	}
 	if n.Optional {
 		return nil, nil // field will be dropped
 	}
 	if r.lenient {
-		// In lenient mode (child resolver for includes), leave unresolved
-		// substitutions as placeholders for the parent resolver to handle.
+		// In lenient mode (include child resolver OR AllowUnresolved=true in
+		// a top-level ResolveTree call), leave unresolved substitutions as
+		// placeholders for the caller to handle (re-resolve after WithFallback,
+		// or surface NotResolved via getter).
 		return s, nil
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
@@ -720,16 +917,50 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line,
 		resolved = append(resolved, rv)
 	}
 
-	// Classify non-nil, non-separator elements to detect array/object involvement.
+	// Lenient guard (E12 § "s10 × AllowUnresolved"): if any operand could not be
+	// resolved (the lenient path returned the placeholder unchanged), defer the
+	// entire concat as a concatPlaceholder. The deferred placeholder carries a
+	// mix of fully-resolved values (scalars/objects/arrays) and residual sub-
+	// placeholders; a subsequent ResolveTree call will re-pass each through
+	// resolveVal — safe because resolveVal is idempotent for concrete values.
+	// In lenient (AllowUnresolved) mode, if any resolved element is still a
+	// placeholder, defer the whole concat rather than error or produce a broken
+	// string. The placeholder will be resolved by a subsequent ResolveTree call
+	// (e.g. after WithFallback merges the missing value).
+	if r.lenient {
+		for _, rv := range resolved {
+			if _, isSP := rv.(*substPlaceholder); isSP {
+				return &concatPlaceholder{vals: resolved, line: line, col: col}, nil
+			}
+			if _, isCP := rv.(*concatPlaceholder); isCP {
+				return &concatPlaceholder{vals: resolved, line: line, col: col}, nil
+			}
+		}
+	}
+
+	// Classify non-nil, non-separator elements to detect array/object involvement
+	// and whether any concrete (non-nil, non-separator) value is present.
 	hasArrayOrObject := false
+	hasConcreteValue := false
 	for _, rv := range resolved {
 		if rv == nil || isSeparator(rv) {
 			continue
 		}
+		hasConcreteValue = true
 		switch rv.(type) {
 		case *ArrayVal, *ObjectVal:
 			hasArrayOrObject = true
 		}
+	}
+
+	// Per HOCON spec § "Optional substitution materialisation in concat contexts":
+	// when the entire concat consists only of undefined optional substitutions
+	// (all operands resolved to nil, no real scalar/array/object content),
+	// the field is omitted — return nil so the parent drops this key.
+	// This differs from a mixed concat like `${?x} "tail"` where the separator
+	// and the literal "tail" count as concrete values.
+	if !hasConcreteValue {
+		return nil, nil
 	}
 
 	// Pure-scalar concat: pass the full resolved slice (including whitespace-separator

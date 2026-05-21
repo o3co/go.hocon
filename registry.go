@@ -113,6 +113,22 @@ func ResetPackageRegistry() {
 	globalRegistry.m = make(map[pkgKey][]byte)
 }
 
+// UnregisterPackage removes a previously registered package binding.
+// No-op if the (identifier, file) pair is not registered.
+// Primarily for test isolation; prefer ResetPackageRegistry when clearing
+// all registrations.
+func UnregisterPackage(identifier, file string) {
+	globalRegistry.unregister(identifier, file)
+}
+
+// unregister removes a single (identifier, file) entry from the registry.
+func (r *pkgRegistry) unregister(identifier, file string) {
+	key := pkgKey{identifier: identifier, file: file}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.m, key)
+}
+
 // lookup looks up a (identifier, file) pair in the global registry.
 // Returns (content, nil) on success, (nil, error) on miss.
 func (r *pkgRegistry) lookup(identifier, file string) ([]byte, error) {

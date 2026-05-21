@@ -322,28 +322,12 @@ func TestSpec_S13_12_OptionalUndefinedInArrayElementSkipped(t *testing.T) {
 
 // ── S13.15: foo : ${?bar}${?baz} skipped only when BOTH undefined ─────────────
 
-// TestSpec_S13_15_BothUndefined_Pin pins the current (non-conformant) behaviour
-// where `foo = ${?bar}${?baz}` creates a field with value "" even when both
-// substitutions are undefined. Spec HOCON.md L640 requires the field to be omitted.
-func TestSpec_S13_15_BothUndefined_Pin(t *testing.T) {
-	// pin: see #78 — field is created with empty string instead of being omitted
-	_ = specIssueS13_15_BothUndef
-	cfg := mustParseCfg(t, "foo = ${?bar}${?baz}")
-	opt := cfg.GetStringOption("foo")
-	if !opt.IsSome() {
-		t.Error("[pin] expected Some (current impl creates field with \"\"), got None")
-		return
-	}
-	v, _ := opt.Get()
-	if v != "" {
-		t.Errorf("[pin] expected current value %q, got %q", "", v)
-	}
-}
-
-// TestSpec_S13_15_BothUndefined_Spec is the spec-correct assertion:
+// TestSpec_S13_15_BothUndefined_Spec verifies the spec-correct behaviour:
 // field must not be created when both substitutions are undefined.
+// Fixed in T14 (dr28 scenario): resolveConcat now returns nil when all
+// operands resolve to nil, so the field is omitted. Closes #78.
 func TestSpec_S13_15_BothUndefined_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S13.15 — field created with empty string when both substs undefined; see #%d", specIssueS13_15_BothUndef)
+	_ = specIssueS13_15_BothUndef
 	cfg := mustParseCfg(t, "foo = ${?bar}${?baz}")
 	if cfg.GetStringOption("foo").IsSome() {
 		t.Error("field foo must not exist when both ${?bar} and ${?baz} are undefined")

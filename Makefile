@@ -59,6 +59,11 @@ testdata:
 	  mkdir -p testdata/hocon/unquoted-parens && \
 	  cp "$$tmpdir/testdata/hocon/unquoted-parens/"*.conf testdata/hocon/unquoted-parens/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/deferred-resolution" ]; then \
+	  mkdir -p testdata/hocon/deferred-resolution && \
+	  cp "$$tmpdir/testdata/hocon/deferred-resolution/"*.yaml testdata/hocon/deferred-resolution/ 2>/dev/null || true; \
+	  cp "$$tmpdir/testdata/hocon/deferred-resolution/README.md" testdata/hocon/deferred-resolution/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 

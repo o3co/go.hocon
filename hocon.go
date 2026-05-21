@@ -16,24 +16,49 @@ import (
 	"github.com/o3co/go.hocon/internal/resolver"
 )
 
-// ParseString parses a HOCON string and returns a Config.
+// ParseString parses a HOCON string and returns a fully resolved Config.
+// Equivalent to ParseStringWithOptions(input, DefaultParseOptions()).
 func ParseString(input string) (*Config, error) {
-	return parseWith(input, "")
+	return parseWithOptions(input, "", DefaultParseOptions())
 }
 
-// ParseFile parses a HOCON file and returns a Config.
+// ParseFile parses a HOCON file and returns a fully resolved Config.
+// Equivalent to ParseFileWithOptions(path, DefaultParseOptions()).
 func ParseFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, &ParseError{Message: err.Error(), FilePath: path}
 	}
-	return parseWith(string(data), path)
+	return parseWithOptions(string(data), path, DefaultParseOptions())
 }
 
-func parseWith(input, filePath string) (*Config, error) {
+// ParseStringWithOptions parses a HOCON string and returns a Config that is
+// either fully resolved (opts.ResolveSubstitutions()=true, default) or possibly
+// unresolved (opts.ResolveSubstitutions()=false).  See E12 for the deferred-
+// resolution lifecycle.
+func ParseStringWithOptions(input string, opts ParseOptions) (*Config, error) {
+	return parseWithOptions(input, "", opts)
+}
+
+// ParseFileWithOptions parses a HOCON file and returns a Config per opts.
+func ParseFileWithOptions(path string, opts ParseOptions) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, &ParseError{Message: err.Error(), FilePath: path}
+	}
+	return parseWithOptions(string(data), path, opts)
+}
+
+func parseWithOptions(input, filePath string, opts ParseOptions) (*Config, error) {
+	if !opts.initialized {
+		opts = DefaultParseOptions()
+	}
 	ast, err := parser.Parse(input)
 	if err != nil {
 		pe := &ParseError{FilePath: filePath}
+		if filePath == "" {
+			pe.OriginDescription = opts.OriginDescription()
+		}
 		var parserErr *parser.Error
 		if errors.As(err, &parserErr) {
 			pe.Message = parserErr.Message
@@ -48,14 +73,37 @@ func parseWith(input, filePath string) (*Config, error) {
 	if filePath != "" {
 		baseDir = dirOf(filePath)
 	}
-	res, err := resolver.Resolve(ast, resolver.Options{
-		BaseDir:       baseDir,
-		PackageLookup: globalRegistry.lookup, // E11: inject global package registry
-	})
-	if err != nil {
-		return nil, wrapResolveError(err)
+	resolveOpts := resolver.Options{
+		BaseDir:              baseDir,
+		PackageLookup:        globalRegistry.lookup,
+		UseSystemEnvironment: true, // fused path: env always available; ResolveOptions gates phase 2 separately when called.
 	}
-	return &Config{root: res.Root}, nil
+	if opts.ResolveSubstitutions() {
+		// Existing fused path: phase 1 + phase 2 via resolver.Resolve.
+		res, err := resolver.Resolve(ast, resolveOpts)
+		if err != nil {
+			wrapped := wrapResolveError(err)
+			if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+				re.OriginDescription = opts.OriginDescription()
+			}
+			return nil, wrapped
+		}
+		c := newConfig(res.Root)
+		c.parseBaseDir = baseDir
+		c.originDescription = opts.OriginDescription()
+		return c, nil
+	}
+	// Deferred path: phase 1 only.  Includes are fully expanded; substitutions
+	// remain as placeholders.
+	tree, err := resolver.BuildTree(ast, resolveOpts)
+	if err != nil {
+		wrapped := wrapResolveError(err)
+		if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+			re.OriginDescription = opts.OriginDescription()
+		}
+		return nil, wrapped
+	}
+	return newUnresolvedConfig(tree, baseDir, opts.OriginDescription()), nil
 }
 
 func dirOf(path string) string {
