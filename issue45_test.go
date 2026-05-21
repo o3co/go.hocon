@@ -47,15 +47,25 @@ include "%s"
 // semantics: at the final (non-lenient) resolution pass, optional
 // substitutions with no value still drop their field per the HOCON optional
 // substitution rule. The fix changes only the lenient pass.
+//
+// Uses the deferred path + WithUseSystemEnvironment(false) so the process
+// environment cannot accidentally satisfy the substitution and produce a
+// false positive (Copilot review #1 on PR #111).
 func TestIssue45_OptionalSubstStillDroppedInStrictMode(t *testing.T) {
-	// No parent_val anywhere; no env var (HOCON does not consult env for ${?})
-	// optional → field absent.
-	cfg, err := hocon.ParseString(`result = ${?nonexistent_xyz_unique}`)
+	cfg, err := hocon.ParseStringWithOptions(
+		`result = ${?some_var}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	// The field should be absent. GetStringOption returns None when absent.
-	opt := cfg.GetStringOption("result")
+	resolved, err := cfg.Resolve(
+		hocon.DefaultResolveOptions().WithUseSystemEnvironment(false),
+	)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	opt := resolved.GetStringOption("result")
 	if opt.IsSome() {
 		v, _ := opt.Get()
 		t.Errorf("expected result absent, got %q", v)
@@ -66,10 +76,14 @@ func TestIssue45_OptionalSubstStillDroppedInStrictMode(t *testing.T) {
 // missing-everywhere case: an optional substitution in an included file
 // that is never supplied anywhere should still drop the field after the
 // final resolution pass.
+//
+// Uses the deferred path + WithUseSystemEnvironment(false) so the process
+// environment cannot accidentally satisfy the substitution (Copilot review
+// #2 on PR #111).
 func TestIssue45_OptionalSubstThroughIncludeStillDropsIfMissing(t *testing.T) {
 	dir := t.TempDir()
 	childFile := filepath.Join(dir, "child.conf")
-	if err := os.WriteFile(childFile, []byte(`result = ${?nonexistent_xyz_unique}`), 0644); err != nil {
+	if err := os.WriteFile(childFile, []byte(`result = ${?some_var}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	mainFile := filepath.Join(dir, "parent.conf")
@@ -80,14 +94,23 @@ sentinel = 1
 	if err := os.WriteFile(mainFile, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := hocon.ParseFile(mainFile)
+	cfg, err := hocon.ParseFileWithOptions(
+		mainFile,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if cfg.GetStringOption("result").IsSome() {
+	resolved, err := cfg.Resolve(
+		hocon.DefaultResolveOptions().WithUseSystemEnvironment(false),
+	)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.GetStringOption("result").IsSome() {
 		t.Error("expected result absent (optional unresolved in both child and parent)")
 	}
-	if got := cfg.GetInt64("sentinel"); got != 1 {
+	if got := resolved.GetInt64("sentinel"); got != 1 {
 		t.Errorf("sentinel=%d, want 1 (include should not abort parent's other fields)", got)
 	}
 }
