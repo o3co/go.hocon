@@ -435,7 +435,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					// dup-key chain (what an inline-equivalent reader would
 					// see). Otherwise the parent's existing value becomes the
 					// prior.
-					var prior Val = existing
+					prior := existing
 					if inclPrior, hasInclPrior := included.priorValues[k]; hasInclPrior {
 						prior = inclPrior
 					}
