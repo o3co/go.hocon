@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/o3co/go.hocon/internal/lexer"
 	"github.com/o3co/go.hocon/internal/parser"
@@ -1445,12 +1446,61 @@ func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, erro
 		return propsToObjectVal(properties.Parse(string(data))), nil
 	}
 
+	// Lightbend-compat carve-out for #105: an empty or comment-only include
+	// file contributes nothing instead of erroring with "empty file is not a
+	// valid HOCON document". Top-level empty parses (ParseString("")) remain
+	// invalid per spec S3.1 (HOCON.md L130); this carve-out applies ONLY to
+	// the include path so the common optional-override-file pattern works.
+	if isEmptyOrCommentOnlyHocon(data) {
+		return newObjectVal(), nil
+	}
+
 	obj, err := r.parseAndResolve(data, path)
 	if err != nil {
 		return nil, err
 	}
 
 	return obj, nil
+}
+
+// isEmptyOrCommentOnlyHocon reports whether the given HOCON source has no
+// semantic content — i.e. only HOCON whitespace (per the lexer's full
+// definition — including NBSP, Unicode Zs, U+2028/U+2029, BOM, etc.) and
+// the two HOCON line-comment forms (# and //). Block comments are NOT a
+// HOCON syntax; if `/* ... */` appears, it falls through and the parser
+// produces its proper error. Used by loadIncludeFile to short-circuit the
+// S3.1 empty-document rejection for included files (Lightbend-compat for
+// #105).
+func isEmptyOrCommentOnlyHocon(data []byte) bool {
+	s := string(data)
+	for i := 0; i < len(s); {
+		// Decode one rune so we treat all HOCON whitespace (NBSP, U+2028,
+		// U+FEFF, etc. — multi-byte under UTF-8) consistently with the lexer.
+		r, size := utf8.DecodeRuneInString(s[i:])
+		// HOCON whitespace (per lexer.isHoconWhitespace) covers newlines too;
+		// also covers BOM at any position, not just the leading byte.
+		if lexer.IsHoconWhitespace(r) || r == '\n' {
+			i += size
+			continue
+		}
+		if r == '#' {
+			// # line comment — skip until newline or EOF.
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		if r == '/' && i+1 < len(s) && s[i+1] == '/' {
+			// // line comment — skip until newline or EOF.
+			i += 2
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // parseAndResolve parses raw HOCON/JSON data and resolves it into an ObjectVal.
