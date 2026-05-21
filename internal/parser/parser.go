@@ -192,12 +192,16 @@ func (p *parser) parseObjectFields(braced bool) (*ObjectNode, error) {
 	return obj, nil
 }
 
-// skipSeparator consumes an optional comma or newline separator.
+// skipSeparator consumes an optional comma surrounded by optional newlines.
+// HOCON accepts a comma after newline(s) following a completed field/element
+// (e.g. `a: 1\n,\nb: 2`), so newlines must be consumed before and after the
+// optional comma — not only after (closes #104).
 func (p *parser) skipSeparator() {
+	p.skipNewlines()
 	if p.current.Type == lexer.TokenComma {
 		p.advance()
+		p.skipNewlines()
 	}
-	p.skipNewlines()
 }
 
 // onlyClosingParens reports whether `s` is a non-empty string consisting
