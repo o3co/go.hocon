@@ -94,9 +94,9 @@ func (n *SubstNode) Col() int { return n.col }
 // error regardless of Required (E11 decision 4).
 type IncludeNode struct {
 	pos
-	Path      string // for file/bare includes
-	Required  bool
-	IsFile    bool
+	Path     string // for file/bare includes
+	Required bool
+	IsFile   bool
 	// E11 package include fields — populated when IsPackage=true.
 	IsPackage bool   // true when qualifier is package(...)
 	PkgID     string // package identifier (only when IsPackage)

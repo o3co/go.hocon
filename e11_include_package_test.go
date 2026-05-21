@@ -49,7 +49,7 @@ type ipkFixture struct {
 	name       string
 	outcome    ipkOutcome
 	setup      func(t *testing.T) // optional registration setup (run before parse)
-	wantResult map[string]any    // for ipkSuccess fixtures — nil means don't check
+	wantResult map[string]any     // for ipkSuccess fixtures — nil means don't check
 }
 
 // readPkg reads a package fixture file and returns its bytes.

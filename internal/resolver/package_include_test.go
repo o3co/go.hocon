@@ -12,6 +12,7 @@ package resolver_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -296,8 +297,10 @@ include package("foo", "inner.conf")`
 	}
 
 	// Root conf performs a file include; the included file performs a package include.
+	// Use forward slashes in the include path so HOCON's quoted-string parser doesn't
+	// interpret Windows backslashes as invalid escape sequences (e.g. `\U` in `\Users\`).
 	src := fmt.Sprintf(`root_key = "root"
-include "%s"`, outerFile)
+include "%s"`, filepath.ToSlash(outerFile))
 	ast, err := parser.Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
