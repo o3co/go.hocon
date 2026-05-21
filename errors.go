@@ -15,15 +15,20 @@ import (
 
 // ParseError is returned when lexing or parsing fails.
 type ParseError struct {
-	Message  string
-	Line     int
-	Col      int
-	FilePath string // non-empty when inside an include file
+	Message           string
+	Line              int
+	Col               int
+	FilePath          string // non-empty when inside an include file
+	OriginDescription string // E12: user-supplied label when no FilePath available
 }
 
 func (e *ParseError) Error() string {
-	if e.FilePath != "" {
-		return fmt.Sprintf("parse error in %s at line %d, col %d: %s", e.FilePath, e.Line, e.Col, e.Message)
+	src := e.FilePath
+	if src == "" {
+		src = e.OriginDescription
+	}
+	if src != "" {
+		return fmt.Sprintf("parse error in %s at line %d, col %d: %s", src, e.Line, e.Col, e.Message)
 	}
 	if e.Line > 0 {
 		return fmt.Sprintf("parse error at line %d, col %d: %s", e.Line, e.Col, e.Message)
@@ -33,16 +38,27 @@ func (e *ParseError) Error() string {
 
 // ResolveError is returned when resolution fails (substitution, include, circular ref).
 type ResolveError struct {
-	Message  string
-	Path     string // HOCON substitution path e.g. "server.host"
-	Line     int    // source line where the substitution appears (0 if unavailable)
-	Col      int
-	FilePath string // file path when resolving an include
+	Message           string
+	Path              string // HOCON substitution path e.g. "server.host"
+	Line              int    // source line where the substitution appears (0 if unavailable)
+	Col               int
+	FilePath          string // file path when resolving an include
+	OriginDescription string // E12: user-supplied label when no FilePath available
 }
 
 func (e *ResolveError) Error() string {
+	src := e.FilePath
+	if src == "" {
+		src = e.OriginDescription
+	}
 	if e.Path != "" {
+		if src != "" {
+			return fmt.Sprintf("resolve error in %s at path %q: %s", src, e.Path, e.Message)
+		}
 		return fmt.Sprintf("resolve error at path %q: %s", e.Path, e.Message)
+	}
+	if src != "" {
+		return fmt.Sprintf("resolve error in %s: %s", src, e.Message)
 	}
 	return fmt.Sprintf("resolve error: %s", e.Message)
 }

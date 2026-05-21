@@ -13,6 +13,7 @@ package hocon_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon"
@@ -587,6 +588,90 @@ func TestRenderJSON_BasicScalarsAndObjects(t *testing.T) {
 	expected := `{"a":1,"b":"hello","c":{"x":true,"y":null},"d":[1,2,3]}`
 	if got != expected {
 		t.Fatalf("renderJSON mismatch:\n got  %s\n want %s", got, expected)
+	}
+}
+
+func TestResolveWith_NestedSourceKeysAlsoFiltered(t *testing.T) {
+	// C1 regression: when receiver and source share a top-level key, source's
+	// nested keys at that path must NOT appear in the result.
+	r, _ := hocon.ParseStringWithOptions(
+		`a { r = ${value} }`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	src, _ := hocon.ParseString(`a { leaked = 1 }
+value = "ok"`)
+	out, err := r.ResolveWith(src, hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("ResolveWith: %v", err)
+	}
+	if out.GetString("a.r") != "ok" {
+		t.Fatalf("a.r=%q, want 'ok'", out.GetString("a.r"))
+	}
+	// source's nested `a.leaked` must NOT appear in the result.
+	if out.Has("a.leaked") {
+		t.Fatal("source's nested key a.leaked must not appear in ResolveWith result")
+	}
+	// source's top-level `value` must also NOT appear (already covered by dr11a).
+	if out.Has("value") {
+		t.Fatal("source's top-level key 'value' must not appear")
+	}
+}
+
+func TestResolveWith_ReceiverHadScalarSourceHadObject_ReceiverScalarWins(t *testing.T) {
+	// Edge: receiver has a top-level scalar at key x; source has an object at
+	// key x. Composition barrier handles the merge level. After resolve+filter,
+	// receiver's scalar wins (consistent with WithFallback semantics).
+	r, _ := hocon.ParseStringWithOptions(
+		`x = 42
+ref = ${y}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	src, _ := hocon.ParseString(`x { leaked = 1 }
+y = "found"`)
+	out, err := r.ResolveWith(src, hocon.DefaultResolveOptions())
+	if err != nil {
+		t.Fatalf("ResolveWith: %v", err)
+	}
+	if out.GetInt("x") != 42 {
+		t.Fatalf("x=%d, want 42 (receiver scalar)", out.GetInt("x"))
+	}
+	if out.GetString("ref") != "found" {
+		t.Fatalf("ref=%q, want 'found'", out.GetString("ref"))
+	}
+	// source's x.leaked must NOT appear.
+	if out.Has("x.leaked") {
+		t.Fatal("source's x.leaked must not appear")
+	}
+}
+
+func TestOriginDescription_AppearsInParseError(t *testing.T) {
+	// Bad HOCON triggers a parse error. With originDescription set,
+	// the error message should include the user-supplied label.
+	_, err := hocon.ParseStringWithOptions(
+		`{ a = 1`, // unbalanced — parse error
+		hocon.DefaultParseOptions().WithOriginDescription("inline-config"),
+	)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "inline-config") {
+		t.Errorf("expected error to contain 'inline-config', got: %s", err.Error())
+	}
+}
+
+func TestOriginDescription_AppearsInResolveError(t *testing.T) {
+	c, _ := hocon.ParseStringWithOptions(
+		`a = ${missing_required}`,
+		hocon.DefaultParseOptions().
+			WithResolveSubstitutions(false).
+			WithOriginDescription("test-config"),
+	)
+	_, err := c.Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err == nil {
+		t.Fatal("expected resolve error")
+	}
+	if !strings.Contains(err.Error(), "test-config") {
+		t.Errorf("expected error to contain 'test-config', got: %s", err.Error())
 	}
 }
 

@@ -53,6 +53,9 @@ func parseWithOptions(input, filePath string, opts ParseOptions) (*Config, error
 	ast, err := parser.Parse(input)
 	if err != nil {
 		pe := &ParseError{FilePath: filePath}
+		if filePath == "" {
+			pe.OriginDescription = opts.OriginDescription()
+		}
 		var parserErr *parser.Error
 		if errors.As(err, &parserErr) {
 			pe.Message = parserErr.Message
@@ -76,7 +79,11 @@ func parseWithOptions(input, filePath string, opts ParseOptions) (*Config, error
 		// Existing fused path: phase 1 + phase 2 via resolver.Resolve.
 		res, err := resolver.Resolve(ast, resolveOpts)
 		if err != nil {
-			return nil, wrapResolveError(err)
+			wrapped := wrapResolveError(err)
+			if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+				re.OriginDescription = opts.OriginDescription()
+			}
+			return nil, wrapped
 		}
 		c := newConfig(res.Root)
 		c.parseBaseDir = baseDir
@@ -87,7 +94,11 @@ func parseWithOptions(input, filePath string, opts ParseOptions) (*Config, error
 	// remain as placeholders.
 	tree, err := resolver.BuildTree(ast, resolveOpts)
 	if err != nil {
-		return nil, wrapResolveError(err)
+		wrapped := wrapResolveError(err)
+		if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+			re.OriginDescription = opts.OriginDescription()
+		}
+		return nil, wrapped
 	}
 	return newUnresolvedConfig(tree, baseDir, opts.OriginDescription()), nil
 }

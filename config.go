@@ -87,7 +87,7 @@ func (c *Config) lookup(path string) (resolver.Val, bool) {
 	}
 	segments := splitPath(path)
 	v, ok := lookupSegments(c.root, segments)
-	if ok && isUnresolvedPlaceholder(v) {
+	if !c.resolved && ok && isUnresolvedPlaceholder(v) {
 		panicNotResolved(path)
 	}
 	return v, ok
@@ -102,7 +102,7 @@ func (c *Config) lookupSoft(path string) (resolver.Val, bool) {
 	}
 	segments := splitPath(path)
 	v, ok := lookupSegments(c.root, segments)
-	if ok && isUnresolvedPlaceholder(v) {
+	if !c.resolved && ok && isUnresolvedPlaceholder(v) {
 		return nil, false
 	}
 	return v, ok
@@ -860,7 +860,11 @@ func (c *Config) Resolve(opts ResolveOptions) (*Config, error) {
 		AllowUnresolved:      opts.AllowUnresolved(),
 	})
 	if err != nil {
-		return nil, wrapResolveError(err)
+		wrapped := wrapResolveError(err)
+		if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+			re.OriginDescription = c.originDescription
+		}
+		return nil, wrapped
 	}
 	return &Config{
 		root:              res.Root,
@@ -868,6 +872,40 @@ func (c *Config) Resolve(opts ResolveOptions) (*Config, error) {
 		parseBaseDir:      c.parseBaseDir,
 		originDescription: c.originDescription,
 	}, nil
+}
+
+// filterByReceiverShape walks `resolved` and keeps only keys/paths that
+// existed in `shape` (the receiver's pre-merge tree).  At any node where
+// `shape` had a scalar/array (non-object), the resolved value at that path
+// is kept verbatim (the substitution resolved against source's lookup
+// context, but the path "belonged to" the receiver).  Where `shape` had
+// an object, recurse: keep only keys present in shape's object.
+func filterByReceiverShape(resolved, shape *resolver.ObjectVal) *resolver.ObjectVal {
+	out := resolver.NewObjectVal()
+	if shape == nil {
+		return out
+	}
+	for _, k := range shape.Keys() {
+		rv, has := resolved.Get(k)
+		if !has {
+			continue
+		}
+		shapeVal, _ := shape.Get(k)
+		// If shape had an object, recurse into the resolved object (if it is one).
+		if shapeObj, shapeIsObj := shapeVal.(*resolver.ObjectVal); shapeIsObj {
+			if resolvedObj, resOk := rv.(*resolver.ObjectVal); resOk {
+				out.Set(k, filterByReceiverShape(resolvedObj, shapeObj))
+				continue
+			}
+			// Shape was object, resolved is non-object — composition barrier
+			// replaced receiver's object with source's scalar.  Take resolved
+			// verbatim (receiver's type lost at merge, source's value kept).
+		}
+		// Shape was non-object (scalar/array/placeholder) → keep the resolved
+		// value at this path verbatim.
+		out.Set(k, rv)
+	}
+	return out
 }
 
 // ResolveWith resolves substitutions in c by looking them up in source.
@@ -892,11 +930,8 @@ func (c *Config) ResolveWith(source *Config, opts ResolveOptions) (*Config, erro
 			originDescription: c.originDescription,
 		}, nil
 	}
-	// Capture receiver's top-level key set before merging.
-	receiverKeys := make(map[string]struct{}, len(c.root.Keys()))
-	for _, k := range c.root.Keys() {
-		receiverKeys[k] = struct{}{}
-	}
+	// Capture receiver's shape (the pre-merge tree) for recursive filtering.
+	shape := c.root
 	// Merge source as fallback (lookup-only effect) then resolve.
 	var mergeWith *resolver.ObjectVal
 	if source != nil {
@@ -909,16 +944,15 @@ func (c *Config) ResolveWith(source *Config, opts ResolveOptions) (*Config, erro
 		AllowUnresolved:      opts.AllowUnresolved(),
 	})
 	if err != nil {
-		return nil, wrapResolveError(err)
-	}
-	// Filter: keep only receiver's top-level keys.
-	filtered := resolver.NewObjectVal()
-	for _, k := range res.Root.Keys() {
-		if _, want := receiverKeys[k]; want {
-			v, _ := res.Root.Get(k)
-			filtered.Set(k, v)
+		wrapped := wrapResolveError(err)
+		if re, ok := wrapped.(*ResolveError); ok && re.FilePath == "" {
+			re.OriginDescription = c.originDescription
 		}
+		return nil, wrapped
 	}
+	// Filter recursively by receiver's pre-merge shape — keeps only paths that
+	// existed in the receiver, at any nesting depth.
+	filtered := filterByReceiverShape(res.Root, shape)
 	return &Config{
 		root:              filtered,
 		resolved:          !resolver.ContainsPlaceholders(filtered),
