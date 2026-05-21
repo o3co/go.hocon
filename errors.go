@@ -51,10 +51,16 @@ func (e *ResolveError) Error() string {
 type ConfigError struct {
 	Message string
 	Path    string // HOCON access path e.g. "server.host"
+	cause   error  // underlying sentinel (e.g. ErrNotResolved) for errors.Is
 }
 
 func (e *ConfigError) Error() string {
 	return fmt.Sprintf("config error at path %q: %s", e.Path, e.Message)
+}
+
+// Unwrap returns the underlying cause for errors.Is / errors.As.
+func (e *ConfigError) Unwrap() error {
+	return e.cause
 }
 
 // panicConfig panics with a ConfigError.

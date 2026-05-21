@@ -85,7 +85,55 @@ func (c *Config) lookup(path string) (resolver.Val, bool) {
 		panicConfig(path, "empty path")
 	}
 	segments := splitPath(path)
-	return lookupSegments(c.root, segments)
+	v, ok := lookupSegments(c.root, segments)
+	if ok && isUnresolvedPlaceholder(v) {
+		panicNotResolved(path)
+	}
+	return v, ok
+}
+
+// lookupSoft is like lookup but returns (nil, false) for unresolved placeholders
+// instead of panicking.  Used by GetXxxOption getters which must not panic
+// on unresolved paths.
+func (c *Config) lookupSoft(path string) (resolver.Val, bool) {
+	if path == "" {
+		panicConfig(path, "empty path")
+	}
+	segments := splitPath(path)
+	v, ok := lookupSegments(c.root, segments)
+	if ok && isUnresolvedPlaceholder(v) {
+		return nil, false
+	}
+	return v, ok
+}
+
+// isUnresolvedPlaceholder reports whether v is (or directly contains) an
+// unresolved substitution / concat placeholder.  Used by lookup() to convert
+// getter access into an ErrNotResolved-wrapped panic.
+func isUnresolvedPlaceholder(v resolver.Val) bool {
+	if v == nil {
+		return false
+	}
+	switch vv := v.(type) {
+	case *resolver.ObjectVal:
+		return resolver.ContainsPlaceholders(vv)
+	default:
+		// Wrap as a single-key object to reuse the existing recursive walker.
+		// Synthetic key "$" is invisible to the caller.
+		wrap := resolver.NewObjectVal()
+		wrap.Set("$", vv)
+		return resolver.ContainsPlaceholders(wrap)
+	}
+}
+
+// panicNotResolved panics with a *ConfigError whose error chain includes
+// ErrNotResolved (for errors.Is matching).
+func panicNotResolved(path string) {
+	panic(&ConfigError{
+		Path:    path,
+		Message: "value is not resolved (call Resolve() first)",
+		cause:   ErrNotResolved,
+	})
 }
 
 func splitPath(path string) []string {
@@ -163,8 +211,14 @@ func (c *Config) IsResolved() bool {
 }
 
 // Has returns true if the path exists, including when the value is null.
+// Unresolved-but-present keys return true (the key exists, value just isn't
+// resolved yet).  Bypasses lookup() / lookupSoft() to avoid placeholder panic.
 func (c *Config) Has(path string) bool {
-	_, ok := c.lookup(path)
+	if path == "" {
+		return false
+	}
+	segments := splitPath(path)
+	_, ok := lookupSegments(c.root, segments)
 	return ok
 }
 
@@ -199,7 +253,7 @@ func (c *Config) GetString(path string) string {
 }
 
 func (c *Config) GetStringOption(path string) Option[string] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[string]()
 	}
@@ -220,7 +274,7 @@ func (c *Config) GetInt64(path string) int64 {
 }
 
 func (c *Config) GetInt64Option(path string) Option[int64] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[int64]()
 	}
@@ -254,7 +308,7 @@ func (c *Config) GetFloat64(path string) float64 {
 }
 
 func (c *Config) GetFloat64Option(path string) Option[float64] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[float64]()
 	}
@@ -288,7 +342,7 @@ func (c *Config) GetBool(path string) bool {
 }
 
 func (c *Config) GetBoolOption(path string) Option[bool] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[bool]()
 	}
@@ -581,7 +635,7 @@ func parseBytes(s string) (int64, error) {
 // (nil, false) when the path is missing or the value cannot be converted.
 // The caller must NOT call this when the path is expected to panic (use getArray).
 func (c *Config) lookupArray(path string) (*resolver.ArrayVal, bool) {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return nil, false
 	}
@@ -730,7 +784,7 @@ func (c *Config) GetConfig(path string) *Config {
 }
 
 func (c *Config) GetConfigOption(path string) Option[*Config] {
-	v, ok := c.lookup(path)
+	v, ok := c.lookupSoft(path)
 	if !ok {
 		return None[*Config]()
 	}

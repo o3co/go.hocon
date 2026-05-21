@@ -12,6 +12,7 @@
 package hocon_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/o3co/go.hocon"
@@ -67,5 +68,64 @@ func TestParseStringWithOptions_ResolveSubstitutionsFalse_NoSubstReturnsResolved
 	}
 	if !c.IsResolved() {
 		t.Fatal("expected resolved (no substitutions present)")
+	}
+}
+
+func TestGetter_OnUnresolvedSubstitutionPanicsErrNotResolved(t *testing.T) {
+	c, err := hocon.ParseStringWithOptions(
+		`a = ${b}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic on getter against unresolved path")
+		}
+		ce, ok := r.(*hocon.ConfigError)
+		if !ok {
+			t.Fatalf("expected *ConfigError, got %T (%v)", r, r)
+		}
+		if !errors.Is(ce, hocon.ErrNotResolved) {
+			t.Fatalf("expected ConfigError to wrap ErrNotResolved, got %v", ce)
+		}
+		if ce.Path != "a" {
+			t.Fatalf("expected path 'a', got %q", ce.Path)
+		}
+	}()
+
+	_ = c.GetString("a") // must panic
+}
+
+func TestGetter_OnResolvedLiteralWithinUnresolvedConfigSucceeds(t *testing.T) {
+	// dr15 boundary: literal value accessible before resolve; substitution panics.
+	c, err := hocon.ParseStringWithOptions(
+		`lit = "value"
+		 sub = ${KEY}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := c.GetString("lit"); got != "value" {
+		t.Fatalf("lit=%q want 'value'", got)
+	}
+}
+
+func TestGetterOption_OnUnresolvedReturnsNone(t *testing.T) {
+	// Option-flavoured getters do not panic; an unresolved placeholder is
+	// "not a scalar" and therefore not present from the Option's perspective.
+	c, err := hocon.ParseStringWithOptions(
+		`a = ${b}`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !c.GetStringOption("a").IsNone() {
+		t.Fatal("expected None for unresolved path via GetStringOption")
 	}
 }
