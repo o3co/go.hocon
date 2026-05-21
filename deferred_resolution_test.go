@@ -572,6 +572,24 @@ func TestDr10_CompositionBarrier(t *testing.T) {
 	}
 }
 
+func TestRenderJSON_BasicScalarsAndObjects(t *testing.T) {
+	c, _ := hocon.ParseString(`
+		a = 1
+		b = "hello"
+		c { x = true
+		    y = null }
+		d = [1, 2, 3]
+	`)
+	got, err := hocon.RenderJSON_ForTest(c) // export-for-test shim
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	expected := `{"a":1,"b":"hello","c":{"x":true,"y":null},"d":[1,2,3]}`
+	if got != expected {
+		t.Fatalf("renderJSON mismatch:\n got  %s\n want %s", got, expected)
+	}
+}
+
 func TestDr17_E11PackageIncludeDeferred(t *testing.T) {
 	// Register a package that itself contains a substitution.  After parse-
 	// only, the include is expanded — the substitution placeholder remains.

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -924,6 +925,74 @@ func (c *Config) ResolveWith(source *Config, opts ResolveOptions) (*Config, erro
 		parseBaseDir:      c.parseBaseDir,
 		originDescription: c.originDescription,
 	}, nil
+}
+
+// ── renderJSON ────────────────────────────────────────────────────
+
+// renderJSON walks the resolved value tree and emits canonical JSON
+// (sorted-key objects, no whitespace).  Errors on unresolved placeholders.
+// Used by Layer-2 fixture tests to compare against Lightbend ground truth.
+func (c *Config) renderJSON() (string, error) {
+	var sb strings.Builder
+	if err := writeValJSON(&sb, c.root); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
+}
+
+func writeValJSON(sb *strings.Builder, v resolver.Val) error {
+	switch vv := v.(type) {
+	case nil:
+		sb.WriteString("null")
+	case *resolver.ObjectVal:
+		sb.WriteByte('{')
+		keys := vv.Keys()
+		sort.Strings(keys)
+		for i, k := range keys {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(strconv.Quote(k))
+			sb.WriteByte(':')
+			sub, _ := vv.Get(k)
+			if err := writeValJSON(sb, sub); err != nil {
+				return err
+			}
+		}
+		sb.WriteByte('}')
+	case *resolver.ArrayVal:
+		sb.WriteByte('[')
+		for i, e := range vv.Elements {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			if err := writeValJSON(sb, e); err != nil {
+				return err
+			}
+		}
+		sb.WriteByte(']')
+	case *resolver.ScalarVal:
+		switch vv.Type {
+		case resolver.ScalarNull:
+			sb.WriteString("null")
+		case resolver.ScalarBoolean:
+			sb.WriteString(vv.Raw)
+		case resolver.ScalarNumber:
+			// Emit as-is if it's a valid number literal; otherwise quote.
+			if _, err := strconv.ParseFloat(vv.Raw, 64); err == nil {
+				sb.WriteString(vv.Raw)
+			} else {
+				sb.WriteString(strconv.Quote(vv.Raw))
+			}
+		case resolver.ScalarString:
+			sb.WriteString(strconv.Quote(vv.Raw))
+		default:
+			sb.WriteString(strconv.Quote(vv.Raw))
+		}
+	default:
+		return fmt.Errorf("renderJSON: unsupported value type %T (contains unresolved placeholder?)", v)
+	}
+	return nil
 }
 
 // WithFallback returns a new Config that deep-merges receiver over fallback.
