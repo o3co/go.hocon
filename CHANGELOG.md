@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-23
+
+Cross-impl spec-compliance release with [rs.hocon v1.5.0](https://github.com/o3co/rs.hocon/releases/tag/v1.5.0) and [ts.hocon v1.5.0](https://github.com/o3co/ts.hocon/releases/tag/v1.5.0). Three spec-compliance bugfixes ([#83](https://github.com/o3co/go.hocon/issues/83) S8.6 multi-tail key concat, [#66](https://github.com/o3co/go.hocon/issues/66) S11.8 bool/null literal keys, [#65](https://github.com/o3co/go.hocon/issues/65) S10.8 unquoted space-concat in keys), one resolver fix ([#45](https://github.com/o3co/go.hocon/issues/45) lenient optional substitution through includes), and parser error-path coverage hardening ([#37](https://github.com/o3co/go.hocon/issues/37): 86.4% → 92.0% statement coverage on `internal/parser`). No public API changes; safe drop-in upgrade from v1.4.1.
+
 ### Fixed — S8.6 multi-tail key concat
 
 - **Signed-numeric and chained adjacent-token keys now parse as a single key segment** ([#83](https://github.com/o3co/go.hocon/issues/83)). Follow-up to #65 / #81-followup: the parseKey concat branch was single-shot and only accepted `TokenString` / `TokenBool` / `TokenNull` / `TokenInclude` tails. This rejected signed-numeric chains because go.hocon's `readNumber` produces `TokenInt("-456")` when `-` is immediately followed by digits, so `123-456` arrives as two adjacent `TokenInt` tokens. The fix turns the concat branch into a loop that absorbs adjacent `TokenInt` / `TokenFloat` tails alongside the existing set, so chains like `123-456 = 1` → `{"123-456": 1}`, `123-456abc = 1` → `{"123-456abc": 1}`, and `123-456.foo = 1` → path `["123-456", "foo"]` all converge. Quoted-key gating preserved — `"a.b"-1 = 1` stays rejected so the literal `.` inside the quoted segment is never re-interpreted as a path separator. Cross-impl: ts.hocon and rs.hocon read `123-456` as a single unquoted token via their Option B lexer model, so they handle this naturally; this PR closes go.hocon's Option A divergence.
