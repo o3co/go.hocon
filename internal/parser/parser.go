@@ -706,7 +706,7 @@ func (p *parser) parseKey() ([]string, error) {
 		// as each is unquoted (or a stringifiable keyword/literal), has no
 		// preceding whitespace, and no leading dot. Each tail extends the
 		// merged key text. The chain absorbs:
-		//   - TokenString (unquoted): closes the `123abc` asymmetry (#65)
+		//   - TokenString (unquoted): closes the `123abc` asymmetry (#81)
 		//   - TokenBool / TokenNull / TokenInclude: keyword tails (#66 area)
 		//   - TokenInt / TokenFloat: signed-numeric tails like `123-456`
 		//     (#83) — the lexer's `readNumber` produces TokenInt("-456")
