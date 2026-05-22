@@ -8,9 +8,12 @@
 
 // Package parser_test — targeted tests for parser error paths identified in #37.
 //
-// Each test exercises a specific newError() call that was uncovered before this
-// file existed. The test names and comments identify the source location and
-// issue-scope item for traceability.
+// Each test exercises a specific newError() call site from the #37 scope and
+// pins the error-message contract. Most call sites were uncovered before this
+// file existed; a few overlap with pre-existing tests (e.g. direct-form
+// `include url(...)` / `include classpath(...)`) and are kept here as contract
+// pins so the error wording can't silently drift. The test names and comments
+// identify the source location and issue-scope item for traceability.
 package parser_test
 
 import (
