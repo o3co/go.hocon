@@ -776,22 +776,97 @@ func TestSpecS11_5_Foo10DotZeroPathSplit(t *testing.T) {
 // literal in key position must be stringified to its string form ("true" /
 // "false"). Per HOCON L504: "if you have a path expression then it must always
 // be converted to a string, so `true` becomes the string \"true\"."
-// Status: ❌ — parser rejects TokenBool as key (stricter than spec, see #66).
+// Status: ✅ — fixed in #66; parseKey accepts TokenBool/TokenNull and the
+// existing unquoted-branch stringification path produces the spec-required
+// "true"/"false"/"null" key.
 func TestSpecS11_8_BoolLiteralKeyStringifies(t *testing.T) {
-	t.Skipf("spec violation, see #66")
-	// Spec L504: `true = 42` must parse as key "true" → 42.
 	obj, err := parser.Parse(`true = 42`)
 	if err != nil {
 		t.Fatalf("spec L504: boolean literal in key must be stringified, got error: %v", err)
 	}
-	if len(obj.Fields) != 1 || obj.Fields[0].Key[0] != "true" {
-		t.Errorf("expected key [\"true\"], got %v", func() interface{} {
-			if len(obj.Fields) > 0 {
-				return obj.Fields[0].Key
-			}
-			return nil
-		}())
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d (%v)", len(obj.Fields), obj.Fields)
 	}
+	if len(obj.Fields[0].Key) != 1 || obj.Fields[0].Key[0] != "true" {
+		t.Errorf("expected key [\"true\"], got %v", obj.Fields[0].Key)
+	}
+}
+
+// TestSpecS11_8_FalseLiteralKeyStringifies — same rule, false variant.
+func TestSpecS11_8_FalseLiteralKeyStringifies(t *testing.T) {
+	obj, err := parser.Parse(`false = 0`)
+	if err != nil {
+		t.Fatalf("spec L504: boolean literal in key must be stringified, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"false"})
+}
+
+// TestSpecS11_8_NullLiteralKeyStringifies — null in key position stringifies
+// to "null" per the same L504 path-expression rule.
+func TestSpecS11_8_NullLiteralKeyStringifies(t *testing.T) {
+	obj, err := parser.Parse(`null = 1`)
+	if err != nil {
+		t.Fatalf("spec L504: null literal in key must be stringified, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"null"})
+}
+
+// TestSpecS11_8_BoolKeyWithStringValue — bool literal as key, plain string value.
+// The key is the single string "true"; rhs is parsed independently.
+func TestSpecS11_8_BoolKeyWithStringValue(t *testing.T) {
+	obj, err := parser.Parse(`true = "v"`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true"})
+}
+
+// TestSpecS11_8_KeywordPrefixIsNotKeyword pins that `truee` (TokenString,
+// not TokenBool) parses as the literal key "truee". The lexer promotes to
+// TokenBool/TokenNull/TokenInclude only on exact match; this test guards
+// against a regression where someone introduces prefix-based promotion.
+func TestSpecS11_8_KeywordPrefixIsNotKeyword(t *testing.T) {
+	obj, err := parser.Parse(`truee = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"truee"})
+}
+
+// TestSpecS11_8_QuotedTrueKeyEquivalentToUnquoted pins that the quoted
+// form `"true" = 1` produces the same key as the unquoted `true = 1`.
+// The quoted form takes a different code path in parseKey (TokenString
+// with IsQuoted=true) — this documents the equivalence guaranteed by
+// S11.8 path-expression stringification.
+func TestSpecS11_8_QuotedTrueKeyEquivalentToUnquoted(t *testing.T) {
+	obj, err := parser.Parse(`"true" = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true"})
+}
+
+// TestSpecS11_8_BoolKeyComposesWithS10_8 — `true false = 1` composes the S10.8
+// space-concat rule with the S11.8 stringification rule. Key is ["true false"].
+func TestSpecS11_8_BoolKeyComposesWithS10_8(t *testing.T) {
+	obj, err := parser.Parse(`true false = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true false"})
+}
+
+// TestSpecS11_8_BoolKeyComposesWithDottedPath — `true.foo = 1` is a 2-segment
+// path ["true", "foo"]. The lexer emits a single TokenString "true.foo"
+// (keyword promotion only on exact-match), so this path goes through the
+// existing string-key branch — but the test pins behaviour against future
+// keyword-promotion changes.
+func TestSpecS11_8_BoolKeyComposesWithDottedPath(t *testing.T) {
+	obj, err := parser.Parse(`true.foo = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true", "foo"})
 }
 
 // TestSpecS11_9_SubstitutionNotAllowedInPathExpr verifies that a substitution
@@ -809,6 +884,27 @@ func TestSpecS11_9_SubstitutionNotAllowedInPathExpr(t *testing.T) {
 func TestSpecS12_5_IncludeReservedAsKeyStart(t *testing.T) {
 	if _, err := parser.Parse(`include = x`); err == nil {
 		t.Error("expected parse error: 'include' used as key start should be rejected")
+	}
+}
+
+// TestSpecS12_5_IncludeAtKeyPositionDispatchesToInclude pins the dispatch
+// invariant the S11.8 fix relies on: a bare `include` at key position must
+// raise the "reserved as a key name" error from parseInclude, not the
+// "expected key, got TokenInclude" error from parseKey's type check. This
+// guards against a regression where someone widens parseKey's allow-list
+// to include TokenInclude, which would silently break the S12.5 reservation.
+// See internal/parser/parser.go S11.8 allow-list comment.
+func TestSpecS12_5_IncludeAtKeyPositionDispatchesToInclude(t *testing.T) {
+	_, err := parser.Parse(`include = x`)
+	if err == nil {
+		t.Fatal("expected parse error: 'include' as bare key must be rejected")
+	}
+	var pe *parser.Error
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *parser.Error, got %T", err)
+	}
+	if !strings.Contains(pe.Message, "reserved") {
+		t.Errorf("expected 'reserved' in error message (proving dispatch went through parseInclude S12.5 path, not parseKey allow-list), got: %s", pe.Message)
 	}
 }
 

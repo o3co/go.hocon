@@ -592,7 +592,16 @@ func (p *parser) parseKey() ([]string, error) {
 	if p.current.Type == lexer.TokenError {
 		return nil, newError(line, col, "%s", p.current.Value)
 	}
-	if p.current.Type != lexer.TokenString && p.current.Type != lexer.TokenInt && p.current.Type != lexer.TokenFloat {
+	// S11.8 (HOCON.md L504): path expressions always stringify, so TokenBool
+	// ("true" / "false") and TokenNull ("null") are valid key starts — the
+	// existing unquoted-branch below pushes them as single-segment string keys.
+	// TokenInclude is NOT in this list: `include` at the start of a key is
+	// reserved per S12.5 and dispatched as a directive before parseKey runs.
+	if p.current.Type != lexer.TokenString &&
+		p.current.Type != lexer.TokenInt &&
+		p.current.Type != lexer.TokenFloat &&
+		p.current.Type != lexer.TokenBool &&
+		p.current.Type != lexer.TokenNull {
 		return nil, newError(line, col, "expected key, got %v", p.current.Type)
 	}
 
