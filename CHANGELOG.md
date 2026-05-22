@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — value-interior self-referential substitution
+
+- **Self-references embedded inside array elements or object field values no longer crash / error** ([#120](https://github.com/o3co/go.hocon/issues/120)). Patterns like `a = [${a}, "x"]` repeated, `a = [${a}]` repeated, and `o = { history = ${o}, v = N }` (even at chain length 2) were not covered by the v1.5.1 #118 fix because `foldSelfRef`'s walker only traversed `substPlaceholder` / `concatPlaceholder` trees. The walker is now extended to recurse through `ArrayVal.Elements` and `ObjectVal` field values. Additionally, `resolveSubst`'s self-ref detection (`isSelfRef`) is extended via a new `containsSubstByIdentity` helper to recognise the resolved placeholder when it appears as an array element or object field value (pointer-identity, same criterion the existing concat case used). Finally, the prior-save trigger at duplicate-key assignment is no longer gated on `!merged` — the object-merge case (`o = {v:1}; o = {history: ${o}, v:2}`) consumed prior info silently before because `deepMerge` retained the `${o}` placeholder in the merged value but the gate skipped the save. The save is now unconditional; the existing fold-or-skip logic still handles the chain invariant. Surfaced during v1.5.1 cross-impl audit (cgordon-driven #118 follow-up).
+
 ## [1.5.1] - 2026-05-23
 
 Bugfix release: chained self-referential append crash fix ([#118](https://github.com/o3co/go.hocon/issues/118)), reported by [@cgordon](https://github.com/cgordon), and a lenient-mode include resolver follow-up ([#45](https://github.com/o3co/go.hocon/issues/45)). No public API changes; safe drop-in upgrade from v1.5.0. Cross-impl with rs.hocon v1.5.1 and ts.hocon v1.5.1 (same chain-class fix; see [rs.hocon#119](https://github.com/o3co/rs.hocon/issues/119) and [ts.hocon#131](https://github.com/o3co/ts.hocon/issues/131)).
