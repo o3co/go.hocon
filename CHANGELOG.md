@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — S10.8 spec compliance
+
+- **Unquoted space-concat in field keys now accepted as a single key** ([#65](https://github.com/o3co/go.hocon/issues/65)). Per HOCON spec L317 ("string value concatenation is allowed in field keys") and L553-560 (`a b c : 42` is equivalent to `"a b c" : 42`), space-separated unquoted tokens before the `:`/`=`/`{`/`+=` separator must merge into a single key. Previously `foo bar = 1` errored with `expected ':', '=' or '{' after key`; now it parses as key `"foo bar"`. The fix extends `parseKey` in `internal/parser/parser.go` with a space-concat continuation branch driven by a new `spaceConcat` flag: when the next key token has `PrecedingSpace`, the first dot-split piece of that token merges into the LAST existing segment with a literal space; any remaining dot-split pieces become new path segments. Quoted+unquoted mixed concat (`"foo bar" baz = 1`) and inline-object shorthand (`a b { x = 1 }`) work transitively. A leading `.` in the spaced-in token keeps path-separator semantics per S11.1 (via the pre-existing leading-dot continuation branch, which takes priority over space-concat): `a .b = 1` → `["a", "b"]`, `a.b .c = 1` → `["a", "b", "c"]`. Cross-impl with [ts.hocon PR #128](https://github.com/o3co/ts.hocon/pull/128) and [rs.hocon PR #115](https://github.com/o3co/rs.hocon/pull/115).
+
 ### Fixed — lenient optional substitution
 
 - **Optional substitutions in included files now see parent-scope values** ([#45](https://github.com/o3co/go.hocon/issues/45)). Previously, in the lenient resolver pass used by include processing, unresolved optional substitutions (`${?path}`) were dropped immediately, so an included file referencing a parent's value (e.g. `result = ${?parent_val}`) lost the field before the parent's value could be supplied. The fix preserves the placeholder during the lenient pass; the final / strict pass still drops optional substitutions with no value. Found by Copilot review on the include-relativization PR.

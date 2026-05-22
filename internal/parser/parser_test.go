@@ -589,25 +589,152 @@ func TestSpecS10_8_QuotedKeyWithSpaceAllowed(t *testing.T) {
 	}
 }
 
+// assertKeyPath fails the test if the parsed object doesn't contain exactly
+// one field with the given key path. Centralising the length guard avoids
+// `obj.Fields[0].Key` panics when a parse change unexpectedly produces zero
+// or multiple fields.
+func assertKeyPath(t *testing.T, obj *parser.ObjectNode, want []string) {
+	t.Helper()
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d (%v)", len(obj.Fields), obj.Fields)
+	}
+	got := obj.Fields[0].Key
+	if len(got) != len(want) {
+		t.Fatalf("expected key path length %d (%v), got length %d (%v)", len(want), want, len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("expected key %v, got %v", want, got)
+			return
+		}
+	}
+}
+
 // TestSpecS10_8_UnquotedConcatInKey pins the S10.8 spec rule: unquoted
 // adjacent tokens separated by whitespace form a single concatenated key.
-// Per HOCON L317/L556: `a b c : 42` is equivalent to `"a b c" : 42`.
-// Status: ❌ — parser rejects unquoted multi-token keys (see #65).
+// Per HOCON L317: "string value concatenation is allowed in field keys".
+// Status: ✅ — fixed in #65; parseKey accepts space-concat continuations.
 func TestSpecS10_8_UnquotedConcatInKey(t *testing.T) {
-	t.Skipf("spec violation, see #65")
-	// Spec example (L556): `a b c : 42` must parse as key "a b c" → 42.
 	obj, err := parser.Parse(`a b = 1`)
 	if err != nil {
-		t.Fatalf("spec L317/L556: 'a b = 1' must be accepted as key 'a b', got error: %v", err)
+		t.Fatalf("spec L317: 'a b = 1' must be accepted as key 'a b', got error: %v", err)
 	}
-	if len(obj.Fields) != 1 || obj.Fields[0].Key[0] != "a b" {
-		t.Errorf("expected key ['a b'], got %v", func() interface{} {
-			if len(obj.Fields) > 0 {
-				return obj.Fields[0].Key
-			}
-			return nil
-		}())
+	assertKeyPath(t, obj, []string{"a b"})
+}
+
+func TestSpecS10_8_ThreeTokenSpecExample(t *testing.T) {
+	// Spec L556 verbatim example: `a b c : 42` ≡ `"a b c" : 42`.
+	obj, err := parser.Parse(`a b c : 42`)
+	if err != nil {
+		t.Fatalf("spec L317/L556: 'a b c : 42' must parse, got: %v", err)
 	}
+	assertKeyPath(t, obj, []string{"a b c"})
+}
+
+func TestSpecS10_8_SpaceConcatAfterDottedPath(t *testing.T) {
+	// `a.b c = 1` → ['a', 'b c']: concat merges into the LAST path segment.
+	obj, err := parser.Parse(`a.b c = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a", "b c"})
+}
+
+func TestSpecS10_8_SpaceConcatDottedTail(t *testing.T) {
+	// `a b.c = 1` → ['a b', 'c']: head merges, tail pushes as new segment.
+	obj, err := parser.Parse(`a b.c = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a b", "c"})
+}
+
+func TestSpecS10_8_QuotedThenUnquotedSpaceConcat(t *testing.T) {
+	// `"foo bar" baz = 1` → ['foo bar baz']: quoted segment + unquoted tail via S10.8.
+	obj, err := parser.Parse(`"foo bar" baz = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"foo bar baz"})
+}
+
+func TestSpecS10_8_InlineObjectShorthand(t *testing.T) {
+	// `a b { x = 1 }` — key ['a b'], value the inline object.
+	obj, err := parser.Parse(`a b { x = 1 }`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a b"})
+}
+
+func TestSpecS10_8_LeadingDotAfterWhitespaceStaysSeparator(t *testing.T) {
+	// `a .b = 1` → ['a', 'b'] (NOT ['a b']). The leading '.' survives the space
+	// as a path separator per S11.1, not folded into the previous segment.
+	// (3-way convergence finding from ts.hocon #128: Claude+Codex+Copilot all
+	// flagged this on the ts companion PR; rs.hocon #115 ported the same fix.)
+	obj, err := parser.Parse(`a .b = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a", "b"})
+}
+
+func TestSpecS10_8_LeadingDotAfterWhitespaceMultiSegmentTail(t *testing.T) {
+	// `a .b.c = 1` → ['a', 'b', 'c'].
+	obj, err := parser.Parse(`a .b.c = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a", "b", "c"})
+}
+
+func TestSpecS10_8_LeadingDotAfterQuotedThenWhitespace(t *testing.T) {
+	// `"a" .b = 1` → ['a', 'b'].
+	obj, err := parser.Parse(`"a" .b = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a", "b"})
+}
+
+func TestSpecS10_8_DottedPathThenWhitespaceThenDot(t *testing.T) {
+	// `a.b .c = 1` → ['a', 'b', 'c'] (Copilot-flagged convergence case on ts).
+	obj, err := parser.Parse(`a.b .c = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a", "b", "c"})
+}
+
+func TestSpecS10_8_QuotedDottedPathThenWhitespaceThenDot(t *testing.T) {
+	// `"a.b" .c = 1` → ['a.b', 'c']: quoted-key literal 'a.b' preserved (no
+	// path-split inside quoted), and `.c` becomes a sibling segment.
+	obj, err := parser.Parse(`"a.b" .c = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a.b", "c"})
+}
+
+func TestSpecS10_8_TwoQuotedSpaceConcat(t *testing.T) {
+	// Two adjacent quoted strings with whitespace between are also covered by
+	// the space-concat rule (per Lightbend ground truth on `"a" "b" = 1` →
+	// `{"a b":1}`). This pins the quoted-branch path of the spaceConcat merge.
+	obj, err := parser.Parse(`"foo bar" "baz qux" = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"foo bar baz qux"})
+}
+
+func TestSpecS10_8_TabBetweenKeyTokensIsSpaceConcat(t *testing.T) {
+	// `PrecedingSpace` covers any HOCON whitespace; the merge joiner is
+	// canonical U+0020 (per S10.6 whitespace normalisation).
+	obj, err := parser.Parse("a\tb = 1")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"a b"})
 }
 
 // TestSpecS11_4_TokenFloatKey verifies the spec assertion (L496) that key
