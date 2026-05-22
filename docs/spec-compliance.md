@@ -259,8 +259,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.8** String concat allowed in field keys — §Value concatenation (L317)
-  tests: internal/parser/parser_test.go:577 (TestSpecS10_8_QuotedKeyWithSpaceAllowed); internal/parser/parser_test.go:596 (TestSpecS10_8_UnquotedConcatInKey)
-  status: ❌ (see #65) — parser rejects unquoted concat `a b = 1` per L317/L556 (spec requires acceptance as key 'a b')
+  tests: internal/parser/parser_test.go (TestSpecS10_8_* — quoted baseline, basic 2-token, three-token spec example, dotted-prefix concat, dotted-tail concat, quoted+unquoted concat, inline-object shorthand, four leading-dot S11.1 cases, tab whitespace)
+  status: ✅ — fixed in #65; parseKey accepts space-concat continuations and merges into the LAST segment with literal space. Leading '.' after whitespace stays a path separator per S11.1 (via the pre-existing leading-dot continuation branch, which takes priority over space-concat).
 
 - **S10.9** `true`/`false` stringify to `"true"`/`"false"` in concat — §String value concatenation (L363)
   tests: config_test.go:820 (TestConfig_GetString_ReturnsRawTextForBool)

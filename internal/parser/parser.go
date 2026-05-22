@@ -605,6 +605,21 @@ func (p *parser) parseKey() ([]string, error) {
 	// TokenString (which the lexer would have merged into one token if it
 	// were genuinely adjacent).
 	prevKeyTokenIsNumeric := false
+	// S10.8 (HOCON.md L317 + L553-560): "path expressions work like value
+	// concatenations" — when the next key token has whitespace before it (and
+	// is not a leading-dot continuation), it is a space-concat continuation
+	// that merges into the LAST existing segment with a literal space.
+	//   `a b = 1`     → ['a b']
+	//   `a b c : 42`  → ['a b c']            (spec L556 example)
+	//   `a.b c = 1`   → ['a', 'b c']         (concat into last segment)
+	//   `"a" b = 1`   → ['a b']              (quoted + unquoted)
+	// Leading '.' after whitespace already keeps separator semantics via the
+	// existing leading-dot continuation check (which fires before this new
+	// space-concat branch and ignores PrecedingSpace), so `a .b = 1` → ['a', 'b']
+	// works incidentally — the leading-dot path takes priority over space-concat.
+	// Newlines break the chain (S10.7): the lexer emits a separator token
+	// which falls through to the loop's else / break.
+	spaceConcat := false
 
 	for {
 		raw := p.current.Value
@@ -614,7 +629,11 @@ func (p *parser) parseKey() ([]string, error) {
 
 		if isQuoted {
 			// Quoted key segment — no dot splitting
-			parts = append(parts, raw)
+			if spaceConcat && len(parts) > 0 {
+				parts[len(parts)-1] = parts[len(parts)-1] + " " + raw
+			} else {
+				parts = append(parts, raw)
+			}
 			prevKeyTokenIsNumeric = false
 		} else {
 			// Unquoted / numeric key — split on dots for path notation. A trailing
@@ -622,6 +641,7 @@ func (p *parser) parseKey() ([]string, error) {
 			// TokenFloat (e.g., "3.14") this produces nested segments ["3","14"]
 			// per HOCON.md key-as-path convention.
 			segments := strings.Split(raw, ".")
+			var newParts []string
 			for _, s := range segments {
 				if s == "" {
 					continue // skip empty segments from leading/trailing dots
@@ -629,14 +649,34 @@ func (p *parser) parseKey() ([]string, error) {
 				if err := validateKeySegment(line, col, s); err != nil {
 					return nil, err
 				}
-				parts = append(parts, s)
+				newParts = append(newParts, s)
+			}
+			if spaceConcat && len(newParts) > 0 && len(parts) > 0 {
+				// S10.8 + S11.1 interaction: if the spaced-in token starts with
+				// '.', the leading '.' is a path separator that survives the
+				// space — push pieces as new path segments rather than folding
+				// the head into the previous segment. In practice the existing
+				// leading-dot continuation check below catches this case BEFORE
+				// the space-concat flag is set, so this guard is a defensive
+				// belt-and-braces for any future reordering.
+				if strings.HasPrefix(raw, ".") {
+					parts = append(parts, newParts...)
+				} else {
+					parts[len(parts)-1] = parts[len(parts)-1] + " " + newParts[0]
+					parts = append(parts, newParts[1:]...)
+				}
+			} else {
+				parts = append(parts, newParts...)
 			}
 			prevKeyTokenIsNumeric = prevTokenType == lexer.TokenInt || prevTokenType == lexer.TokenFloat
 			// If the raw value ends with '.', the next token is a continuation
 			if strings.HasSuffix(raw, ".") {
+				spaceConcat = false
 				continue // read the next segment
 			}
 		}
+		// The continuation we just took has been consumed.
+		spaceConcat = false
 
 		// Adjacent-token key concat (numeric only): a TokenInt or TokenFloat
 		// followed by another stringifiable unquoted token with no
@@ -693,6 +733,19 @@ func (p *parser) parseKey() ([]string, error) {
 		// After a quoted segment, look if the next unquoted starts with '.'
 		if p.current.Type == lexer.TokenString && !p.current.IsQuoted && strings.HasPrefix(p.current.Value, ".") {
 			continue
+		}
+
+		// S10.8 space-concat continuation: an unquoted/quoted key-position
+		// token separated from the previous key token by whitespace is part
+		// of the same key (HOCON.md L317 + L553-560). The leading-dot branch
+		// above is checked FIRST so that `.b`-style continuations preserve
+		// path-separator semantics (S11.1) even when preceded by whitespace.
+		if p.current.PrecedingSpace {
+			switch p.current.Type {
+			case lexer.TokenString, lexer.TokenInt, lexer.TokenFloat, lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
+				spaceConcat = true
+				continue
+			}
 		}
 		break
 	}
