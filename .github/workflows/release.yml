@@ -5,12 +5,17 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   proxy-fetch:
     name: Trigger Go module proxy indexing
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v5
+
       - name: Fetch via GOPROXY
         run: |
           VERSION="${GITHUB_REF_NAME}"
@@ -23,3 +28,32 @@ jobs:
           VERSION="${GITHUB_REF_NAME}"
           MODULE="github.com/o3co/go.hocon"
           curl -sSf "https://sum.golang.org/lookup/${MODULE}@${VERSION}" || true
+
+      - name: Extract CHANGELOG section for this tag
+        # Pulls the section between `## [VERSION]` and the next `## [`
+        # from CHANGELOG.md, so the GitHub Release body matches what's
+        # already committed and reviewed. Strips the closing version
+        # header so the body ends at the previous section's separator.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
+            flag && /^## \[/ { flag=0 }
+            flag
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "::warning::No CHANGELOG section found for v${VERSION}; release body will be empty"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: /tmp/release-notes.md
+          # Don't fail the workflow if the release already exists
+          # (covers retroactive `gh release create` runs from this PR
+          # and any future case where the tag's release was created
+          # manually before the workflow ran).
+          fail_on_unmatched_files: false
+          make_latest: true
