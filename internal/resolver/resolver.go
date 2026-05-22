@@ -390,12 +390,13 @@ func valContainsPlaceholders(v Val) bool {
 }
 
 type resolver struct {
-	opts          Options
-	resolving     map[string]bool // cycle detection
-	resolvedCache map[string]Val  // previously resolved values for self-reference
-	priorValues   map[string]Val  // previous value before self-referential overwrite (first pass)
-	includeStack  *[]string       // shared stack for circular include detection (normalized paths)
-	lenient       bool            // when true, unresolved substitutions are left as placeholders instead of erroring
+	opts           Options
+	resolving      map[string]bool // cycle detection
+	resolvedCache  map[string]Val  // previously resolved values for self-reference
+	priorValues    map[string]Val  // previous value before self-referential overwrite (first pass)
+	includeStack   *[]string       // shared stack for circular include detection (normalized paths)
+	lenient        bool            // when true, unresolved substitutions are left as placeholders instead of erroring
+	inIncludeChild bool            // when true, this resolver is the sub-resolver for an `include` directive; optional substitutions are preserved (#45) rather than dropped, so they can resolve against the parent's prior on the deep-merge pass
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, pathPrefix []string) (*ObjectVal, error) {
@@ -857,15 +858,22 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
 		}
 	}
-	// In lenient mode, do NOT drop optional substitutions yet — the parent
-	// resolver or a subsequent WithFallback may supply the value (#45). The
-	// placeholder is preserved and a later ResolveTree pass will decide:
-	// resolved → use it; still missing → drop per the optional rule.
-	if r.lenient {
+	// In an `include` child resolver, do NOT drop optional substitutions yet
+	// — the parent resolver's deep-merge pass may supply the value via the
+	// parent's prior (#45). The placeholder is preserved; the parent's
+	// strict / final pass then decides: resolved → use it; still missing →
+	// drop per the optional rule. User-facing AllowUnresolved=true mode is
+	// NOT scoped here: it keeps the documented contract that optional
+	// substitutions drop (required-but-unsatisfied placeholders are still
+	// preserved via the r.lenient branch below).
+	if r.inIncludeChild {
 		return s, nil
 	}
 	if n.Optional {
-		return nil, nil // field will be dropped (final / strict pass)
+		return nil, nil // field will be dropped (user-facing default + AllowUnresolved=true mode)
+	}
+	if r.lenient {
+		return s, nil
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
 }
@@ -1518,11 +1526,12 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 			BaseDir:       filepath.Dir(filePath),
 			PackageLookup: r.opts.PackageLookup, // E11: propagate so nested package includes resolve (Codex must-fix #1)
 		},
-		resolving:     make(map[string]bool),
-		resolvedCache: make(map[string]Val),
-		priorValues:   make(map[string]Val),
-		includeStack:  r.includeStack,
-		lenient:       true, // don't error on unresolved substitutions; leave as placeholders
+		resolving:      make(map[string]bool),
+		resolvedCache:  make(map[string]Val),
+		priorValues:    make(map[string]Val),
+		includeStack:   r.includeStack,
+		lenient:        true, // don't error on unresolved substitutions; leave as placeholders
+		inIncludeChild: true, // preserve optional substitutions for #45 (resolve against parent's prior on deep-merge)
 	}
 	obj, err := childResolver.resolveObject(ast, nil, nil)
 	if err != nil {
@@ -1610,11 +1619,12 @@ func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*Obj
 			BaseDir:       r.opts.BaseDir, // inherit parent BaseDir for nested file includes
 			PackageLookup: r.opts.PackageLookup,
 		},
-		resolving:     make(map[string]bool),
-		resolvedCache: make(map[string]Val),
-		priorValues:   make(map[string]Val),
-		includeStack:  r.includeStack,
-		lenient:       true,
+		resolving:      make(map[string]bool),
+		resolvedCache:  make(map[string]Val),
+		priorValues:    make(map[string]Val),
+		includeStack:   r.includeStack,
+		lenient:        true,
+		inIncludeChild: true, // preserve optional substitutions for #45 (resolve against parent's prior on deep-merge)
 	}
 	obj, err := childResolver.resolveObject(ast, nil, nil)
 	if err != nil {

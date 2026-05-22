@@ -114,3 +114,41 @@ sentinel = 1
 		t.Errorf("sentinel=%d, want 1 (include should not abort parent's other fields)", got)
 	}
 }
+
+// TestIssue45_UserFacingAllowUnresolvedStillDropsOptional pins the scope-limit
+// added during the github-pr-review cycle: the #45 fix preserves optional
+// substitutions only inside the `include` child sub-resolver (so they can
+// resolve against the parent's prior on the deep-merge pass). The user-facing
+// `Resolve(WithAllowUnresolved(true))` mode must NOT be affected — optional
+// substitutions that cannot resolve there continue to drop, matching the
+// pre-fix documented contract (per docstring at config.go: AllowUnresolved
+// leaves *required-but-unsatisfied* placeholders in place).
+//
+// Without this scope-limit the I-1 finding from the PR review would
+// regression: optional + AllowUnresolved=true would leave the field as a
+// placeholder, and the getter would panic ErrNotResolved instead of returning
+// the no-such-key Option default.
+func TestIssue45_UserFacingAllowUnresolvedStillDropsOptional(t *testing.T) {
+	cfg, err := hocon.ParseStringWithOptions(
+		`result = ${?never_defined}
+sentinel = 1`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+	)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	resolved, err := cfg.Resolve(
+		hocon.DefaultResolveOptions().
+			WithAllowUnresolved(true).
+			WithUseSystemEnvironment(false),
+	)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.GetStringOption("result").IsSome() {
+		t.Error("expected result absent under user-facing AllowUnresolved=true (optional drop preserved)")
+	}
+	if got := resolved.GetInt64("sentinel"); got != 1 {
+		t.Errorf("sentinel=%d, want 1", got)
+	}
+}
