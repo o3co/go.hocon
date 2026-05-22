@@ -8,64 +8,80 @@
 
 package resolver
 
-// containsSelfRef reports whether v contains at least one substPlaceholder
-// whose dotted-path key equals fullKey.
+// foldSelfRef walks v and rewrites every substPlaceholder whose dotted-path
+// key equals fullKey by substituting replacement. The boolean return reports
+// whether at least one such self-reference was found in v (regardless of
+// whether substitution actually occurred).
 //
-// Scope: walks concatPlaceholder and substPlaceholder only. Self-references
+// Pass replacement=nil to perform a presence-only check without rewriting:
+// the returned Val is v unchanged and the boolean still reports correctly.
+// This single-walk API combines what would otherwise be two passes (one to
+// detect, one to rewrite) into one.
+//
+// Scope: walks substPlaceholder / concatPlaceholder only. Self-references
 // embedded inside ArrayVal elements or ObjectVal fields are out of scope —
-// those represent a separate pattern (e.g. `a = [${a}, 1]`) that #118's fix
-// does not address.
-func containsSelfRef(v Val, fullKey string) bool {
+// those represent a separate pattern (e.g. `a = [${a}, 1]`) tracked in #120.
+func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 	switch vv := v.(type) {
 	case *substPlaceholder:
-		return substFullKey(vv) == fullKey
+		if substFullKey(vv) != fullKey {
+			return v, false
+		}
+		if replacement != nil {
+			return replacement, true
+		}
+		return v, true
 	case *concatPlaceholder:
-		for _, e := range vv.vals {
-			if containsSelfRef(e, fullKey) {
-				return true
+		var newVals []Val
+		anyHit := false
+		for i, e := range vv.vals {
+			ne, hit := foldSelfRef(e, fullKey, replacement)
+			if hit {
+				if !anyHit && replacement != nil {
+					// First hit — lazy-init the rewritten slice so the
+					// no-self-ref common path allocates nothing.
+					newVals = make([]Val, len(vv.vals))
+					copy(newVals[:i], vv.vals[:i])
+				}
+				anyHit = true
+			}
+			if newVals != nil {
+				newVals[i] = ne
 			}
 		}
-		return false
+		if !anyHit {
+			return v, false
+		}
+		if replacement == nil {
+			return v, true
+		}
+		return &concatPlaceholder{vals: newVals, line: vv.line, col: vv.col}, true
 	default:
-		return false
+		return v, false
 	}
 }
 
-// foldSelfRef returns v with every substPlaceholder whose dotted-path key
-// equals fullKey replaced by replacement. If v contains no such self-ref,
-// v is returned unchanged.
+// foldOrSkipPrior decides how to save a self-reference-aware prior at one
+// of the three prior-save sites (direct assignment, include-merge non-object
+// override, setPath nested assignment). Cases:
 //
-// Used at prior-save time to break self-referential chains: when an
-// assignment `key = ${key} [...]` is about to overwrite an earlier value,
-// the new prior would itself contain `${key}` and produce infinite recursion
-// during resolution. Substituting the actual prior value for `${key}` in
-// the concat yields a self-ref-free tree that resolveSubst can walk safely.
+//   - prior has no self-ref to fullKey         → save prior as-is  → (prior,  true)
+//   - prior has self-ref AND old != nil        → fold against old  → (folded, true)
+//   - prior has self-ref AND old == nil        → skip save         → (nil,    false)
 //
-// Scope matches containsSelfRef: walks only concat / subst placeholders.
-func foldSelfRef(v Val, fullKey string, replacement Val) Val {
-	switch vv := v.(type) {
-	case *substPlaceholder:
-		if substFullKey(vv) == fullKey {
-			return replacement
-		}
-		return v
-	case *concatPlaceholder:
-		anyChanged := false
-		newVals := make([]Val, len(vv.vals))
-		for i, e := range vv.vals {
-			ne := foldSelfRef(e, fullKey, replacement)
-			newVals[i] = ne
-			if ne != e {
-				anyChanged = true
-			}
-		}
-		if !anyChanged {
-			return v
-		}
-		return &concatPlaceholder{vals: newVals, line: vv.line, col: vv.col}
-	default:
-		return v
+// The skip case (no old prior to fold against) preserves the existing
+// "unresolved self-referential substitution" error path at resolveSubst.
+// Callers must not write to priorValues when the second return value is
+// false; leaving priorValues untouched is what makes the error path fire.
+func foldOrSkipPrior(prior Val, fullKey string, old Val) (Val, bool) {
+	folded, hasSelfRef := foldSelfRef(prior, fullKey, old)
+	if !hasSelfRef {
+		return prior, true
 	}
+	if old == nil {
+		return nil, false
+	}
+	return folded, true
 }
 
 // substFullKey returns the dotted-path key of a substPlaceholder's segments.

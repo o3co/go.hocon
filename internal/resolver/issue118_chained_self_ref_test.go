@@ -10,6 +10,7 @@ package resolver_test
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/parser"
@@ -24,6 +25,20 @@ import (
 // Each test runs in isolation via `go test -run <name>` because a stack
 // overflow in any one scenario terminates the entire test binary, masking
 // later tests.
+
+// TestIssue118_TwoStepChainStillWorks — chain length 2 (the pre-#118 working
+// case) must not regress under the extended save-trigger + fold-at-save logic.
+// Mirrors TestResolver_SelfReference but lives in the #118 suite so the
+// regression-prevention narrative is self-contained.
+func TestIssue118_TwoStepChainStillWorks(t *testing.T) {
+	res := resolve(t, `branches = ["main"]
+branches = ${branches} ["dev"]`)
+	got := getStringSlice(t, res, "branches")
+	want := []string{"main", "dev"}
+	if !equalStringSlice(got, want) {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
 
 // TestIssue118_FlatArrayChain — direct 3-step array self-ref. No includes.
 func TestIssue118_FlatArrayChain(t *testing.T) {
@@ -208,32 +223,9 @@ func expectInt(t *testing.T, ov *resolver.ObjectVal, key string, want int) {
 		return
 	}
 	// Numeric scalars are stored as their raw textual form.
-	if sv.Raw != itoa(want) {
+	if sv.Raw != strconv.Itoa(want) {
 		t.Errorf("%s: expected %d, got %s", key, want, sv.Raw)
 	}
-}
-
-func itoa(i int) string {
-	// minimal int-to-string for test assertions
-	if i == 0 {
-		return "0"
-	}
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	var buf [20]byte
-	p := len(buf)
-	for i > 0 {
-		p--
-		buf[p] = byte('0' + i%10)
-		i /= 10
-	}
-	if neg {
-		p--
-		buf[p] = '-'
-	}
-	return string(buf[p:])
 }
 
 type tryResolveResult struct {

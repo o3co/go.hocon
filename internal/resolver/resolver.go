@@ -450,17 +450,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					// the saved value is self-ref-free. Without this, chained
 					// includes (`branches = ${branches} ["x"]` in each file) save
 					// a self-referential concat and resolveSubst loops forever.
-					doSave := true
-					if containsSelfRef(prior, fullKey) {
-						old := obj.priorValues[k]
-						if old != nil {
-							prior = foldSelfRef(prior, fullKey, old)
-						} else {
-							// No old prior to fold against — preserve existing
-							// "unresolved self-ref" error path.
-							doSave = false
-						}
-					}
+					prior, doSave := foldOrSkipPrior(prior, fullKey, obj.priorValues[k])
 					if doSave {
 						// Write r.priorValues ONLY at top of the current resolver's
 						// scope. When the include is nested (pathPrefix != []), `k`
@@ -476,16 +466,10 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					// No collision in parent, but include's own dup-key chain
 					// produced a prior. Preserve it (with the same scope rule).
 					// #118: same fold-or-skip treatment as the collision branch.
-					prior := inclPrior
-					doSave := true
-					if containsSelfRef(prior, fullKey) {
-						old := obj.priorValues[k]
-						if old != nil {
-							prior = foldSelfRef(prior, fullKey, old)
-						} else {
-							doSave = false
-						}
-					}
+					// obj.priorValues[k] may carry an older prior from a prior
+					// include-merge or direct overwrite even though obj.values[k]
+					// is unset (priors survive subsequent shadowing).
+					prior, doSave := foldOrSkipPrior(inclPrior, fullKey, obj.priorValues[k])
 					if doSave {
 						if len(pathPrefix) == 0 {
 							r.priorValues[fullKey] = prior
@@ -550,23 +534,12 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					// silently dropped the object-overwritten-by-concat case (e.g.
 					// `obj = {a:1}; obj = ${obj} {b:2}`) — step 2's `${obj}` had no
 					// prior to resolve against. Save now happens whenever the new
-					// value is not deep-merging with existing.
-					priorToSave := existing
-					doSave := true
-					if containsSelfRef(existing, fullKey) {
-						// existing itself contains `${key}` (chain length >= 3).
-						// Fold against the OLD prior so the saved value is
-						// self-ref-free; otherwise resolveSubst would loop forever
-						// re-resolving the same prior. #118.
-						if old, hasOld := r.priorValues[fullKey]; hasOld {
-							priorToSave = foldSelfRef(existing, fullKey, old)
-						} else {
-							// No old prior to fold against — leave priorValues
-							// unchanged so resolveSubst's existing "unresolved
-							// self-referential substitution" error path fires.
-							doSave = false
-						}
-					}
+					// value is not deep-merging with existing. When existing
+					// itself contains `${key}` (chain length >= 3), fold it
+					// against the OLD prior so the saved value is self-ref-free;
+					// otherwise resolveSubst would loop forever re-resolving the
+					// same prior. See foldOrSkipPrior for the three-way decision.
+					priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
 					if doSave {
 						r.priorValues[fullKey] = priorToSave
 						obj.priorValues[key] = priorToSave // per-object scope for optional-substitution fallback
@@ -1326,15 +1299,8 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val, fullPath 
 				// existing is being shadowed without merging — save it as prior so
 				// a self-referential `${fullPath}` in val can refer back to it. Mirror
 				// of the top-level direct-assignment logic for nested paths. #118.
-				priorToSave := existing
-				doSave := true
-				if containsSelfRef(existing, fullKey) {
-					if old, hasOld := r.priorValues[fullKey]; hasOld {
-						priorToSave = foldSelfRef(existing, fullKey, old)
-					} else {
-						doSave = false
-					}
-				}
+				// See foldOrSkipPrior for the three-way decision (save / fold / skip).
+				priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
 				if doSave {
 					// Write r.priorValues keyed by the FULL dotted path. The previous
 					// implementation deliberately avoided r.priorValues because it
