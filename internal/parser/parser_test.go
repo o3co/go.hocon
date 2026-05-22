@@ -716,6 +716,17 @@ func TestSpecS10_8_QuotedDottedPathThenWhitespaceThenDot(t *testing.T) {
 	assertKeyPath(t, obj, []string{"a.b", "c"})
 }
 
+func TestSpecS10_8_TwoQuotedSpaceConcat(t *testing.T) {
+	// Two adjacent quoted strings with whitespace between are also covered by
+	// the space-concat rule (per Lightbend ground truth on `"a" "b" = 1` →
+	// `{"a b":1}`). This pins the quoted-branch path of the spaceConcat merge.
+	obj, err := parser.Parse(`"foo bar" "baz qux" = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"foo bar baz qux"})
+}
+
 func TestSpecS10_8_TabBetweenKeyTokensIsSpaceConcat(t *testing.T) {
 	// `PrecedingSpace` covers any HOCON whitespace; the merge joiner is
 	// canonical U+0020 (per S10.6 whitespace normalisation).
