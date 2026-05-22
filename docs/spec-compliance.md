@@ -337,7 +337,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S11.8** Path expression always stringifies (single `true` → `"true"`) — §Path expressions (L504)
-  tests: internal/parser/parser_test.go (TestSpecS11_8_* — bool/false/null literal keys, bool with dotted value, bool composes with S10.8 space-concat, dotted-path baseline)
+  tests: internal/parser/parser_test.go (TestSpecS11_8_* — bool/false/null literal keys, bool key with string value, keyword-prefix is not keyword, quoted/unquoted equivalence, composes with S10.8 space-concat, dotted-path baseline)
   status: ✅ — fixed in #66; parseKey accepts TokenBool / TokenNull and the existing unquoted-branch stringifies them to "true" / "false" / "null". TokenInclude remains rejected at parseKey entry per S12.5.
 
 - **S11.9** Substitutions not allowed inside path expressions — §Path expressions (L479)
