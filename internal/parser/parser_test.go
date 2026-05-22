@@ -793,6 +793,43 @@ func TestSpecS8_6_FloatTailMergedIntoKey(t *testing.T) {
 	assertKeyPath(t, obj, []string{"1", "5-2", "5"})
 }
 
+func TestSpecS8_6_TripleSignedNumericChain(t *testing.T) {
+	// Three chained TokenInts — listed in the #83 acceptance criteria.
+	// Pins that the concat branch loops (vs. the pre-fix single-shot
+	// behaviour, which would consume only `-456` and leave `-789` as
+	// an unconsumed adjacent token).
+	obj, err := parser.Parse(`123-456-789 = 1`)
+	if err != nil {
+		t.Fatalf("expected `123-456-789 = 1` to parse, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"123-456-789"})
+}
+
+func TestSpecS8_6_MultipleAdjacentTokenInts(t *testing.T) {
+	// Even when every segment is single-digit, the loop converges.
+	obj, err := parser.Parse(`1-2-3 = 1`)
+	if err != nil {
+		t.Fatalf("expected `1-2-3 = 1` to parse, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"1-2-3"})
+}
+
+func TestSpecS8_6_TrailingDotInTailContinuesOuterLoop(t *testing.T) {
+	// Exercises the `concatTrailingDotContinue` sentinel: after a
+	// numeric-headed chain consumes a tail whose text ends with `.`,
+	// the outer parseKey loop must `continue` so the next token starts
+	// a fresh path segment (NOT a chained tail). Here whitespace forces
+	// `foo.` to terminate as its own token, so the lexer emits
+	// TokenString("foo.") + TokenString("bar"). Without the sentinel
+	// the outer loop would fall through to `break` and parseField
+	// would reject the trailing `bar`.
+	obj, err := parser.Parse(`123-456foo. bar = 1`)
+	if err != nil {
+		t.Fatalf("expected `123-456foo. bar = 1` to parse, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"123-456foo", "bar"})
+}
+
 func TestSpecS8_6_QuotedKeyRejectsAdjacentNumeric(t *testing.T) {
 	// Quoted-key gating: `"a.b"-1 = 1` must NOT trigger the concat branch
 	// (the literal '.' inside `"a.b"` must not be re-interpreted as a path
