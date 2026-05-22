@@ -9,6 +9,7 @@
 package resolver_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/o3co/go.hocon/internal/resolver"
@@ -180,5 +181,174 @@ o = { history = ${o}, v = 3 }`)
 	}
 	if sv := hv.(*resolver.ScalarVal); sv.Raw != "2" {
 		t.Errorf("o.history.v: expected 2, got %s", sv.Raw)
+	}
+}
+
+// TestIssue120_ObjectFieldChain2RetainedKey — Codex review surfaced gap: the
+// minimal-repro test only asserted the *changed* field (`v`). HOCON's
+// duplicate-object merge semantics keep BOTH sides' keys (latter wins on
+// conflict). This test pins the retained-key path so a future refactor that
+// breaks merge semantics (and accidentally replaces existing instead of
+// merging) is caught.
+func TestIssue120_ObjectFieldChain2RetainedKey(t *testing.T) {
+	res := resolve(t, `o = { a = 1, v = 1 }
+o = { history = ${o}, v = 2 }`)
+	v, ok := res.Root.Get("o")
+	if !ok {
+		t.Fatal("o not found")
+	}
+	ov, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("o: expected ObjectVal, got %T", v)
+	}
+	// o.a should still be 1 (retained from step 1 via merge)
+	aField, ok := ov.Get("a")
+	if !ok {
+		t.Fatal("o.a not found")
+	}
+	if sv := aField.(*resolver.ScalarVal); sv.Raw != "1" {
+		t.Errorf("o.a: expected 1 (retained from step 1), got %s", sv.Raw)
+	}
+	// o.v overridden to 2
+	vField, _ := ov.Get("v")
+	if sv := vField.(*resolver.ScalarVal); sv.Raw != "2" {
+		t.Errorf("o.v: expected 2, got %s", sv.Raw)
+	}
+	// o.history should be step-1 snapshot = {a:1, v:1}
+	hField, _ := ov.Get("history")
+	hObj := hField.(*resolver.ObjectVal)
+	ha, _ := hObj.Get("a")
+	if sv := ha.(*resolver.ScalarVal); sv.Raw != "1" {
+		t.Errorf("o.history.a: expected 1, got %s", sv.Raw)
+	}
+	hv, _ := hObj.Get("v")
+	if sv := hv.(*resolver.ScalarVal); sv.Raw != "1" {
+		t.Errorf("o.history.v: expected 1 (step-1 snapshot), got %s", sv.Raw)
+	}
+}
+
+// TestIssue120_MixedConcatArrayChain — interaction between #118 concat-path
+// and #120 array-element-path within the same key's chain. step 2 uses
+// concat-substitution; step 3 uses array-element-substitution.
+func TestIssue120_MixedConcatArrayChain(t *testing.T) {
+	res := resolve(t, `a = ["init"]
+a = ${a} ["x"]
+a = [${a}, "y"]`)
+	v, ok := res.Root.Get("a")
+	if !ok {
+		t.Fatal("a not found")
+	}
+	arr, ok := v.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", v)
+	}
+	// step 2 concat: ["init"] ++ ["x"] = ["init", "x"]
+	// step 3 array literal: [step2_value, "y"] = [["init", "x"], "y"]
+	if len(arr.Elements) != 2 {
+		t.Fatalf("top-level length: expected 2, got %d", len(arr.Elements))
+	}
+	if sv, ok := arr.Elements[1].(*resolver.ScalarVal); !ok || sv.Raw != "y" {
+		t.Errorf("a[1]: expected \"y\", got %v", arr.Elements[1])
+	}
+	inner, ok := arr.Elements[0].(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("a[0]: expected ArrayVal, got %T", arr.Elements[0])
+	}
+	if len(inner.Elements) != 2 {
+		t.Fatalf("a[0]: expected length 2, got %d", len(inner.Elements))
+	}
+	if sv := inner.Elements[0].(*resolver.ScalarVal); sv.Raw != "init" {
+		t.Errorf("a[0][0]: expected \"init\", got %s", sv.Raw)
+	}
+	if sv := inner.Elements[1].(*resolver.ScalarVal); sv.Raw != "x" {
+		t.Errorf("a[0][1]: expected \"x\", got %s", sv.Raw)
+	}
+}
+
+// TestIssue120_NestedPathObjectMerge — Critical-1 from PR #123 multi-agent-review.
+// Multi-segment object-merge form (`r.s = {v=1}; r.s = {history=${r.s}, v=2}`)
+// goes through setPath, whose save was also gated on !merged before #120's
+// follow-up fix.
+func TestIssue120_NestedPathObjectMerge(t *testing.T) {
+	res := resolve(t, `r.s = { v = 1 }
+r.s = { history = ${r.s}, v = 2 }`)
+	v, ok := res.Root.Get("r")
+	if !ok {
+		t.Fatal("r not found")
+	}
+	rObj, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("r: expected ObjectVal, got %T", v)
+	}
+	s, ok := rObj.Get("s")
+	if !ok {
+		t.Fatal("r.s not found")
+	}
+	sObj, ok := s.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("r.s: expected ObjectVal, got %T", s)
+	}
+	vField, ok := sObj.Get("v")
+	if !ok {
+		t.Fatal("r.s.v not found")
+	}
+	if sv := vField.(*resolver.ScalarVal); sv.Raw != "2" {
+		t.Errorf("r.s.v: expected 2, got %s", sv.Raw)
+	}
+	hField, ok := sObj.Get("history")
+	if !ok {
+		t.Fatal("r.s.history not found")
+	}
+	hObj, ok := hField.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("r.s.history: expected ObjectVal, got %T", hField)
+	}
+	hv, ok := hObj.Get("v")
+	if !ok {
+		t.Fatal("r.s.history.v not found")
+	}
+	if sv := hv.(*resolver.ScalarVal); sv.Raw != "1" {
+		t.Errorf("r.s.history.v: expected 1, got %s", sv.Raw)
+	}
+}
+
+// TestIssue120_IncludeMergeObjectForm — Critical-2 from PR #123 multi-agent-review.
+// Parent has `o = {v=1}`; included file has `o = {history=${o}, v=2}`. The
+// include-merge object+object branch deepMerged but didn't save prior; the
+// merged val retains `${o}` and resolveSubst hit "unresolved self-ref" error.
+func TestIssue120_IncludeMergeObjectForm(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "inc.conf"), `o = { history = ${o}, v = 2 }`)
+	res := resolveWithDir(t, `o = { v = 1 }
+include "inc.conf"`, dir)
+	v, ok := res.Root.Get("o")
+	if !ok {
+		t.Fatal("o not found")
+	}
+	ov, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("o: expected ObjectVal, got %T", v)
+	}
+	vField, ok := ov.Get("v")
+	if !ok {
+		t.Fatal("o.v not found")
+	}
+	if sv := vField.(*resolver.ScalarVal); sv.Raw != "2" {
+		t.Errorf("o.v: expected 2, got %s", sv.Raw)
+	}
+	hField, ok := ov.Get("history")
+	if !ok {
+		t.Fatal("o.history not found")
+	}
+	hObj, ok := hField.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("o.history: expected ObjectVal, got %T", hField)
+	}
+	hv, ok := hObj.Get("v")
+	if !ok {
+		t.Fatal("o.history.v not found")
+	}
+	if sv := hv.(*resolver.ScalarVal); sv.Raw != "1" {
+		t.Errorf("o.history.v: expected 1, got %s", sv.Raw)
 	}
 }
