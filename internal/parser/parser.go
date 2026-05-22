@@ -617,8 +617,9 @@ func (p *parser) parseKey() ([]string, error) {
 	// existing leading-dot continuation check (which fires before this new
 	// space-concat branch and ignores PrecedingSpace), so `a .b = 1` → ['a', 'b']
 	// works incidentally — the leading-dot path takes priority over space-concat.
-	// Newlines break the chain (S10.7): the lexer emits a separator token
-	// which falls through to the loop's else / break.
+	// Newlines break the chain (S10.7): the lexer emits TokenNewline between
+	// fields, which is NOT in the space-concat switch case list below, so the
+	// continuation check fails and the loop breaks.
 	spaceConcat := false
 
 	for {
@@ -652,19 +653,14 @@ func (p *parser) parseKey() ([]string, error) {
 				newParts = append(newParts, s)
 			}
 			if spaceConcat && len(newParts) > 0 && len(parts) > 0 {
-				// S10.8 + S11.1 interaction: if the spaced-in token starts with
-				// '.', the leading '.' is a path separator that survives the
-				// space — push pieces as new path segments rather than folding
-				// the head into the previous segment. In practice the existing
-				// leading-dot continuation check below catches this case BEFORE
-				// the space-concat flag is set, so this guard is a defensive
-				// belt-and-braces for any future reordering.
-				if strings.HasPrefix(raw, ".") {
-					parts = append(parts, newParts...)
-				} else {
-					parts[len(parts)-1] = parts[len(parts)-1] + " " + newParts[0]
-					parts = append(parts, newParts[1:]...)
-				}
+				// Merge the first piece of the new token into the LAST existing
+				// segment with a literal space; remaining dot-split pieces become
+				// new path segments. The leading-dot case (`a .b = 1` → ['a','b'])
+				// is handled by the leading-dot continuation branch below, which
+				// fires BEFORE the space-concat flag is ever set — so we don't
+				// see raw[0]=='.' here under current ordering.
+				parts[len(parts)-1] = parts[len(parts)-1] + " " + newParts[0]
+				parts = append(parts, newParts[1:]...)
 			} else {
 				parts = append(parts, newParts...)
 			}

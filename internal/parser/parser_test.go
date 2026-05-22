@@ -589,19 +589,37 @@ func TestSpecS10_8_QuotedKeyWithSpaceAllowed(t *testing.T) {
 	}
 }
 
+// assertKeyPath fails the test if the parsed object doesn't contain exactly
+// one field with the given key path. Centralising the length guard avoids
+// `obj.Fields[0].Key` panics when a parse change unexpectedly produces zero
+// or multiple fields.
+func assertKeyPath(t *testing.T, obj *parser.ObjectNode, want []string) {
+	t.Helper()
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d (%v)", len(obj.Fields), obj.Fields)
+	}
+	got := obj.Fields[0].Key
+	if len(got) != len(want) {
+		t.Fatalf("expected key path length %d (%v), got length %d (%v)", len(want), want, len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("expected key %v, got %v", want, got)
+			return
+		}
+	}
+}
+
 // TestSpecS10_8_UnquotedConcatInKey pins the S10.8 spec rule: unquoted
 // adjacent tokens separated by whitespace form a single concatenated key.
-// Per HOCON L317/L556: `a b c : 42` is equivalent to `"a b c" : 42`.
+// Per HOCON L317: "string value concatenation is allowed in field keys".
 // Status: ✅ — fixed in #65; parseKey accepts space-concat continuations.
 func TestSpecS10_8_UnquotedConcatInKey(t *testing.T) {
-	// Spec example (L556): `a b c : 42` must parse as key "a b c" → 42.
 	obj, err := parser.Parse(`a b = 1`)
 	if err != nil {
-		t.Fatalf("spec L317/L556: 'a b = 1' must be accepted as key 'a b', got error: %v", err)
+		t.Fatalf("spec L317: 'a b = 1' must be accepted as key 'a b', got error: %v", err)
 	}
-	if len(obj.Fields) != 1 || len(obj.Fields[0].Key) != 1 || obj.Fields[0].Key[0] != "a b" {
-		t.Errorf("expected key ['a b'], got %v", obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a b"})
 }
 
 func TestSpecS10_8_ThreeTokenSpecExample(t *testing.T) {
@@ -610,9 +628,7 @@ func TestSpecS10_8_ThreeTokenSpecExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spec L317/L556: 'a b c : 42' must parse, got: %v", err)
 	}
-	if len(obj.Fields) != 1 || len(obj.Fields[0].Key) != 1 || obj.Fields[0].Key[0] != "a b c" {
-		t.Errorf("expected key ['a b c'], got %v", obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a b c"})
 }
 
 func TestSpecS10_8_SpaceConcatAfterDottedPath(t *testing.T) {
@@ -621,10 +637,7 @@ func TestSpecS10_8_SpaceConcatAfterDottedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	want := []string{"a", "b c"}
-	if len(obj.Fields[0].Key) != 2 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
-		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a", "b c"})
 }
 
 func TestSpecS10_8_SpaceConcatDottedTail(t *testing.T) {
@@ -633,10 +646,7 @@ func TestSpecS10_8_SpaceConcatDottedTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	want := []string{"a b", "c"}
-	if len(obj.Fields[0].Key) != 2 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
-		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a b", "c"})
 }
 
 func TestSpecS10_8_QuotedThenUnquotedSpaceConcat(t *testing.T) {
@@ -645,9 +655,7 @@ func TestSpecS10_8_QuotedThenUnquotedSpaceConcat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if len(obj.Fields[0].Key) != 1 || obj.Fields[0].Key[0] != "foo bar baz" {
-		t.Errorf("expected key ['foo bar baz'], got %v", obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"foo bar baz"})
 }
 
 func TestSpecS10_8_InlineObjectShorthand(t *testing.T) {
@@ -656,9 +664,7 @@ func TestSpecS10_8_InlineObjectShorthand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if len(obj.Fields[0].Key) != 1 || obj.Fields[0].Key[0] != "a b" {
-		t.Errorf("expected key ['a b'], got %v", obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a b"})
 }
 
 func TestSpecS10_8_LeadingDotAfterWhitespaceStaysSeparator(t *testing.T) {
@@ -670,10 +676,7 @@ func TestSpecS10_8_LeadingDotAfterWhitespaceStaysSeparator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	want := []string{"a", "b"}
-	if len(obj.Fields[0].Key) != 2 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
-		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a", "b"})
 }
 
 func TestSpecS10_8_LeadingDotAfterWhitespaceMultiSegmentTail(t *testing.T) {
@@ -682,10 +685,7 @@ func TestSpecS10_8_LeadingDotAfterWhitespaceMultiSegmentTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	want := []string{"a", "b", "c"}
-	if len(obj.Fields[0].Key) != 3 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] || obj.Fields[0].Key[2] != want[2] {
-		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a", "b", "c"})
 }
 
 func TestSpecS10_8_LeadingDotAfterQuotedThenWhitespace(t *testing.T) {
@@ -694,10 +694,7 @@ func TestSpecS10_8_LeadingDotAfterQuotedThenWhitespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	want := []string{"a", "b"}
-	if len(obj.Fields[0].Key) != 2 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
-		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a", "b"})
 }
 
 func TestSpecS10_8_DottedPathThenWhitespaceThenDot(t *testing.T) {
@@ -706,10 +703,7 @@ func TestSpecS10_8_DottedPathThenWhitespaceThenDot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	want := []string{"a", "b", "c"}
-	if len(obj.Fields[0].Key) != 3 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] || obj.Fields[0].Key[2] != want[2] {
-		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a", "b", "c"})
 }
 
 func TestSpecS10_8_QuotedDottedPathThenWhitespaceThenDot(t *testing.T) {
@@ -719,10 +713,7 @@ func TestSpecS10_8_QuotedDottedPathThenWhitespaceThenDot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	want := []string{"a.b", "c"}
-	if len(obj.Fields[0].Key) != 2 || obj.Fields[0].Key[0] != want[0] || obj.Fields[0].Key[1] != want[1] {
-		t.Errorf("expected key %v, got %v", want, obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a.b", "c"})
 }
 
 func TestSpecS10_8_TabBetweenKeyTokensIsSpaceConcat(t *testing.T) {
@@ -732,9 +723,7 @@ func TestSpecS10_8_TabBetweenKeyTokensIsSpaceConcat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if len(obj.Fields[0].Key) != 1 || obj.Fields[0].Key[0] != "a b" {
-		t.Errorf("expected key ['a b'], got %v", obj.Fields[0].Key)
-	}
+	assertKeyPath(t, obj, []string{"a b"})
 }
 
 // TestSpecS11_4_TokenFloatKey verifies the spec assertion (L496) that key
