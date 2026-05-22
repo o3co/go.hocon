@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — chained self-referential substitution
+
+- **Chained self-referential append no longer crashes the resolver** ([#118](https://github.com/o3co/go.hocon/issues/118)). When a key was self-referentially appended three or more times — either directly (`a = ${a} ["x"]` repeated), through chained `include` directives (each included file appending `branches = ${branches} [...]`), through object value-concat (`obj = ${obj} {key=val}` repeated), or on a nested path (`r.x = ${r.x} [...]` repeated) — the resolver entered infinite recursion and aborted the process with a Go runtime stack overflow. The deferred `Resolve` API path had the same failure mode. The fix folds self-referential `${key}` references in the prior value at save time so the recorded prior is always self-ref-free, restoring Lightbend Config's chain semantics where each `${key}` resolves to the value immediately prior to its current assignment. The nested-path variant previously errored with `circular reference detected`; that case now also resolves correctly. Reported by [@cgordon](https://github.com/cgordon).
+
+### Fixed — lenient optional substitution
+
+- **Optional substitutions in included files now see parent-scope values** ([#45](https://github.com/o3co/go.hocon/issues/45)). Previously, in the lenient resolver pass used by include processing, unresolved optional substitutions (`${?path}`) were dropped immediately, so an included file referencing a parent's value (e.g. `result = ${?parent_val}`) lost the field before the parent's value could be supplied. The fix preserves the placeholder during the lenient pass; the final / strict pass still drops optional substitutions with no value. Found by Copilot review on the include-relativization PR.
+
 ## [1.5.0] - 2026-05-23
 
 Cross-impl spec-compliance release with [rs.hocon v1.5.0](https://github.com/o3co/rs.hocon/releases/tag/v1.5.0) and [ts.hocon v1.5.0](https://github.com/o3co/ts.hocon/releases/tag/v1.5.0). Three spec-compliance bugfixes ([#83](https://github.com/o3co/go.hocon/issues/83) S8.6 multi-tail key concat, [#66](https://github.com/o3co/go.hocon/issues/66) S11.8 bool/null literal keys, [#65](https://github.com/o3co/go.hocon/issues/65) S10.8 unquoted space-concat in keys), one resolver fix ([#45](https://github.com/o3co/go.hocon/issues/45) lenient optional substitution through includes), and parser error-path coverage hardening ([#37](https://github.com/o3co/go.hocon/issues/37): 86.4% → 92.0% statement coverage on `internal/parser`). No public API changes; safe drop-in upgrade from v1.4.1.
@@ -26,10 +34,6 @@ Cross-impl spec-compliance release with [rs.hocon v1.5.0](https://github.com/o3c
 ### Fixed — S10.8 spec compliance
 
 - **Unquoted space-concat in field keys now accepted as a single key** ([#65](https://github.com/o3co/go.hocon/issues/65)). Per HOCON spec L317 ("string value concatenation is allowed in field keys") and L553-560 (`a b c : 42` is equivalent to `"a b c" : 42`), space-separated unquoted tokens before the `:`/`=`/`{`/`+=` separator must merge into a single key. Previously `foo bar = 1` errored with `expected ':', '=' or '{' after key`; now it parses as key `"foo bar"`. The fix extends `parseKey` in `internal/parser/parser.go` with a space-concat continuation branch driven by a new `spaceConcat` flag: when the next key token has `PrecedingSpace`, the first dot-split piece of that token merges into the LAST existing segment with a literal space; any remaining dot-split pieces become new path segments. Quoted+unquoted mixed concat (`"foo bar" baz = 1`) and inline-object shorthand (`a b { x = 1 }`) work transitively. A leading `.` in the spaced-in token keeps path-separator semantics per S11.1 (via the pre-existing leading-dot continuation branch, which takes priority over space-concat): `a .b = 1` → `["a", "b"]`, `a.b .c = 1` → `["a", "b", "c"]`. Cross-impl with [ts.hocon PR #128](https://github.com/o3co/ts.hocon/pull/128) and [rs.hocon PR #115](https://github.com/o3co/rs.hocon/pull/115).
-
-### Fixed — lenient optional substitution
-
-- **Optional substitutions in included files now see parent-scope values** ([#45](https://github.com/o3co/go.hocon/issues/45)). Previously, in the lenient resolver pass used by include processing, unresolved optional substitutions (`${?path}`) were dropped immediately, so an included file referencing a parent's value (e.g. `result = ${?parent_val}`) lost the field before the parent's value could be supplied. The fix preserves the placeholder during the lenient pass; the final / strict pass still drops optional substitutions with no value. Found by Copilot review on the include-relativization PR.
 
 ## [1.4.1] - 2026-05-22
 
