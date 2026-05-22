@@ -503,6 +503,9 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   tests: internal/resolver/resolver_test.go (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty, TestSpecS13a_13_SelfRefLookback), s13a13_self_ref_lookback_test.go (TestS13a13_SelfRefLookback_Success, TestS13a13_SelfRefLookback_Errors)
   status: ✅ (cleared in Phase 6 cluster #3f, [#68](https://github.com/o3co/go.hocon/issues/68))
 
+  Chain length ≥ 3 (e.g. `a = ${a} [...]` repeated): until v1.5.0 the resolver crashed on top-level / object / include-chain forms and errored on nested-path form. Fixed in v1.5.1 by folding `${key}` references in the saved prior at assignment time so the recorded prior is always self-ref-free. ([#118](https://github.com/o3co/go.hocon/issues/118))
+  tests: internal/resolver/issue118_chained_self_ref_test.go (TestIssue118_FlatArrayChain, TestIssue118_FourStepArrayChain, TestIssue118_ChainedInclude, TestIssue118_ChainedIncludeAllChain, TestIssue118_ObjectChain, TestIssue118_MultiSegmentChain, TestIssue118_SingleSelfRefWithoutPriorErrors)
+
 - **S13a.14** Mutually-referring object fields (`bar.a = ${foo.d}; foo.c = ${bar.b}`) resolve lazily without false cycle — §Self-Referential (L825-834)
   tests: spec_phase5_test.go (TestSpec_S13a_14_MutualRefNoCycle)
   status: ✅

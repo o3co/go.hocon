@@ -423,6 +423,11 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 			// inside the include resolves to the parent's value (#106).
 			for _, k := range included.keys {
 				iv := included.values[k]
+				// Full path key for self-ref detection: substPlaceholder.segments
+				// are already relativized to pathPrefix+k by relativizeVals at
+				// resolveInclude's end (see L1376-1378), so fold comparisons
+				// must use the same fully-qualified path.
+				fullKey := segmentsToKey(append(append([]string{}, pathPrefix...), k))
 				if existing, exists := obj.Get(k); exists {
 					if eo, eok := existing.(*ObjectVal); eok {
 						if io, iok := iv.(*ObjectVal); iok {
@@ -441,22 +446,36 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					if inclPrior, hasInclPrior := included.priorValues[k]; hasInclPrior {
 						prior = inclPrior
 					}
-					// Write r.priorValues ONLY at top of the current resolver's
-					// scope. When the include is nested (pathPrefix != []), `k`
-					// is just a leaf name and would collide with an unrelated
-					// top-level key of the same name; see setPath L1239-1247
-					// for the same rule applied to regular field overwrite.
-					if len(pathPrefix) == 0 {
-						r.priorValues[segmentsToKey([]string{k})] = prior
+					// #118: fold self-ref in `prior` against the previous prior so
+					// the saved value is self-ref-free. Without this, chained
+					// includes (`branches = ${branches} ["x"]` in each file) save
+					// a self-referential concat and resolveSubst loops forever.
+					prior, doSave := foldOrSkipPrior(prior, fullKey, obj.priorValues[k])
+					if doSave {
+						// Write r.priorValues ONLY at top of the current resolver's
+						// scope. When the include is nested (pathPrefix != []), `k`
+						// is just a leaf name and would collide with an unrelated
+						// top-level key of the same name; see setPath L1239-1247
+						// for the same rule applied to regular field overwrite.
+						if len(pathPrefix) == 0 {
+							r.priorValues[fullKey] = prior
+						}
+						obj.priorValues[k] = prior
 					}
-					obj.priorValues[k] = prior
 				} else if inclPrior, hasInclPrior := included.priorValues[k]; hasInclPrior {
 					// No collision in parent, but include's own dup-key chain
 					// produced a prior. Preserve it (with the same scope rule).
-					if len(pathPrefix) == 0 {
-						r.priorValues[segmentsToKey([]string{k})] = inclPrior
+					// #118: same fold-or-skip treatment as the collision branch.
+					// obj.priorValues[k] may carry an older prior from a prior
+					// include-merge or direct overwrite even though obj.values[k]
+					// is unset (priors survive subsequent shadowing).
+					prior, doSave := foldOrSkipPrior(inclPrior, fullKey, obj.priorValues[k])
+					if doSave {
+						if len(pathPrefix) == 0 {
+							r.priorValues[fullKey] = prior
+						}
+						obj.priorValues[k] = prior
 					}
-					obj.priorValues[k] = inclPrior
 				}
 				obj.set(k, iv)
 			}
@@ -492,28 +511,51 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 				newArr = &ArrayVal{Elements: []Val{val}}
 			}
 			combined := &ArrayVal{Elements: append(existArr.Elements, newArr.Elements...)}
-			r.setPath(obj, field.Key, combined)
+			r.setPath(obj, field.Key, combined, field.Key)
 			continue
 		}
 
 		// normal assignment — handle duplicate key merging
 		if len(field.Key) == 1 {
 			key := field.Key[0]
+			// fullKey is the fully-qualified path for self-ref detection and
+			// r.priorValues bookkeeping. Includes pathPrefix so the
+			// nested-object form `r { x = ${r.x} [...] }` (where the inner
+			// resolveObject runs with pathPrefix=[r]) detects self-references
+			// to "r.x" instead of the bare leaf "x". Surfaced by Copilot
+			// review on PR #121.
+			fullKey := segmentsToKey(append(append([]string{}, pathPrefix...), key))
 			if existing, ok := obj.Get(key); ok {
+				merged := false
 				if eo, eok := existing.(*ObjectVal); eok {
 					if nv, nok := val.(*ObjectVal); nok {
 						val = deepMerge(nv, eo) // new over existing: nv=dst wins
+						merged = true
 					}
-				} else {
-					// non-object overwrite: save prior value for self-referential substitution support
-					r.priorValues[segmentsToKey([]string{key})] = existing
-					obj.priorValues[key] = existing // per-object scope for optional-substitution fallback
+				}
+				if !merged {
+					// existing is being shadowed without merging — save it as prior
+					// so a self-referential `${key}` in val can refer back to it.
+					// Pre-#118 this branch only fired for non-object existing, which
+					// silently dropped the object-overwritten-by-concat case (e.g.
+					// `obj = {a:1}; obj = ${obj} {b:2}`) — step 2's `${obj}` had no
+					// prior to resolve against. Save now happens whenever the new
+					// value is not deep-merging with existing. When existing
+					// itself contains `${key}` (chain length >= 3), fold it
+					// against the OLD prior so the saved value is self-ref-free;
+					// otherwise resolveSubst would loop forever re-resolving the
+					// same prior. See foldOrSkipPrior for the three-way decision.
+					priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
+					if doSave {
+						r.priorValues[fullKey] = priorToSave
+						obj.priorValues[key] = priorToSave // per-object scope for optional-substitution fallback
+					}
 				}
 				// non-object: last value wins (fall through to obj.set below)
 			}
 			obj.set(key, val)
 		} else {
-			r.setPath(obj, field.Key, val)
+			r.setPath(obj, field.Key, val, field.Key)
 		}
 	}
 	return obj, nil
@@ -1246,25 +1288,37 @@ func (r *resolver) lookupPathObj(obj *ObjectVal, segments []string) (*ObjectVal,
 	return ov, ok
 }
 
-func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
+func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val, fullPath []string) {
 	if len(segments) == 1 {
 		key := segments[0]
+		fullKey := segmentsToKey(fullPath)
 		// Deep merge if both existing and new values are objects
 		if existing, ok := obj.Get(key); ok {
+			merged := false
 			if eo, eok := existing.(*ObjectVal); eok {
 				if nv, nok := val.(*ObjectVal); nok {
 					val = deepMerge(nv, eo) // new over existing: nv=dst wins
+					merged = true
 				}
-			} else {
-				// non-object overwrite: save prior value for self-referential substitution support.
-				// Store ONLY on the parent object's per-object priorValues so that nested-path
-				// self-ref look-back (resolveSubst isSelfRef → parent.priorValues check) can find it.
-				// Do NOT write r.priorValues here: segments is the bare leaf key (e.g. "a" from
-				// "foo.a"), which would collide with an unrelated top-level "a" key in r.priorValues.
-				// Top-level keys are handled by the len(field.Key)==1 branch in buildObject, which
-				// writes r.priorValues with the correct full key; the parent.priorValues entry alone
-				// is sufficient for nested self-ref look-back (see resolveSubst L508-516).
-				obj.priorValues[key] = existing
+			}
+			if !merged {
+				// existing is being shadowed without merging — save it as prior so
+				// a self-referential `${fullPath}` in val can refer back to it. Mirror
+				// of the top-level direct-assignment logic for nested paths. #118.
+				// See foldOrSkipPrior for the three-way decision (save / fold / skip).
+				priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
+				if doSave {
+					// Write r.priorValues keyed by the FULL dotted path. The previous
+					// implementation deliberately avoided r.priorValues because it
+					// used the bare leaf key (which would collide with an unrelated
+					// top-level key of the same name). The full-path key has no
+					// collision risk: "foo.a" never matches a top-level "a".
+					// resolveSubst at L685 looks up r.priorValues[key] where key is
+					// already the full dotted path of the placeholder, so the entry
+					// is reachable from the self-ref branch with resolving=true.
+					r.priorValues[fullKey] = priorToSave
+					obj.priorValues[key] = priorToSave
+				}
 			}
 		}
 		obj.set(key, val)
@@ -1278,7 +1332,7 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val) {
 	if childObj == nil {
 		childObj = newObjectVal()
 	}
-	r.setPath(childObj, segments[1:], val)
+	r.setPath(childObj, segments[1:], val, fullPath)
 	obj.set(segments[0], childObj)
 }
 
