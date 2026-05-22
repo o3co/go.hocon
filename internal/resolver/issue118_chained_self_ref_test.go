@@ -162,6 +162,57 @@ r.x = ${r.x} ["c"]`)
 	}
 }
 
+// TestIssue118_NestedObjectScopedChain — nested-object form where the inner
+// field uses `${parent.leaf}` from inside a nested object block:
+//
+//	r {
+//	  x = ["a"]
+//	  x = ${r.x} ["b"]
+//	  x = ${r.x} ["c"]
+//	}
+//
+// The inner resolveObject runs with pathPrefix=[r]; each inner field has
+// Key=[x] (single segment). The substPlaceholder for `${r.x}` carries
+// segments=[r, x] — the fully-qualified path. The original PR-121 fix
+// computed fullKey from the bare leaf key only, missing the self-ref and
+// silently falling through to a "circular reference detected" error
+// instead of resolving the chain. Surfaced by Copilot review on PR #121.
+//
+// Lightbend resolves this to ["a", "b", "c"].
+func TestIssue118_NestedObjectScopedChain(t *testing.T) {
+	res := resolve(t, `r {
+  x = ["a"]
+  x = ${r.x} ["b"]
+  x = ${r.x} ["c"]
+}`)
+	v, ok := res.Root.Get("r")
+	if !ok {
+		t.Fatal("r not found")
+	}
+	rObj, ok := v.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("r: expected ObjectVal, got %T", v)
+	}
+	xv, ok := rObj.Get("x")
+	if !ok {
+		t.Fatal("r.x not found")
+	}
+	arr, ok := xv.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("r.x: expected ArrayVal, got %T", xv)
+	}
+	want := []string{"a", "b", "c"}
+	if len(arr.Elements) != len(want) {
+		t.Fatalf("r.x: expected %d elements, got %d", len(want), len(arr.Elements))
+	}
+	for i, w := range want {
+		sv, ok := arr.Elements[i].(*resolver.ScalarVal)
+		if !ok || sv.Raw != w {
+			t.Errorf("r.x[%d]: expected %q, got %v", i, w, arr.Elements[i])
+		}
+	}
+}
+
 // TestIssue118_SingleSelfRefWithoutPriorErrors — edge case: lone `a = ${a} ["x"]`
 // (no earlier prior assignment) must still produce a clean "unresolved
 // self-referential substitution" error, NOT a crash. Verifies the

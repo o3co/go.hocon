@@ -518,7 +518,13 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 		// normal assignment — handle duplicate key merging
 		if len(field.Key) == 1 {
 			key := field.Key[0]
-			fullKey := segmentsToKey([]string{key})
+			// fullKey is the fully-qualified path for self-ref detection and
+			// r.priorValues bookkeeping. Includes pathPrefix so the
+			// nested-object form `r { x = ${r.x} [...] }` (where the inner
+			// resolveObject runs with pathPrefix=[r]) detects self-references
+			// to "r.x" instead of the bare leaf "x". Surfaced by Copilot
+			// review on PR #121.
+			fullKey := segmentsToKey(append(append([]string{}, pathPrefix...), key))
 			if existing, ok := obj.Get(key); ok {
 				merged := false
 				if eo, eok := existing.(*ObjectVal); eok {
