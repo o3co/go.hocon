@@ -811,11 +811,35 @@ func TestSpecS11_8_NullLiteralKeyStringifies(t *testing.T) {
 	assertKeyPath(t, obj, []string{"null"})
 }
 
-// TestSpecS11_8_BoolKeyWithDottedValue — bool literal then dotted value path
-// works. The key is still the single string "true"; the value parser handles
-// the rhs separately.
-func TestSpecS11_8_BoolKeyWithDottedValue(t *testing.T) {
+// TestSpecS11_8_BoolKeyWithStringValue — bool literal as key, plain string value.
+// The key is the single string "true"; rhs is parsed independently.
+func TestSpecS11_8_BoolKeyWithStringValue(t *testing.T) {
 	obj, err := parser.Parse(`true = "v"`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true"})
+}
+
+// TestSpecS11_8_KeywordPrefixIsNotKeyword pins that `truee` (TokenString,
+// not TokenBool) parses as the literal key "truee". The lexer promotes to
+// TokenBool/TokenNull/TokenInclude only on exact match; this test guards
+// against a regression where someone introduces prefix-based promotion.
+func TestSpecS11_8_KeywordPrefixIsNotKeyword(t *testing.T) {
+	obj, err := parser.Parse(`truee = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"truee"})
+}
+
+// TestSpecS11_8_QuotedTrueKeyEquivalentToUnquoted pins that the quoted
+// form `"true" = 1` produces the same key as the unquoted `true = 1`.
+// The quoted form takes a different code path in parseKey (TokenString
+// with IsQuoted=true) — this documents the equivalence guaranteed by
+// S11.8 path-expression stringification.
+func TestSpecS11_8_QuotedTrueKeyEquivalentToUnquoted(t *testing.T) {
+	obj, err := parser.Parse(`"true" = 1`)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -860,6 +884,27 @@ func TestSpecS11_9_SubstitutionNotAllowedInPathExpr(t *testing.T) {
 func TestSpecS12_5_IncludeReservedAsKeyStart(t *testing.T) {
 	if _, err := parser.Parse(`include = x`); err == nil {
 		t.Error("expected parse error: 'include' used as key start should be rejected")
+	}
+}
+
+// TestSpecS12_5_IncludeAtKeyPositionDispatchesToInclude pins the dispatch
+// invariant the S11.8 fix relies on: a bare `include` at key position must
+// raise the "reserved as a key name" error from parseInclude, not the
+// "expected key, got TokenInclude" error from parseKey's type check. This
+// guards against a regression where someone widens parseKey's allow-list
+// to include TokenInclude, which would silently break the S12.5 reservation.
+// See internal/parser/parser.go S11.8 allow-list comment.
+func TestSpecS12_5_IncludeAtKeyPositionDispatchesToInclude(t *testing.T) {
+	_, err := parser.Parse(`include = x`)
+	if err == nil {
+		t.Fatal("expected parse error: 'include' as bare key must be rejected")
+	}
+	var pe *parser.Error
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *parser.Error, got %T", err)
+	}
+	if !strings.Contains(pe.Message, "reserved") {
+		t.Errorf("expected 'reserved' in error message (proving dispatch went through parseInclude S12.5 path, not parseKey allow-list), got: %s", pe.Message)
 	}
 }
 
