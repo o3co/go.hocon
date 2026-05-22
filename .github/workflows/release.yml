@@ -34,15 +34,20 @@ jobs:
         # from CHANGELOG.md, so the GitHub Release body matches what's
         # already committed and reviewed. Strips the closing version
         # header so the body ends at the previous section's separator.
+        #
+        # Uses `index($0, str) == 1` (prefix match) rather than awk regex
+        # so SemVer build metadata (`+...`) and other regex metacharacters
+        # in version strings can't break or overmatch the section header.
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           awk -v ver="$VERSION" '
-            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
-            flag && /^## \[/ { flag=0 }
+            index($0, "## [" ver "]") == 1 { flag=1; next }
+            flag && index($0, "## [") == 1 { flag=0 }
             flag
           ' CHANGELOG.md > /tmp/release-notes.md
           if [ ! -s /tmp/release-notes.md ]; then
-            echo "::warning::No CHANGELOG section found for v${VERSION}; release body will be empty"
+            echo "::error::No CHANGELOG section found for v${VERSION}; aborting release so an empty body doesn't ship"
+            exit 1
           fi
 
       - name: Create GitHub Release
