@@ -433,6 +433,20 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 						if io, iok := iv.(*ObjectVal); iok {
 							// both objects → deep merge with included on top
 							obj.set(k, deepMerge(io, eo))
+							// #120: save existing as prior even on object+object
+							// merge, so a self-referential `${k}` in the included
+							// file's body (e.g. `o = { history = ${o}, v = 2 }`
+							// inside an included file shadowing parent's `o`)
+							// can resolve to the parent's prior value. Without
+							// this save the merged val retains `${k}` but no
+							// prior is recorded → "unresolved self-ref" error.
+							prior, doSave := foldOrSkipPrior(existing, fullKey, obj.priorValues[k])
+							if doSave {
+								if len(pathPrefix) == 0 {
+									r.priorValues[fullKey] = prior
+								}
+								obj.priorValues[k] = prior
+							}
 							continue
 						}
 					}
@@ -526,30 +540,26 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 			// review on PR #121.
 			fullKey := segmentsToKey(append(append([]string{}, pathPrefix...), key))
 			if existing, ok := obj.Get(key); ok {
-				merged := false
 				if eo, eok := existing.(*ObjectVal); eok {
 					if nv, nok := val.(*ObjectVal); nok {
 						val = deepMerge(nv, eo) // new over existing: nv=dst wins
-						merged = true
 					}
 				}
-				if !merged {
-					// existing is being shadowed without merging — save it as prior
-					// so a self-referential `${key}` in val can refer back to it.
-					// Pre-#118 this branch only fired for non-object existing, which
-					// silently dropped the object-overwritten-by-concat case (e.g.
-					// `obj = {a:1}; obj = ${obj} {b:2}`) — step 2's `${obj}` had no
-					// prior to resolve against. Save now happens whenever the new
-					// value is not deep-merging with existing. When existing
-					// itself contains `${key}` (chain length >= 3), fold it
-					// against the OLD prior so the saved value is self-ref-free;
-					// otherwise resolveSubst would loop forever re-resolving the
-					// same prior. See foldOrSkipPrior for the three-way decision.
-					priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
-					if doSave {
-						r.priorValues[fullKey] = priorToSave
-						obj.priorValues[key] = priorToSave // per-object scope for optional-substitution fallback
-					}
+				// Always save existing as prior (whether or not val deep-merged
+				// with it) so a self-referential `${key}` in val — wrapped in
+				// concat, embedded as an array element, or as an object field
+				// value — can refer back. Pre-#120 the save was gated on
+				// !merged, which silently dropped the object-merge case
+				// (`o = {v:1}; o = {history: ${o}, v:2}`) where the merged val
+				// retained `${o}` but no prior was recorded. The unconditional
+				// save costs one map write per overwrite — negligible vs the
+				// correctness gain. foldOrSkipPrior folds an existing that
+				// itself contains `${key}` against the OLD prior so the saved
+				// value is always self-ref-free (#118 chain invariant).
+				priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
+				if doSave {
+					r.priorValues[fullKey] = priorToSave
+					obj.priorValues[key] = priorToSave // per-object scope for optional-substitution fallback
 				}
 				// non-object: last value wins (fall through to obj.set below)
 			}
@@ -758,20 +768,12 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// AST-node pointer-identity (sp == s) — strictly narrower than path-
 		// equality. Spec amendment deferred to a follow-up xx.hocon PR (see
 		// Phase 6 #3f close-out notes).
-		isSelfRef := false
-		switch v := val.(type) {
-		case *substPlaceholder:
-			if v == s {
-				isSelfRef = true
-			}
-		case *concatPlaceholder:
-			for _, cv := range v.vals {
-				if sp, spOk := cv.(*substPlaceholder); spOk && sp == s {
-					isSelfRef = true
-					break
-				}
-			}
-		}
+		// #120 extension: walk ArrayVal / ObjectVal interiors so self-references
+		// embedded as array elements or object field values also trigger the
+		// prior-resolution branch. Original pointer-identity criterion preserved
+		// throughout — only the search scope widens. containsSubstByIdentity
+		// (foldselfref.go) does the recursive walk.
+		isSelfRef := containsSubstByIdentity(val, s)
 		if isSelfRef {
 			if prior, ok2 := r.priorValues[key]; ok2 {
 				return r.resolveVal(prior, root, key)
@@ -1294,31 +1296,29 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val, fullPath 
 		fullKey := segmentsToKey(fullPath)
 		// Deep merge if both existing and new values are objects
 		if existing, ok := obj.Get(key); ok {
-			merged := false
 			if eo, eok := existing.(*ObjectVal); eok {
 				if nv, nok := val.(*ObjectVal); nok {
 					val = deepMerge(nv, eo) // new over existing: nv=dst wins
-					merged = true
 				}
 			}
-			if !merged {
-				// existing is being shadowed without merging — save it as prior so
-				// a self-referential `${fullPath}` in val can refer back to it. Mirror
-				// of the top-level direct-assignment logic for nested paths. #118.
-				// See foldOrSkipPrior for the three-way decision (save / fold / skip).
-				priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
-				if doSave {
-					// Write r.priorValues keyed by the FULL dotted path. The previous
-					// implementation deliberately avoided r.priorValues because it
-					// used the bare leaf key (which would collide with an unrelated
-					// top-level key of the same name). The full-path key has no
-					// collision risk: "foo.a" never matches a top-level "a".
-					// resolveSubst at L685 looks up r.priorValues[key] where key is
-					// already the full dotted path of the placeholder, so the entry
-					// is reachable from the self-ref branch with resolving=true.
-					r.priorValues[fullKey] = priorToSave
-					obj.priorValues[key] = priorToSave
-				}
+			// #120: always save existing as prior (mirror of the top-level
+			// resolveObject duplicate-key change). The previous !merged gate
+			// silently dropped the multi-segment object-merge case
+			// (`r.s = {v=1}; r.s = {history = ${r.s}, v=2}`) where the merged
+			// val retained `${r.s}` but no prior was recorded.
+			// See foldOrSkipPrior for the three-way decision (save / fold / skip).
+			priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
+			if doSave {
+				// Write r.priorValues keyed by the FULL dotted path. The previous
+				// implementation deliberately avoided r.priorValues because it
+				// used the bare leaf key (which would collide with an unrelated
+				// top-level key of the same name). The full-path key has no
+				// collision risk: "foo.a" never matches a top-level "a".
+				// resolveSubst at L685 looks up r.priorValues[key] where key is
+				// already the full dotted path of the placeholder, so the entry
+				// is reachable from the self-ref branch with resolving=true.
+				r.priorValues[fullKey] = priorToSave
+				obj.priorValues[key] = priorToSave
 			}
 		}
 		obj.set(key, val)
