@@ -776,22 +776,73 @@ func TestSpecS11_5_Foo10DotZeroPathSplit(t *testing.T) {
 // literal in key position must be stringified to its string form ("true" /
 // "false"). Per HOCON L504: "if you have a path expression then it must always
 // be converted to a string, so `true` becomes the string \"true\"."
-// Status: ❌ — parser rejects TokenBool as key (stricter than spec, see #66).
+// Status: ✅ — fixed in #66; parseKey accepts TokenBool/TokenNull and the
+// existing unquoted-branch stringification path produces the spec-required
+// "true"/"false"/"null" key.
 func TestSpecS11_8_BoolLiteralKeyStringifies(t *testing.T) {
-	t.Skipf("spec violation, see #66")
-	// Spec L504: `true = 42` must parse as key "true" → 42.
 	obj, err := parser.Parse(`true = 42`)
 	if err != nil {
 		t.Fatalf("spec L504: boolean literal in key must be stringified, got error: %v", err)
 	}
-	if len(obj.Fields) != 1 || obj.Fields[0].Key[0] != "true" {
-		t.Errorf("expected key [\"true\"], got %v", func() interface{} {
-			if len(obj.Fields) > 0 {
-				return obj.Fields[0].Key
-			}
-			return nil
-		}())
+	if len(obj.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d (%v)", len(obj.Fields), obj.Fields)
 	}
+	if len(obj.Fields[0].Key) != 1 || obj.Fields[0].Key[0] != "true" {
+		t.Errorf("expected key [\"true\"], got %v", obj.Fields[0].Key)
+	}
+}
+
+// TestSpecS11_8_FalseLiteralKeyStringifies — same rule, false variant.
+func TestSpecS11_8_FalseLiteralKeyStringifies(t *testing.T) {
+	obj, err := parser.Parse(`false = 0`)
+	if err != nil {
+		t.Fatalf("spec L504: boolean literal in key must be stringified, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"false"})
+}
+
+// TestSpecS11_8_NullLiteralKeyStringifies — null in key position stringifies
+// to "null" per the same L504 path-expression rule.
+func TestSpecS11_8_NullLiteralKeyStringifies(t *testing.T) {
+	obj, err := parser.Parse(`null = 1`)
+	if err != nil {
+		t.Fatalf("spec L504: null literal in key must be stringified, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"null"})
+}
+
+// TestSpecS11_8_BoolKeyWithDottedValue — bool literal then dotted value path
+// works. The key is still the single string "true"; the value parser handles
+// the rhs separately.
+func TestSpecS11_8_BoolKeyWithDottedValue(t *testing.T) {
+	obj, err := parser.Parse(`true = "v"`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true"})
+}
+
+// TestSpecS11_8_BoolKeyComposesWithS10_8 — `true false = 1` composes the S10.8
+// space-concat rule with the S11.8 stringification rule. Key is ["true false"].
+func TestSpecS11_8_BoolKeyComposesWithS10_8(t *testing.T) {
+	obj, err := parser.Parse(`true false = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true false"})
+}
+
+// TestSpecS11_8_BoolKeyComposesWithDottedPath — `true.foo = 1` is a 2-segment
+// path ["true", "foo"]. The lexer emits a single TokenString "true.foo"
+// (keyword promotion only on exact-match), so this path goes through the
+// existing string-key branch — but the test pins behaviour against future
+// keyword-promotion changes.
+func TestSpecS11_8_BoolKeyComposesWithDottedPath(t *testing.T) {
+	obj, err := parser.Parse(`true.foo = 1`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"true", "foo"})
 }
 
 // TestSpecS11_9_SubstitutionNotAllowedInPathExpr verifies that a substitution
