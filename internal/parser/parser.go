@@ -701,14 +701,35 @@ func (p *parser) parseKey() ([]string, error) {
 		// lexer also never emits two adjacent unquoted TokenStrings, so this
 		// branch only matters when the previous token was numeric. The
 		// leading-dot continuation check below still applies independently.
-		isConcatTail := false
-		switch p.current.Type {
-		case lexer.TokenString:
-			isConcatTail = !p.current.IsQuoted
-		case lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
-			isConcatTail = true
-		}
-		if prevKeyTokenIsNumeric && isConcatTail && !p.current.PrecedingSpace && !strings.HasPrefix(p.current.Value, ".") && len(parts) > 0 {
+		// Adjacent-token key concat chain: once we have a numeric leading
+		// segment, consume a chain of adjacent stringifiable tails as long
+		// as each is unquoted (or a stringifiable keyword/literal), has no
+		// preceding whitespace, and no leading dot. Each tail extends the
+		// merged key text. The chain absorbs:
+		//   - TokenString (unquoted): closes the `123abc` asymmetry (#65)
+		//   - TokenBool / TokenNull / TokenInclude: keyword tails (#66 area)
+		//   - TokenInt / TokenFloat: signed-numeric tails like `123-456`
+		//     (#83) — the lexer's `readNumber` produces TokenInt("-456")
+		//     when `-` is immediately followed by digits, so chained
+		//     numeric segments arrive as separate adjacent number tokens.
+		//
+		// A trailing dot in a tail breaks the chain — the next token is a
+		// new path segment, handled by the outer loop via `continue`.
+		concatChain := prevKeyTokenIsNumeric && len(parts) > 0
+		concatTrailingDotContinue := false
+		for concatChain {
+			isConcatTail := false
+			switch p.current.Type {
+			case lexer.TokenString:
+				isConcatTail = !p.current.IsQuoted
+			case lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
+				isConcatTail = true
+			case lexer.TokenInt, lexer.TokenFloat:
+				isConcatTail = true
+			}
+			if !isConcatTail || p.current.PrecedingSpace || strings.HasPrefix(p.current.Value, ".") {
+				break
+			}
 			tail := p.current.Value
 			p.advance()
 			merged := parts[len(parts)-1] + tail
@@ -723,14 +744,17 @@ func (p *parser) parseKey() ([]string, error) {
 				}
 				parts = append(parts, s)
 			}
-			// After numeric+unquoted concat the merged segment is no longer a
-			// pure number, so further concat is not allowed: a trailing dot
-			// re-enters the loop (which resets prevKeyTokenIsNumeric from the
-			// next token), otherwise we fall through to the leading-dot /
-			// break checks below.
 			if strings.HasSuffix(tail, ".") {
-				continue // next token continues the path
+				// Trailing dot: the next token is a new path segment.
+				// Signal the outer loop to `continue` so the next iteration
+				// reads it as a fresh segment instead of treating it as a
+				// tail of the chain.
+				concatTrailingDotContinue = true
+				break
 			}
+		}
+		if concatTrailingDotContinue {
+			continue
 		}
 
 		// Check if the next token is an unquoted string starting with '.'

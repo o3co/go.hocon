@@ -737,6 +737,73 @@ func TestSpecS10_8_TabBetweenKeyTokensIsSpaceConcat(t *testing.T) {
 	assertKeyPath(t, obj, []string{"a b"})
 }
 
+// S8.6 follow-up (go.hocon#83): signed-numeric multi-tail key concat.
+// The lexer tokenises `123-456` as TokenInt("123") + TokenInt("-456")
+// because readNumber treats a leading `-` followed by a digit as a new
+// number. The parseKey concat branch must consume adjacent TokenInt /
+// TokenFloat tails as stringifiable tails (in addition to the existing
+// TokenString / TokenBool / TokenNull / TokenInclude set), so the merged
+// key text becomes "123-456".
+//
+// Cross-impl note: ts.hocon and rs.hocon use the unquoted-token lexer
+// model and read `123-456` as a single token, so they handle this
+// naturally; go.hocon's Option A (separate Number tokens) needs the
+// multi-tail loop to converge.
+
+func TestSpecS8_6_SignedNumericTailMergedIntoKey(t *testing.T) {
+	obj, err := parser.Parse(`123-456 = 1`)
+	if err != nil {
+		t.Fatalf("expected `123-456 = 1` to parse, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"123-456"})
+}
+
+func TestSpecS8_6_SignedNumericThenAlphaMergedIntoKey(t *testing.T) {
+	obj, err := parser.Parse(`123-456abc = 1`)
+	if err != nil {
+		t.Fatalf("expected `123-456abc = 1` to parse, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"123-456abc"})
+}
+
+func TestSpecS8_6_SignedNumericDottedTailSplitsKey(t *testing.T) {
+	obj, err := parser.Parse(`123-456.foo = 1`)
+	if err != nil {
+		t.Fatalf("expected `123-456.foo = 1` to parse, got error: %v", err)
+	}
+	assertKeyPath(t, obj, []string{"123-456", "foo"})
+}
+
+func TestSpecS8_6_FloatTailMergedIntoKey(t *testing.T) {
+	// `123 3.14` (with whitespace separator) — different code path from
+	// adjacent concat; tested elsewhere as S10.8 space-concat. The
+	// adjacent-concat path (no whitespace) for TokenFloat tail:
+	// `123e1foo`-shaped input would lex as TokenFloat("123e1") +
+	// TokenString("foo"), which is already covered by existing
+	// TestSpecS11_4_TokenFloatKey-adjacent tests. But `1.5-2.5` as a
+	// bare key needs the multi-tail loop too: TokenFloat("1.5") +
+	// TokenFloat("-2.5") → key "1.5-2.5" via dot-split into ["1","5-2","5"]
+	// (preserves S11.1 path semantics on the dots).
+	obj, err := parser.Parse(`1.5-2.5 = 1`)
+	if err != nil {
+		t.Fatalf("expected `1.5-2.5 = 1` to parse, got error: %v", err)
+	}
+	// Two TokenFloats, dotted: parts after concat = ["1", "5-2", "5"]
+	// because the merged text "1.5-2.5" is split on '.' per S11.1.
+	assertKeyPath(t, obj, []string{"1", "5-2", "5"})
+}
+
+func TestSpecS8_6_QuotedKeyRejectsAdjacentNumeric(t *testing.T) {
+	// Quoted-key gating: `"a.b"-1 = 1` must NOT trigger the concat branch
+	// (the literal '.' inside `"a.b"` must not be re-interpreted as a path
+	// separator after concatenation). Round-1 regression guard from the
+	// original #81 work; must stay rejected after the multi-tail extension.
+	_, err := parser.Parse(`"a.b"-1 = 1`)
+	if err == nil {
+		t.Errorf("expected `\"a.b\"-1 = 1` to error (quoted-key concat must stay rejected), got nil")
+	}
+}
+
 // TestSpecS11_4_TokenFloatKey verifies the spec assertion (L496) that key
 // `10.0foo` parses as path ["10", "0foo"]. Closed by #81-followup as a side
 // effect of TokenFloat key-position support with adjacent-token concat.
