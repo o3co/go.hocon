@@ -705,7 +705,18 @@ func (p *parser) parseKey() ([]string, error) {
 						postDotPrefix = p.current.PrecedingWhitespace
 					}
 				}
-				continue // read the next segment
+				// Copilot review on PR #125: continue would re-enter the loop
+				// even when the next token cannot start a key segment (=, :,
+				// {, newline, EOF), allowing those tokens to be absorbed into
+				// the key and bypassing the post-loop trailingDot guard. Only
+				// continue when the next token is a real key-eligible
+				// continuation; otherwise break so the BadPath error fires
+				// with the correct "trailing period" message.
+				switch p.current.Type {
+				case lexer.TokenString, lexer.TokenInt, lexer.TokenFloat, lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
+					continue // read the next segment
+				}
+				break
 			}
 			trailingDot = false
 		}

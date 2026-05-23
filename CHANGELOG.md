@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Leading-dot branch now sets `spaceConcat=true` when the dot-leading token has `PrecedingSpace` (so WS-before-dot becomes trailing on prev segment in the next iteration).
   - Adds post-loop guard: trailing-dot at end of key path returns parse error.
 
+#### Fixed (Copilot review on PR #125)
+
+- **Trailing-dot guard now fires for all input shapes** (Copilot G1). Previously the trailing-dot continuation `continue`d unconditionally without checking that the next token could start a key segment, allowing `=` / `:` / `{` / newline / EOF to be silently absorbed as a key segment so the post-loop `trailingDot` guard never fired. Inputs like `foo. = 1` errored later with the misleading "expected ':', '=' or '{' after key" message instead of the correct "trailing period" BadPath. Fix: switch on `p.current.Type` before continue and break out when the next token is not key-eligible. Pinned by `TestE13_TrailingDot_TriggersBadPath_NotConsumeSeparator` (6 cases: `foo. = 1`, `a. = 1`, `a. = "x"`, `a. {b=2}`, `a.b. = 1`, `a. \n`).
+- **`PrecedingSpace` / `PrecedingWhitespace` doc accuracy** (Copilot G2). Doc previously claimed `PrecedingSpace` becomes true for "whitespace OR a comment", but `skipWhitespaceAndComments` only sets `skippedSpace` on the HOCON_WS branch — comments alone never set it. Updated the doc to match the impl (`PrecedingSpace ⇔ PrecedingWhitespace != ""` in current grammar) and noted what a future grammar change introducing an inline comment would need to adjust.
+
 ## [1.5.2] - 2026-05-23
 
 Bugfix release: value-interior self-referential substitution ([#120](https://github.com/o3co/go.hocon/issues/120)) — follow-up to v1.5.1's #118 chain fix. No public API changes; safe drop-in upgrade from v1.5.1. Cross-impl with rs.hocon v1.5.1 and ts.hocon v1.5.1 (which combine #118-equivalent and #120-equivalent fixes in a single release; see [rs.hocon#119](https://github.com/o3co/rs.hocon/issues/119) and [ts.hocon#131](https://github.com/o3co/ts.hocon/issues/131)).

@@ -67,20 +67,31 @@ type Token struct {
 	Line     int
 	Col      int
 	IsQuoted bool // true for quoted strings (single or triple-quoted)
-	// PrecedingSpace is true if whitespace OR a comment preceded this token
-	// (used for concatenation detection — S10.5 / S10.8).
+	// PrecedingSpace is true if whitespace (per HOCON_WS, excluding '\n')
+	// preceded this token — used for concatenation detection (S10.5 / S10.8).
+	//
+	// Comments do NOT set this field on their own (skipWhitespaceAndComments
+	// only sets skippedSpace on the HOCON_WS branch). In practice this almost
+	// never matters: comments run to '\n' which emits a TokenNewline that
+	// terminates any key/value context, so whatever WS surrounded the comment
+	// is the only signal a downstream key/value token sees anyway. If a future
+	// grammar change introduced an inline comment that did not end with a
+	// newline, the comment branch would need to set skippedSpace=true to keep
+	// concat detection accurate.
 	PrecedingSpace bool
 	// PrecedingWhitespace is the literal whitespace chars consumed since the
 	// previous token. Used by parser.parseKey to preserve path-expression
 	// whitespace per E13 (xx.hocon#42) — for `a b. c = 1` the ' ' before `c`
 	// becomes a leading-space prefix on the post-dot segment.
 	//
-	// Note: PrecedingSpace may be true while PrecedingWhitespace is empty when
-	// the token is preceded only by a comment (no literal WS chars). The
-	// boolean is the right signal for concat detection; the string is the
-	// right signal for path-WS preservation. The comment-only case cannot fire
-	// in practice in current grammar (comments run to `\n` which emits a
-	// newline token), but the distinction is preserved structurally.
+	// In current grammar PrecedingSpace ⇔ (PrecedingWhitespace != "") because
+	// skipWhitespaceAndComments only sets skippedSpace on the HOCON_WS branch
+	// and always appends consumed chars to the buffer at the same time. The
+	// two fields are kept separate because they answer different questions:
+	// PrecedingSpace is the concat-detection signal (S10.5 / S10.8);
+	// PrecedingWhitespace is the path-WS preservation signal (E13). A future
+	// grammar change that decouples the two (e.g. an inline comment that
+	// counts as whitespace for concat) would need only adjust the lexer.
 	PrecedingWhitespace string
 	Subst               *SubstPayload // non-nil only when Type == TokenSubstitution
 }

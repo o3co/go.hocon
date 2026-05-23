@@ -118,3 +118,38 @@ func TestE13_PathExprWhitespace(t *testing.T) {
 		t.Errorf("no pw* fixtures executed; check %s and %s", pwConfDir, pwExpectedDir)
 	}
 }
+
+// TestE13_TrailingDot_TriggersBadPath_NotConsumeSeparator pins the fix for
+// Copilot review G1 on PR #125: pre-fix, the trailing-dot continuation
+// branch unconditionally `continue`d after `raw` ended with '.', allowing
+// the loop to consume non-key tokens (=, :, {, newline, EOF) as key
+// segments. The post-loop trailingDot guard never fired, so inputs like
+// `foo. = 1` errored later with "expected ':', '=' or '{' after key"
+// instead of the correct "path has a trailing period" BadPath.
+//
+// Post-fix: the trailing-dot branch checks p.current.Type before continue;
+// if the next token is not key-eligible (TokenString/Int/Float/Bool/Null/
+// Include), it breaks so the trailingDot guard fires with the right
+// message.
+func TestE13_TrailingDot_TriggersBadPath_NotConsumeSeparator(t *testing.T) {
+	cases := []string{
+		"foo. = 1",
+		"a. = 1",
+		`a. = "x"`,
+		"a. {b=2}",
+		"a.b. = 1",
+		"a. \n",
+	}
+	for _, in := range cases {
+		t.Run(in, func(t *testing.T) {
+			_, err := hocon.ParseString(in)
+			if err == nil {
+				t.Fatalf("expected ParseError, got nil for input %q", in)
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, "trailing period") {
+				t.Errorf("input %q: expected 'trailing period' BadPath error, got: %v", in, err)
+			}
+		})
+	}
+}
