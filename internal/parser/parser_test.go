@@ -668,52 +668,50 @@ func TestSpecS10_8_InlineObjectShorthand(t *testing.T) {
 }
 
 func TestSpecS10_8_LeadingDotAfterWhitespaceStaysSeparator(t *testing.T) {
-	// `a .b = 1` → ['a', 'b'] (NOT ['a b']). The leading '.' survives the space
-	// as a path separator per S11.1, not folded into the previous segment.
-	// (3-way convergence finding from ts.hocon #128: Claude+Codex+Copilot all
-	// flagged this on the ts companion PR; rs.hocon #115 ported the same fix.)
+	// E13 (xx.hocon#42): `a .b = 1` → ['a ', 'b']. The leading '.' is still a
+	// path separator (S11.1), but the WS before it is now preserved as trailing
+	// on the prev segment (was ['a', 'b'] pre-E13). Cross-impl with ts/rs.
 	obj, err := parser.Parse(`a .b = 1`)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	assertKeyPath(t, obj, []string{"a", "b"})
+	assertKeyPath(t, obj, []string{"a ", "b"})
 }
 
 func TestSpecS10_8_LeadingDotAfterWhitespaceMultiSegmentTail(t *testing.T) {
-	// `a .b.c = 1` → ['a', 'b', 'c'].
+	// E13: `a .b.c = 1` → ['a ', 'b', 'c'].
 	obj, err := parser.Parse(`a .b.c = 1`)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	assertKeyPath(t, obj, []string{"a", "b", "c"})
+	assertKeyPath(t, obj, []string{"a ", "b", "c"})
 }
 
 func TestSpecS10_8_LeadingDotAfterQuotedThenWhitespace(t *testing.T) {
-	// `"a" .b = 1` → ['a', 'b'].
+	// E13: `"a" .b = 1` → ['a ', 'b']: trailing ' ' on 'a' preserved.
 	obj, err := parser.Parse(`"a" .b = 1`)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	assertKeyPath(t, obj, []string{"a", "b"})
+	assertKeyPath(t, obj, []string{"a ", "b"})
 }
 
 func TestSpecS10_8_DottedPathThenWhitespaceThenDot(t *testing.T) {
-	// `a.b .c = 1` → ['a', 'b', 'c'] (Copilot-flagged convergence case on ts).
+	// E13: `a.b .c = 1` → ['a', 'b ', 'c']: trailing ' ' on 'b' preserved.
 	obj, err := parser.Parse(`a.b .c = 1`)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	assertKeyPath(t, obj, []string{"a", "b", "c"})
+	assertKeyPath(t, obj, []string{"a", "b ", "c"})
 }
 
 func TestSpecS10_8_QuotedDottedPathThenWhitespaceThenDot(t *testing.T) {
-	// `"a.b" .c = 1` → ['a.b', 'c']: quoted-key literal 'a.b' preserved (no
-	// path-split inside quoted), and `.c` becomes a sibling segment.
+	// E13: `"a.b" .c = 1` → ['a.b ', 'c']: trailing ' ' on 'a.b' preserved.
 	obj, err := parser.Parse(`"a.b" .c = 1`)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	assertKeyPath(t, obj, []string{"a.b", "c"})
+	assertKeyPath(t, obj, []string{"a.b ", "c"})
 }
 
 func TestSpecS10_8_TwoQuotedSpaceConcat(t *testing.T) {
@@ -727,14 +725,14 @@ func TestSpecS10_8_TwoQuotedSpaceConcat(t *testing.T) {
 	assertKeyPath(t, obj, []string{"foo bar baz qux"})
 }
 
-func TestSpecS10_8_TabBetweenKeyTokensIsSpaceConcat(t *testing.T) {
-	// `PrecedingSpace` covers any HOCON whitespace; the merge joiner is
-	// canonical U+0020 (per S10.6 whitespace normalisation).
+func TestSpecS10_8_TabBetweenKeyTokensPreservedVerbatim(t *testing.T) {
+	// E13: preserve literal whitespace in key concat. `a\tb = 1` now yields
+	// ['a\tb']; was ['a b'] pre-E13 (was normalised to single space).
 	obj, err := parser.Parse("a\tb = 1")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	assertKeyPath(t, obj, []string{"a b"})
+	assertKeyPath(t, obj, []string{"a\tb"})
 }
 
 // S8.6 follow-up (go.hocon#83): signed-numeric multi-tail key concat.

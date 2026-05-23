@@ -569,24 +569,6 @@ func (p *parser) parseField() (*FieldNode, error) {
 	return &FieldNode{pos: pos{line, col}, Key: key, Value: val, Append: append_}, nil
 }
 
-// validateKeySegment enforces HOCON.md L270-276 (S8.6) on a single unquoted /
-// numeric key segment: a segment that begins with '-' must be followed by a
-// digit. Quoted segments bypass this and are not passed here.
-// Precondition: s must be non-empty (callers guard with `if s == "" { continue }`).
-func validateKeySegment(line, col int, s string) error {
-	if s[0] != '-' {
-		return nil
-	}
-	if len(s) >= 2 && s[1] >= '0' && s[1] <= '9' {
-		return nil
-	}
-	after := "EOF"
-	if len(s) >= 2 {
-		after = fmt.Sprintf("%q", rune(s[1]))
-	}
-	return newError(line, col, "unquoted key segment cannot begin with '-' unless followed by a digit (got '-' then %s in %q, HOCON.md L270-276)", after, s)
-}
-
 func (p *parser) parseKey() ([]string, error) {
 	line, col := p.current.Line, p.current.Col
 	if p.current.Type == lexer.TokenError {
@@ -617,34 +599,55 @@ func (p *parser) parseKey() ([]string, error) {
 	// S10.8 (HOCON.md L317 + L553-560): "path expressions work like value
 	// concatenations" — when the next key token has whitespace before it (and
 	// is not a leading-dot continuation), it is a space-concat continuation
-	// that merges into the LAST existing segment with a literal space.
-	//   `a b = 1`     → ['a b']
-	//   `a b c : 42`  → ['a b c']            (spec L556 example)
-	//   `a.b c = 1`   → ['a', 'b c']         (concat into last segment)
-	//   `"a" b = 1`   → ['a b']              (quoted + unquoted)
-	// Leading '.' after whitespace already keeps separator semantics via the
-	// existing leading-dot continuation check (which fires before this new
-	// space-concat branch and ignores PrecedingSpace), so `a .b = 1` → ['a', 'b']
-	// works incidentally — the leading-dot path takes priority over space-concat.
-	// Newlines break the chain (S10.7): the lexer emits TokenNewline between
-	// fields, which is NOT in the space-concat switch case list below, so the
-	// continuation check fails and the loop breaks.
+	// that merges into the LAST existing segment, using the LITERAL whitespace
+	// from the source (PrecedingWhitespace, not a hardcoded ' '):
+	//   `a b = 1`         → ['a b']
+	//   `a b c : 42`      → ['a b c']        (spec L556 example)
+	//   `a.b c = 1`       → ['a', 'b c']     (concat into last segment)
+	//   `"a" b = 1`       → ['a b']          (quoted + unquoted)
+	// E13 (xx.hocon#42) — path-expression whitespace is preserved verbatim
+	// around dots, including the tab variant pw07:
+	//   `a b. c = 1`      → ['a b', ' c']    (leading ' ' on " c" preserved)
+	//   `a b.\tc = 1`     → ['a b', '\tc']   (HOCON_WS tab uniformly preserved)
+	//   `a .b = 1`        → ['a ', 'b']      (trailing ' ' on 'a', leading
+	//                                          dot still separator)
+	//   `a . b = 1`       → ['a ', ' b']     (both sides preserved)
+	//   `a. .b = 1`       → ['a', ' ', 'b']  (dot-WS-dot: WS becomes its
+	//                                          own segment between two dots)
+	//
+	// S8.6 (HOCON.md L270-276) is NOT enforced on key path segments per E13
+	// (xx.hocon#42): the rule is value-position lexer-disambiguation, not a
+	// key-parser rule. Lightbend accepts `foo -bar = 1`, `foo.-bar = 1`, etc.
 	spaceConcat := false
+	// trailingDot tracks whether the path is currently "after" a dot separator,
+	// expecting a continuation segment. Used for the post-loop guard that
+	// rejects empty-trailing-segment keys (e.g. `a b. = 1`, pw06).
+	trailingDot := false
+	// postDotPrefix carries WS captured from a trailing-dot continuation, to be
+	// applied as the leading prefix on the next segment (E13 path-WS rule).
+	postDotPrefix := ""
 
 	for {
 		raw := p.current.Value
 		isQuoted := p.current.IsQuoted
 		prevTokenType := p.current.Type
+		ws := p.current.PrecedingWhitespace
 		p.advance()
 
 		if isQuoted {
 			// Quoted key segment — no dot splitting
 			if spaceConcat && len(parts) > 0 {
-				parts[len(parts)-1] = parts[len(parts)-1] + " " + raw
+				// E13: preceding WS verbatim, then quoted content merged into last segment.
+				parts[len(parts)-1] = parts[len(parts)-1] + ws + raw
+			} else if postDotPrefix != "" {
+				// post-dot WS becomes leading prefix on the new quoted segment
+				parts = append(parts, postDotPrefix+raw)
+				postDotPrefix = ""
 			} else {
 				parts = append(parts, raw)
 			}
 			prevKeyTokenIsNumeric = false
+			trailingDot = false
 		} else {
 			// Unquoted / numeric key — split on dots for path notation. A trailing
 			// dot (e.g., "arrays.") means the next token continues the path. For
@@ -656,20 +659,37 @@ func (p *parser) parseKey() ([]string, error) {
 				if s == "" {
 					continue // skip empty segments from leading/trailing dots
 				}
-				if err := validateKeySegment(line, col, s); err != nil {
-					return nil, err
-				}
 				newParts = append(newParts, s)
 			}
-			if spaceConcat && len(newParts) > 0 && len(parts) > 0 {
-				// Merge the first piece of the new token into the LAST existing
-				// segment with a literal space; remaining dot-split pieces become
-				// new path segments. The leading-dot case (`a .b = 1` → ['a','b'])
-				// is handled by the leading-dot continuation branch below, which
-				// fires BEFORE the space-concat flag is ever set — so we don't
-				// see raw[0]=='.' here under current ordering.
-				parts[len(parts)-1] = parts[len(parts)-1] + " " + newParts[0]
+			if spaceConcat && len(parts) > 0 {
+				// E13 path-WS preservation: the literal preceding WS becomes
+				// trailing on the PREVIOUS segment, uniformly. Then:
+				//  - if raw starts with '.', the dot is a separator (S11.1)
+				//    and filtered pieces (if any) become new segments;
+				//  - otherwise the first piece merges into the just-extended
+				//    segment, with remaining pieces as new segments.
+				parts[len(parts)-1] = parts[len(parts)-1] + ws
+				if strings.HasPrefix(raw, ".") {
+					parts = append(parts, newParts...)
+				} else if len(newParts) > 0 {
+					parts[len(parts)-1] = parts[len(parts)-1] + newParts[0]
+					parts = append(parts, newParts[1:]...)
+				}
+			} else if postDotPrefix != "" && strings.HasPrefix(raw, ".") {
+				// E13 dot-WS-dot case (e.g. `a. .b = 1`): after a trailing dot
+				// from the previous token, the WS-then-dot sequence means the
+				// WS becomes its OWN path segment (between the two dot
+				// separators), and the leading dot starts a new segment chain.
+				// Lightbend: `a. .b = 1` → {"a":{" ":{"b":1}}} = ['a', ' ', 'b'].
+				// Empirically verified via typesafe-config 1.4.3 probe.
+				parts = append(parts, postDotPrefix)
+				postDotPrefix = ""
+				parts = append(parts, newParts...)
+			} else if postDotPrefix != "" && len(newParts) > 0 {
+				// post-dot WS becomes leading prefix on the new segment (E13)
+				parts = append(parts, postDotPrefix+newParts[0])
 				parts = append(parts, newParts[1:]...)
+				postDotPrefix = ""
 			} else {
 				parts = append(parts, newParts...)
 			}
@@ -677,8 +697,28 @@ func (p *parser) parseKey() ([]string, error) {
 			// If the raw value ends with '.', the next token is a continuation
 			if strings.HasSuffix(raw, ".") {
 				spaceConcat = false
-				continue // read the next segment
+				trailingDot = true
+				// E13: capture next token's PrecedingWhitespace for post-dot prefix.
+				if p.current.PrecedingWhitespace != "" {
+					switch p.current.Type {
+					case lexer.TokenString, lexer.TokenInt, lexer.TokenFloat, lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
+						postDotPrefix = p.current.PrecedingWhitespace
+					}
+				}
+				// Copilot review on PR #125: continue would re-enter the loop
+				// even when the next token cannot start a key segment (=, :,
+				// {, newline, EOF), allowing those tokens to be absorbed into
+				// the key and bypassing the post-loop trailingDot guard. Only
+				// continue when the next token is a real key-eligible
+				// continuation; otherwise break so the BadPath error fires
+				// with the correct "trailing period" message.
+				switch p.current.Type {
+				case lexer.TokenString, lexer.TokenInt, lexer.TokenFloat, lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
+					continue // read the next segment
+				}
+				break
 			}
+			trailingDot = false
 		}
 		// The continuation we just took has been consumed.
 		spaceConcat = false
@@ -739,9 +779,7 @@ func (p *parser) parseKey() ([]string, error) {
 				if s == "" {
 					continue
 				}
-				if err := validateKeySegment(line, col, s); err != nil {
-					return nil, err
-				}
+				// E13: S8.6 not enforced on key path segments (was: validateKeySegment).
 				parts = append(parts, s)
 			}
 			if strings.HasSuffix(tail, ".") {
@@ -750,6 +788,7 @@ func (p *parser) parseKey() ([]string, error) {
 				// reads it as a fresh segment instead of treating it as a
 				// tail of the chain.
 				concatTrailingDotContinue = true
+				trailingDot = true
 				break
 			}
 		}
@@ -759,8 +798,14 @@ func (p *parser) parseKey() ([]string, error) {
 
 		// Check if the next token is an unquoted string starting with '.'
 		// or a quoted string preceded by a dot (like in "a"."b" patterns).
-		// After a quoted segment, look if the next unquoted starts with '.'
+		// After a quoted segment, look if the next unquoted starts with '.'.
+		// E13: if the dot-leading token also has preceding whitespace, set
+		// spaceConcat=true so the WS-before-dot is preserved as trailing on
+		// the previous segment in the next iteration (`a .b = 1` → ['a ', 'b']).
 		if p.current.Type == lexer.TokenString && !p.current.IsQuoted && strings.HasPrefix(p.current.Value, ".") {
+			if p.current.PrecedingSpace {
+				spaceConcat = true
+			}
 			continue
 		}
 
@@ -777,6 +822,14 @@ func (p *parser) parseKey() ([]string, error) {
 			}
 		}
 		break
+	}
+
+	// E13 pw06: a key path ending with `.` (e.g. `a b. = 1`) creates an empty
+	// trailing segment. Lightbend throws BadPath; we match — loosening S8.6-in-key
+	// and preserving path-WS does NOT cascade into accepting empty path segments.
+	if trailingDot {
+		return nil, newError(p.current.Line, p.current.Col,
+			"path has a trailing period '.' — empty key segment not allowed (HOCON.md path rules)")
 	}
 
 	if len(parts) == 0 {

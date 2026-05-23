@@ -348,13 +348,25 @@ func TestS8_6_SubstMidSegmentHyphenAfterQuotedAllowed(t *testing.T) {
 	}
 }
 
-func TestS8_6_KeyPathHyphenSegmentRejected(t *testing.T) {
-	// `a.-foo = 1` — the lexer sees `a.-foo` (or splits it) and the parser
-	// builds a path from segments; the `-foo` segment must be rejected by
-	// the same S8.6 rule.
-	_, err := hocon.ParseString("a.-foo = 1")
-	if err == nil {
-		t.Error("expected error for a.-foo = 1 (key segment starts with '-'), parse succeeded")
+// E13 (xx.hocon#42): S8.6 is NOT enforced on key path segments. The rule is
+// value-position lexer-disambiguation; key paths are governed by path-element
+// parsing rules. Lightbend accepts `a.-foo = 1` verbatim per the xx.hocon
+// kh07 fixture. Inverted from the prior strict-reject test.
+func TestE13_KeyPathHyphenSegment_Accepted(t *testing.T) {
+	cfg, err := hocon.ParseString("a.-foo = 1")
+	if err != nil {
+		t.Fatalf("E13: a.-foo = 1 must parse (S8.6 not enforced on key paths), got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	inner, ok := got["a"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected top-level 'a' → object, got %T", got["a"])
+	}
+	if v, ok2 := inner["-foo"]; !ok2 || !jsonEqual(v, 1) {
+		t.Errorf("expected a.-foo = 1, got inner=%v", inner)
 	}
 }
 
@@ -456,16 +468,23 @@ func TestS8_6_KeyPathHyphenDigitSegmentAllowed(t *testing.T) {
 	}
 }
 
-// TestS8_6_NumericKeyConcat_ResplitValidatesHyphenSegments covers the
-// concat-resplit path's S8.6 enforcement: after merging a numeric leading
-// token with an unquoted tail, the merged value is re-split on '.' and each
-// resulting segment must pass validateKeySegment. `123abc.-foo = 1` merges
-// to "123abc.-foo", splits to ["123abc","-foo"], and the "-foo" segment
-// must be rejected by the same rule as the initial-split path.
-func TestS8_6_NumericKeyConcat_ResplitValidatesHyphenSegments(t *testing.T) {
-	_, err := hocon.ParseString("123abc.-foo = 1")
-	if err == nil {
-		t.Error("expected parse error for 123abc.-foo = 1 (post-merge segment starts with '-' no-digit), parse succeeded")
+// E13: the concat-resplit path no longer enforces S8.6 on segments. Inverted
+// from the prior strict-reject test (xx.hocon#42).
+func TestE13_NumericKeyConcat_Resplit_HyphenSegment_Accepted(t *testing.T) {
+	cfg, err := hocon.ParseString("123abc.-foo = 1")
+	if err != nil {
+		t.Fatalf("E13: 123abc.-foo = 1 must parse, got: %v", err)
+	}
+	got := make(map[string]any)
+	if err := cfg.Unmarshal(&got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	inner, ok := got["123abc"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected top-level '123abc' → object, got %T", got["123abc"])
+	}
+	if v, ok2 := inner["-foo"]; !ok2 || !jsonEqual(v, 1) {
+		t.Errorf("expected 123abc.-foo = 1, got inner=%v", inner)
 	}
 }
 

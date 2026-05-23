@@ -58,23 +58,52 @@ type SubstPayload struct {
 }
 
 // Token is a single lexed unit.
+//
+// Lives in `internal/lexer` (non-public per Go internal/ convention); adding
+// fields is not a source break for external users.
 type Token struct {
-	Type           TokenType
-	Value          string
-	Line           int
-	Col            int
-	IsQuoted       bool          // true for quoted strings (single or triple-quoted)
-	PrecedingSpace bool          // true if whitespace preceded this token (for concatenation)
-	Subst          *SubstPayload // non-nil only when Type == TokenSubstitution
+	Type     TokenType
+	Value    string
+	Line     int
+	Col      int
+	IsQuoted bool // true for quoted strings (single or triple-quoted)
+	// PrecedingSpace is true if whitespace (per HOCON_WS, excluding '\n')
+	// preceded this token — used for concatenation detection (S10.5 / S10.8).
+	//
+	// Comments do NOT set this field on their own (skipWhitespaceAndComments
+	// only sets skippedSpace on the HOCON_WS branch). In practice this almost
+	// never matters: comments run to '\n' which emits a TokenNewline that
+	// terminates any key/value context, so whatever WS surrounded the comment
+	// is the only signal a downstream key/value token sees anyway. If a future
+	// grammar change introduced an inline comment that did not end with a
+	// newline, the comment branch would need to set skippedSpace=true to keep
+	// concat detection accurate.
+	PrecedingSpace bool
+	// PrecedingWhitespace is the literal whitespace chars consumed since the
+	// previous token. Used by parser.parseKey to preserve path-expression
+	// whitespace per E13 (xx.hocon#42) — for `a b. c = 1` the ' ' before `c`
+	// becomes a leading-space prefix on the post-dot segment.
+	//
+	// In current grammar PrecedingSpace ⇔ (PrecedingWhitespace != "") because
+	// skipWhitespaceAndComments only sets skippedSpace on the HOCON_WS branch
+	// and always appends consumed chars to the buffer at the same time. The
+	// two fields are kept separate because they answer different questions:
+	// PrecedingSpace is the concat-detection signal (S10.5 / S10.8);
+	// PrecedingWhitespace is the path-WS preservation signal (E13). A future
+	// grammar change that decouples the two (e.g. an inline comment that
+	// counts as whitespace for concat) would need only adjust the lexer.
+	PrecedingWhitespace string
+	Subst               *SubstPayload // non-nil only when Type == TokenSubstitution
 }
 
 // Lexer tokenizes HOCON input.
 type Lexer struct {
-	src          []rune
-	pos          int
-	line         int
-	col          int
-	skippedSpace bool // set by skipWhitespaceAndComments
+	src               []rune
+	pos               int
+	line              int
+	col               int
+	skippedSpace      bool   // set by skipWhitespaceAndComments
+	skippedWhitespace string // E13 (xx.hocon#42): literal WS chars consumed since previous token
 }
 
 // Tokenize lexes the entire input and returns all tokens up to (and including)
@@ -128,9 +157,11 @@ func (l *Lexer) advance() rune {
 func (l *Lexer) Next() Token {
 	l.skipWhitespaceAndComments()
 	hadSpace := l.skippedSpace
+	hadWhitespace := l.skippedWhitespace
 
 	tok := l.nextToken()
 	tok.PrecedingSpace = hadSpace
+	tok.PrecedingWhitespace = hadWhitespace
 	return tok
 }
 
@@ -215,16 +246,21 @@ func (l *Lexer) nextToken() Token {
 
 func (l *Lexer) skipWhitespaceAndComments() {
 	l.skippedSpace = false
+	l.skippedWhitespace = ""
+	var ws []rune
 	for {
 		ch, ok := l.peek()
 		if !ok {
+			l.skippedWhitespace = string(ws)
 			return
 		}
 		if isHoconNewline(ch) {
+			l.skippedWhitespace = string(ws)
 			return // newlines are significant tokens; emitted by Next() caller
 		}
 		if isHoconWhitespace(ch) {
 			l.skippedSpace = true
+			ws = append(ws, ch)
 			l.advance()
 			continue
 		}
@@ -250,6 +286,7 @@ func (l *Lexer) skipWhitespaceAndComments() {
 				continue
 			}
 		}
+		l.skippedWhitespace = string(ws)
 		return
 	}
 }
