@@ -357,34 +357,23 @@ func TestParseKey_EmptyKey_DotAtEOF(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// validateKeySegment: unquoted key starting with '-' (parser.go:587).
+// E13 (xx.hocon#42): S8.6 is NOT enforced on key path segments. The previous
+// validateKeySegment tests asserted strict-reject behavior that no longer
+// applies. Inverted to assert success (kh* fixtures cover the full range).
 // ---------------------------------------------------------------------------
 
-// TestValidateKeySegment_SingleDash pins the "unquoted key segment cannot begin
-// with '-' unless followed by a digit" error (validateKeySegment line 587) for
-// a bare `-` key (no digit follows).
-func TestValidateKeySegment_SingleDash(t *testing.T) {
+// E13: bare `- = x` is now accepted as a key with segment "-".
+func TestE13_KeyPathSingleDash_Accepted(t *testing.T) {
 	_, err := parser.Parse(`- = x`)
-	if err == nil {
-		t.Fatal("expected error for single dash key, got nil")
-	}
-	if !strings.Contains(err.Error(), "unquoted key segment cannot begin with '-'") {
-		t.Errorf("expected dash-start error, got: %v", err)
+	if err != nil {
+		t.Fatalf("E13: bare `- = x` must parse (S8.6 not enforced on key paths), got: %v", err)
 	}
 }
 
-// TestValidateKeySegment_DashLetter pins the same error when the character
-// after '-' is a letter (not a digit). Covers the `len(s) >= 2` branch that
-// formats the quoted rune in the error message.
-func TestValidateKeySegment_DashLetter(t *testing.T) {
+// E13: `-a = x` is now accepted as a key with segment "-a".
+func TestE13_KeyPathDashLetter_Accepted(t *testing.T) {
 	_, err := parser.Parse(`-a = x`)
-	if err == nil {
-		t.Fatal("expected error for -a key, got nil")
-	}
-	if !strings.Contains(err.Error(), "unquoted key segment cannot begin with '-'") {
-		t.Errorf("expected dash-start error, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), `'a'`) {
-		t.Errorf("expected the offending char in error, got: %v", err)
+	if err != nil {
+		t.Fatalf("E13: `-a = x` must parse (S8.6 not enforced on key paths), got: %v", err)
 	}
 }

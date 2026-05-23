@@ -58,23 +58,41 @@ type SubstPayload struct {
 }
 
 // Token is a single lexed unit.
+//
+// Lives in `internal/lexer` (non-public per Go internal/ convention); adding
+// fields is not a source break for external users.
 type Token struct {
-	Type           TokenType
-	Value          string
-	Line           int
-	Col            int
-	IsQuoted       bool          // true for quoted strings (single or triple-quoted)
-	PrecedingSpace bool          // true if whitespace preceded this token (for concatenation)
-	Subst          *SubstPayload // non-nil only when Type == TokenSubstitution
+	Type     TokenType
+	Value    string
+	Line     int
+	Col      int
+	IsQuoted bool // true for quoted strings (single or triple-quoted)
+	// PrecedingSpace is true if whitespace OR a comment preceded this token
+	// (used for concatenation detection — S10.5 / S10.8).
+	PrecedingSpace bool
+	// PrecedingWhitespace is the literal whitespace chars consumed since the
+	// previous token. Used by parser.parseKey to preserve path-expression
+	// whitespace per E13 (xx.hocon#42) — for `a b. c = 1` the ' ' before `c`
+	// becomes a leading-space prefix on the post-dot segment.
+	//
+	// Note: PrecedingSpace may be true while PrecedingWhitespace is empty when
+	// the token is preceded only by a comment (no literal WS chars). The
+	// boolean is the right signal for concat detection; the string is the
+	// right signal for path-WS preservation. The comment-only case cannot fire
+	// in practice in current grammar (comments run to `\n` which emits a
+	// newline token), but the distinction is preserved structurally.
+	PrecedingWhitespace string
+	Subst               *SubstPayload // non-nil only when Type == TokenSubstitution
 }
 
 // Lexer tokenizes HOCON input.
 type Lexer struct {
-	src          []rune
-	pos          int
-	line         int
-	col          int
-	skippedSpace bool // set by skipWhitespaceAndComments
+	src               []rune
+	pos               int
+	line              int
+	col               int
+	skippedSpace      bool   // set by skipWhitespaceAndComments
+	skippedWhitespace string // E13 (xx.hocon#42): literal WS chars consumed since previous token
 }
 
 // Tokenize lexes the entire input and returns all tokens up to (and including)
@@ -128,9 +146,11 @@ func (l *Lexer) advance() rune {
 func (l *Lexer) Next() Token {
 	l.skipWhitespaceAndComments()
 	hadSpace := l.skippedSpace
+	hadWhitespace := l.skippedWhitespace
 
 	tok := l.nextToken()
 	tok.PrecedingSpace = hadSpace
+	tok.PrecedingWhitespace = hadWhitespace
 	return tok
 }
 
@@ -215,16 +235,21 @@ func (l *Lexer) nextToken() Token {
 
 func (l *Lexer) skipWhitespaceAndComments() {
 	l.skippedSpace = false
+	l.skippedWhitespace = ""
+	var ws []rune
 	for {
 		ch, ok := l.peek()
 		if !ok {
+			l.skippedWhitespace = string(ws)
 			return
 		}
 		if isHoconNewline(ch) {
+			l.skippedWhitespace = string(ws)
 			return // newlines are significant tokens; emitted by Next() caller
 		}
 		if isHoconWhitespace(ch) {
 			l.skippedSpace = true
+			ws = append(ws, ch)
 			l.advance()
 			continue
 		}
@@ -250,6 +275,7 @@ func (l *Lexer) skipWhitespaceAndComments() {
 				continue
 			}
 		}
+		l.skippedWhitespace = string(ws)
 		return
 	}
 }

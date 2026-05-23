@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — E13 key-position parsing (xx.hocon [#42](https://github.com/o3co/xx.hocon/issues/42))
+
+- **S8.6 is no longer enforced on key path segments** — `foo -bar = 1`, `foo.-bar = 1`, `-foo bar = 1`, `foo -1bar = 1` etc. now parse verbatim per Lightbend 1.4.3. The HOCON.md L270-276 "begin with `-` requires digit" rule is a value-position lexer-disambiguation rule (governed by E8 in [xx.hocon extra-spec-conventions](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md)); key-position is governed by path-element parsing rules where Lightbend takes characters verbatim. Pinned by 8 new fixtures (`key-hyphen-position/kh01–kh08`) in xx.hocon main. Pure loosening — no previously-valid input is now rejected. `validateKeySegment` removed from `internal/parser/parser.go` along with its two call sites.
+- **Path-expression whitespace adjacent to dots is preserved verbatim** — `a b. c = 1` → `{"a b":{" c":1}}` (leading space on `" c"` preserved); `a b.\tc = 1` → `{"a b":{"\tc":1}}` (HOCON_WS tab uniformly preserved); `a .b = 1` → `{"a ":{"b":1}}` (trailing space on `"a "` preserved). Per Lightbend's char-by-char path parsing. Pinned by 6 new fixtures (`path-expr-whitespace/pw01–pw05, pw07`) + 1 error fixture (`pw06: a b. = 1` → BadPath). See [xx.hocon E13](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md#e13).
+- **Behavior change — key string normalisation no longer fires for path-WS-adjacent-to-dot inputs**. Inputs like `a .b = X` previously produced path `["a", "b"]`; now produce `["a ", "b"]`. Tab between key tokens is now preserved (was normalised to single ASCII space) — `a\tb = 1` now yields key `["a\tb"]` instead of `["a b"]`. Narrow set of affected inputs.
+- **Bundled fix — trailing-dot key paths now consistently reject**. `foo. = 1`, `a.b. = 1`, `a b. = 1`, `a. . = 1` now return parse error ("path has a trailing period — empty key segment not allowed"). Pre-E13 these silently parsed to the prefix segments. Aligned with Lightbend BadPath and E13 boundary fixture `pw06`. Leading-dot (`.foo = 1`) and double-dot (`a..b = 1`) in key paths are NOT addressed in this PR (pre-existing silent-accept gap, no xx.hocon fixture yet — tracked as a follow-up).
+- **Bundled fix — dot-WS-dot in key paths produces a WS segment per Lightbend**. `a. .b = 1` now yields `["a", " ", "b"]` (`{"a":{" ":{"b":1}}}`); `a b. .c = 1` yields `["a b", " ", "c"]`. Cross-impl convergent fix with rs.hocon (where Codex multi-agent-review caught the original gap) and ts.hocon.
+
+#### Implementation
+
+- **Lexer** (`internal/lexer/lexer.go`): adds `Token.PrecedingWhitespace string` field (literal whitespace chars consumed since the previous token, accumulated in `Lexer.skippedWhitespace`). Token type lives in `internal/lexer/` (non-public per Go internal/ convention) so no source-break concern.
+- **Parser** (`internal/parser/parser.go::parseKey`):
+  - Removes `validateKeySegment` function and its two call sites (initial-split path and numeric-concat-resplit path).
+  - Replaces literal `" "` joiner in space-concat path with the token's `PrecedingWhitespace`.
+  - Adds `postDotPrefix` state for post-trailing-dot WS handling, with dot-WS-dot branch promoting the WS to its own segment.
+  - Leading-dot branch now sets `spaceConcat=true` when the dot-leading token has `PrecedingSpace` (so WS-before-dot becomes trailing on prev segment in the next iteration).
+  - Adds post-loop guard: trailing-dot at end of key path returns parse error.
+
 ## [1.5.2] - 2026-05-23
 
 Bugfix release: value-interior self-referential substitution ([#120](https://github.com/o3co/go.hocon/issues/120)) — follow-up to v1.5.1's #118 chain fix. No public API changes; safe drop-in upgrade from v1.5.1. Cross-impl with rs.hocon v1.5.1 and ts.hocon v1.5.1 (which combine #118-equivalent and #120-equivalent fixes in a single release; see [rs.hocon#119](https://github.com/o3co/rs.hocon/issues/119) and [ts.hocon#131](https://github.com/o3co/ts.hocon/issues/131)).
