@@ -26,6 +26,9 @@ package resolver
 func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 	switch vv := v.(type) {
 	case *substPlaceholder:
+		if vv.knownAbsent {
+			return v, false
+		}
 		if substFullKey(vv) != fullKey {
 			return v, false
 		}
@@ -137,21 +140,71 @@ func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 //
 //   - prior has no self-ref to fullKey         → save prior as-is  → (prior,  true)
 //   - prior has self-ref AND old != nil        → fold against old  → (folded, true)
-//   - prior has self-ref AND old == nil        → skip save         → (nil,    false)
+//   - optional self-ref AND old == nil         → fold to absent    → (folded, true)
+//   - required self-ref AND old == nil         → skip save         → (nil,    false)
 //
-// The skip case (no old prior to fold against) preserves the existing
-// "unresolved self-referential substitution" error path at resolveSubst.
-// Callers must not write to priorValues when the second return value is
-// false; leaving priorValues untouched is what makes the error path fire.
+// The no-prior optional case preserves S13a.13's "optional self-ref with no
+// prior resolves to undefined" rule while still saving concat literal pieces
+// for the next overwrite.
 func foldOrSkipPrior(prior Val, fullKey string, old Val) (Val, bool) {
 	folded, hasSelfRef := foldSelfRef(prior, fullKey, old)
 	if !hasSelfRef {
 		return prior, true
 	}
 	if old == nil {
-		return nil, false
+		return foldOptionalSelfRefAbsent(prior, fullKey)
 	}
 	return folded, true
+}
+
+func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
+	switch vv := v.(type) {
+	case *substPlaceholder:
+		if vv.knownAbsent || substFullKey(vv) != fullKey {
+			return v, true
+		}
+		if !vv.node.Optional {
+			return nil, false
+		}
+		absent := *vv
+		absent.knownAbsent = true
+		return &absent, true
+	case *concatPlaceholder:
+		newVals := make([]Val, len(vv.vals))
+		for i, e := range vv.vals {
+			folded, ok := foldOptionalSelfRefAbsent(e, fullKey)
+			if !ok {
+				return nil, false
+			}
+			newVals[i] = folded
+		}
+		return &concatPlaceholder{vals: newVals, line: vv.line, col: vv.col}, true
+	case *ArrayVal:
+		newEls := make([]Val, len(vv.Elements))
+		for i, e := range vv.Elements {
+			folded, ok := foldOptionalSelfRefAbsent(e, fullKey)
+			if !ok {
+				return nil, false
+			}
+			newEls[i] = folded
+		}
+		return &ArrayVal{Elements: newEls}, true
+	case *ObjectVal:
+		newObj := newObjectVal()
+		for _, k := range vv.keys {
+			folded, ok := foldOptionalSelfRefAbsent(vv.values[k], fullKey)
+			if !ok {
+				return nil, false
+			}
+			newObj.set(k, folded)
+		}
+		for pk, pv := range vv.priorValues {
+			newObj.priorValues[pk] = pv
+		}
+		return newObj, true
+	default:
+		return v, true
+	}
 }
 
 // substFullKey returns the dotted-path key of a substPlaceholder's segments.
@@ -173,6 +226,9 @@ func substFullKey(sp *substPlaceholder) string {
 func containsSubstByIdentity(v Val, target *substPlaceholder) bool {
 	switch vv := v.(type) {
 	case *substPlaceholder:
+		if vv.knownAbsent {
+			return false
+		}
 		return vv == target
 	case *concatPlaceholder:
 		for _, e := range vv.vals {

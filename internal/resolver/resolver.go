@@ -614,6 +614,9 @@ type substPlaceholder struct {
 	segments   []lexer.Segment // path segments — source of truth
 	prefixLen  int             // 0 for normal, >0 for relativized (number of prefix segments)
 	listSuffix bool            // true when '[]' suffix present — triggers resolveEnvList (S13c)
+	// knownAbsent is an internal sentinel for a folded optional self-ref with
+	// no prior value. It resolves to undefined without performing a lookup.
+	knownAbsent bool
 }
 
 func (s *substPlaceholder) val() {}
@@ -712,6 +715,10 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 }
 
 func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, error) {
+	if s.knownAbsent {
+		return nil, nil
+	}
+
 	n := s.node
 	segStrs := segTexts(s.segments)
 	key := segmentsToKey(segStrs)
@@ -1444,7 +1451,13 @@ func relativizeVal(v Val, prefixSegments []string) Val {
 		newSegments = append(newSegments, strSegs(prefixSegments)...)
 		newSegments = append(newSegments, vv.segments...)
 		newNode.Path = segmentsToKey(segTexts(newSegments))
-		return &substPlaceholder{node: newNode, segments: newSegments, prefixLen: vv.prefixLen + len(prefixSegments), listSuffix: vv.listSuffix}
+		return &substPlaceholder{
+			node:        newNode,
+			segments:    newSegments,
+			prefixLen:   vv.prefixLen + len(prefixSegments),
+			listSuffix:  vv.listSuffix,
+			knownAbsent: vv.knownAbsent,
+		}
 	case *concatPlaceholder:
 		newVals := make([]Val, len(vv.vals))
 		for i, cv := range vv.vals {
