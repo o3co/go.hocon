@@ -797,6 +797,51 @@ wrapper { include "child.conf" }
 	}
 }
 
+// TestResolver_IncludeRelativizeListSuffixFallbackToParent verifies E6 cross-source behavior:
+// ${bar[]} in an included file must fall back to bar in the parent config (original-path
+// fallback, S14c.2) BEFORE consulting env-var list expansion. The config value wins.
+//
+// This pins the resolver ordering: prefixed lookup → original-path config fallback →
+// listSuffix env-var expansion → scalar env fallback (per Lightbend 1.4.6 ResolveSource.java).
+//
+// xx.hocon#22 fix: before this fix, the listSuffix branch ran BEFORE the original-path
+// fallback, so ${bar[]} would attempt env-var list expansion (X_0/X_1/...) and fail
+// instead of resolving against bar = ["root-val"] in the parent config.
+func TestResolver_IncludeRelativizeListSuffixFallbackToParent(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `
+a = ${bar[]}
+`)
+
+	res := resolveWithDir(t, `
+bar = ["root-val"]
+wrapper { include "child.conf" }
+`, dir)
+
+	wv, ok := res.Root.Get("wrapper")
+	if !ok {
+		t.Fatal("wrapper not found")
+	}
+	av, ok := wv.(*resolver.ObjectVal).Get("a")
+	if !ok {
+		t.Fatal("a not found in wrapper")
+	}
+	arr, ok := av.(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected ArrayVal, got %T", av)
+	}
+	if len(arr.Elements) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(arr.Elements))
+	}
+	sv, ok := arr.Elements[0].(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("element[0]: expected ScalarVal, got %T", arr.Elements[0])
+	}
+	if sv.Raw != "root-val" {
+		t.Errorf("expected element[0]='root-val', got %q", sv.Raw)
+	}
+}
+
 // lookupObj navigates into a nested ObjectVal using a dot-separated key.
 // Each segment is looked up as a direct key first (for quoted keys like "a.b"),
 // falling back to nested traversal.
