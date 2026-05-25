@@ -907,8 +907,12 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			}
 			return resolved, nil
 		}
-		// Also try env var with original path (raw dot-join, no quoting)
-		if r.opts.UseSystemEnvironment {
+		// Also try env var with original path (raw dot-join, no quoting).
+		// Skip for listSuffix substitutions: env-var access for ${X[]} is handled
+		// exclusively by resolveEnvList below (S13c.5 invariant: scalar env must
+		// not be consulted for list-suffix substitutions). Returning ScalarVal here
+		// would violate S13c.5 and produce the wrong type.
+		if !s.listSuffix && r.opts.UseSystemEnvironment {
 			if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
 				return &ScalarVal{Raw: ev, Type: ScalarString}, nil
 			}

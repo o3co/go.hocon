@@ -842,6 +842,36 @@ wrapper { include "child.conf" }
 	}
 }
 
+// TestResolver_IncludeListSuffixNoScalarFallbackCrossSource guards S13c.5 in the cross-source
+// path: when ${X[]} is in an included file and X is not in the config but IS set as a scalar
+// env var (not X_0), the original-path scalar env fallback must NOT return ScalarVal.
+// The resolveEnvList branch must be reached, which then fails (no X_0) per S13c.5.
+//
+// This pins the fix for the Codex-identified issue: without the !s.listSuffix guard on the
+// original-path scalar env lookup (resolver.go S14c.2 block), a scalar env var X would
+// incorrectly return ScalarVal for a listSuffix substitution.
+func TestResolver_IncludeListSuffixNoScalarFallbackCrossSource(t *testing.T) {
+	// Set only the bare scalar env var, NOT _0 — S13c.5 must block this.
+	t.Setenv("S13C_EV_XSOURCE_SCALARONLY", "scalar-only-value")
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "child.conf"), `
+a = ${S13C_EV_XSOURCE_SCALARONLY[]}
+`)
+
+	// No config defines S13C_EV_XSOURCE_SCALARONLY, so both config lookups miss.
+	// Only the scalar env var is set — resolveEnvList must be reached, which
+	// then errors per S13c.5 (required: no _0 element).
+	ast, parseErr := parser.Parse(`wrapper { include "child.conf" }`)
+	if parseErr != nil {
+		t.Fatalf("parse: %v", parseErr)
+	}
+	_, err := resolver.Resolve(ast, resolver.Options{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected ResolveError (S13c.5: no X_0 env var, scalar X env var must not be used for listSuffix), got success")
+	}
+}
+
 // lookupObj navigates into a nested ObjectVal using a dot-separated key.
 // Each segment is looked up as a direct key first (for quoted keys like "a.b"),
 // falling back to nested traversal.
