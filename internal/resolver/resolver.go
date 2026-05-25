@@ -890,9 +890,38 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		return resolved, nil
 	}
 
+	// Relativized path not found — fall back to original (non-relativized) path.
+	// This implements S14c.2: when a substitution originates from an included file
+	// and the relativized lookup misses, try the original (non-prefixed) path in
+	// the merged root config. Per Lightbend 1.4.6 (ResolveSource.java:100-130),
+	// config exhaustion (prefixed + original-path) runs BEFORE any env-var fallback,
+	// including the listSuffix env-var list expansion (E6 cross-source, xx.hocon#22).
+	if s.prefixLen > 0 && len(segStrs) > s.prefixLen {
+		originalStrs := segStrs[s.prefixLen:]
+		originalKey := segmentsToKey(originalStrs)
+		origVal, origOk := r.lookupPath(root, originalStrs)
+		if origOk {
+			resolved, err := r.resolveVal(origVal, root, originalKey)
+			if err != nil {
+				return nil, err
+			}
+			return resolved, nil
+		}
+		// Also try env var with original path (raw dot-join, no quoting)
+		if r.opts.UseSystemEnvironment {
+			if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
+				return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+			}
+		}
+	}
+
 	// S13c: env-var list expansion — when '[]' suffix is present, delegate to
-	// resolveEnvList. This branch runs BEFORE scalar env fallback (S13c.5: when
-	// listSuffix=true, the bare scalar env var must NOT be consulted as fallback).
+	// resolveEnvList. This branch runs AFTER the original-path config fallback
+	// (S14c.2) and BEFORE scalar env fallback (S13c.5: when listSuffix=true, the
+	// bare scalar env var must NOT be consulted as fallback). Placing listSuffix
+	// here matches Lightbend 1.4.6 ResolveSource.java ordering and implements E6
+	// cross-source: config-defined X wins over env-var list X_0/X_1/... even when
+	// X is in the parent config and ${X[]} is in an included file.
 	//
 	// E12: also gated on UseSystemEnvironment. When env access is disabled,
 	// the list substitution behaves like any other unresolved substitution:
@@ -913,26 +942,6 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			}
 		}
 		return r.resolveEnvList(s, segStrs, n)
-	}
-
-	// Relativized path not found — fall back to original (non-relativized) path.
-	if s.prefixLen > 0 && len(segStrs) > s.prefixLen {
-		originalStrs := segStrs[s.prefixLen:]
-		originalKey := segmentsToKey(originalStrs)
-		origVal, origOk := r.lookupPath(root, originalStrs)
-		if origOk {
-			resolved, err := r.resolveVal(origVal, root, originalKey)
-			if err != nil {
-				return nil, err
-			}
-			return resolved, nil
-		}
-		// Also try env var with original path (raw dot-join, no quoting)
-		if r.opts.UseSystemEnvironment {
-			if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
-				return &ScalarVal{Raw: ev, Type: ScalarString}, nil
-			}
-		}
 	}
 
 	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior

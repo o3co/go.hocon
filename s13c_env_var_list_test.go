@@ -36,6 +36,11 @@ import (
 // all pass naturally) confirmed the assumption was wrong — ev08's `x = ["x"]; x =
 // ${?x} ${?LIST[]}` has a clear prior value for `x`, so it does not exercise the
 // S13a.13 "no prior value" lookback gap. ev08 lives in SUCCESS in all 3 impls.
+//
+// ev12c-include-config-defined-wins: E6 cross-source fixture (xx.hocon#22).
+// ${S13C_EV12C_X[]} in an included file; S13C_EV12C_X is defined in the parent
+// config. No .env sidecar — routes through native Lightbend 1.4.6 path (config
+// value wins before env-var list expansion is ever consulted).
 var s13cSuccessFixtures = []string{
 	"ev01-basic",
 	"ev02-stops-at-gap",
@@ -47,6 +52,7 @@ var s13cSuccessFixtures = []string{
 	"ev09-whitespace-before-suffix",
 	"ev10-empty-string-element",
 	"ev11-include-context",
+	"ev12c-include-config-defined-wins",
 }
 
 // s13cErrorFixtures: parse/resolve must return a non-nil error.
