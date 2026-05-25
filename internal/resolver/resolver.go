@@ -740,8 +740,10 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		if cached, ok := r.resolvedCache[key]; ok {
 			return cached, nil
 		}
-		// Check for prior (pre-overwrite) value saved during first pass.
-		if prior, ok := r.priorValues[key]; ok {
+		// Check for prior (pre-overwrite) value saved during first pass. Nested
+		// paths keep their immediate prior on the parent object, so use the same
+		// lookup policy as the pointer-identity self-ref branch below.
+		if prior := r.findPrior(root, segStrs, key); prior != nil {
 			// Resolve the prior value (it may itself contain placeholders).
 			return r.resolveVal(prior, root, key)
 		}
@@ -782,17 +784,8 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// (foldselfref.go) does the recursive walk.
 		isSelfRef := containsSubstByIdentity(val, s)
 		if isSelfRef {
-			if prior, ok2 := r.priorValues[key]; ok2 {
+			if prior := r.findPrior(root, segStrs, key); prior != nil {
 				return r.resolveVal(prior, root, key)
-			}
-			// For nested paths, check the parent object's per-object priorValues.
-			if len(segStrs) > 1 {
-				if parent, pok := r.lookupPathObj(root, segStrs[:len(segStrs)-1]); pok {
-					lastKey := segStrs[len(segStrs)-1]
-					if prior2, ok3 := parent.priorValues[lastKey]; ok3 {
-						return r.resolveVal(prior2, root, key)
-					}
-				}
 			}
 			// Spec HOCON.md L841: no prior + self-ref → short-circuit.
 			// Do NOT resolve the found current value (which is the concat-in-progress);
