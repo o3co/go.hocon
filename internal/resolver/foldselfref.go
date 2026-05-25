@@ -227,8 +227,13 @@ func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
 // (non-sentinel) fallback prior: the fallback's value should serve as the
 // prior for the cross-layer self-reference fold instead.
 //
-// Only substPlaceholder and concatPlaceholder are inspected; ScalarVal,
-// ArrayVal, ObjectVal are never sentinels and return false.
+// Recurses into substPlaceholder, concatPlaceholder, ArrayVal elements, and
+// ObjectVal field values. ScalarVal is never a sentinel and returns false.
+//
+// Round-2 review (PR #126, Codex P2 + Claude M1): the original version only
+// checked substPlaceholder and concatPlaceholder, missing the cases where
+// foldOptionalSelfRefAbsent places sentinels inside ArrayVal.Elements or
+// ObjectVal.values (e.g. `a = [${?a}, "x"]` with no prior).
 func containsKnownAbsentSentinel(v Val) bool {
 	switch vv := v.(type) {
 	case *substPlaceholder:
@@ -236,6 +241,20 @@ func containsKnownAbsentSentinel(v Val) bool {
 	case *concatPlaceholder:
 		for _, e := range vv.vals {
 			if containsKnownAbsentSentinel(e) {
+				return true
+			}
+		}
+		return false
+	case *ArrayVal:
+		for _, e := range vv.Elements {
+			if containsKnownAbsentSentinel(e) {
+				return true
+			}
+		}
+		return false
+	case *ObjectVal:
+		for _, k := range vv.keys {
+			if containsKnownAbsentSentinel(vv.values[k]) {
 				return true
 			}
 		}
@@ -255,6 +274,20 @@ func containsKnownAbsentSentinel(v Val) bool {
 // → rehydrate → concat("base", "1") which resolves to "base1". That "base1"
 // value then serves as the effective prior for the outer a = ${?a}2 concat,
 // yielding "base12" as the final resolved value.
+//
+// ArrayVal semantics (round-2, PR #126): when a knownAbsent sentinel element
+// in an ArrayVal is replaced and the replacement is itself an ArrayVal, its
+// elements are spliced in-place (one level of flattening). This preserves
+// HOCON array self-ref semantics: `a = [${?a}, "x"]` with fallback `["base"]`
+// rehydrates to `["base", "x"]` rather than the doubly-nested `[["base"], "x"]`.
+// When replacement is a non-array (scalar/object), it is placed as a single
+// element — the resulting type mismatch will surface as a ResolveError at
+// resolution time if the array elements are type-incompatible.
+//
+// ObjectVal semantics: recurse into each field value and rehydrate in place.
+// The replacement is passed unchanged to each field's sentinel — the sentinel
+// inside an ObjectVal field represents "${?key}" referencing the whole prior,
+// so the whole fallback prior is the correct replacement for each field.
 //
 // Only knownAbsent substPlaceholder nodes are replaced; live (non-absent)
 // substPlaceholder nodes and all other Val types are passed through unchanged.
@@ -279,6 +312,85 @@ func rehydrateSentinel(v Val, replacement Val) Val {
 			return v
 		}
 		return &concatPlaceholder{vals: newVals, line: vv.line, col: vv.col}
+	case *ArrayVal:
+		// Rehydrate sentinel elements within the array.
+		// When an element is a knownAbsent sentinel and replacement is an ArrayVal,
+		// splice replacement's elements in place (one level of flattening) to
+		// match HOCON array self-ref semantics. For non-array replacements, place
+		// the replacement as a single element.
+		var newEls []Val
+		changed := false
+		for _, e := range vv.Elements {
+			if sp, isSP := e.(*substPlaceholder); isSP && sp.knownAbsent {
+				if !changed {
+					newEls = make([]Val, 0, len(vv.Elements))
+					// Copy all elements seen so far (before the first sentinel hit)
+					// using the original slice up to this point.
+					for _, prev := range vv.Elements {
+						if prev == e {
+							break
+						}
+						newEls = append(newEls, prev)
+					}
+				}
+				changed = true
+				if repArr, isArr := replacement.(*ArrayVal); isArr {
+					newEls = append(newEls, repArr.Elements...)
+				} else {
+					newEls = append(newEls, replacement)
+				}
+			} else {
+				ne := rehydrateSentinel(e, replacement)
+				if ne != e {
+					if !changed {
+						newEls = make([]Val, 0, len(vv.Elements))
+						for _, prev := range vv.Elements {
+							if prev == e {
+								break
+							}
+							newEls = append(newEls, prev)
+						}
+					}
+					changed = true
+					newEls = append(newEls, ne)
+				} else if changed {
+					newEls = append(newEls, e)
+				}
+			}
+		}
+		if !changed {
+			return v
+		}
+		return &ArrayVal{Elements: newEls}
+	case *ObjectVal:
+		// Rehydrate sentinel values in each field. Preserve key order and
+		// priorValues (same pattern as foldSelfRef's ObjectVal branch).
+		var newObj *ObjectVal
+		for _, k := range vv.keys {
+			val := vv.values[k]
+			nv := rehydrateSentinel(val, replacement)
+			if nv != val {
+				if newObj == nil {
+					newObj = newObjectVal()
+					for _, kk := range vv.keys {
+						if kk == k {
+							break
+						}
+						newObj.set(kk, vv.values[kk])
+					}
+					for pk, pv := range vv.priorValues {
+						newObj.priorValues[pk] = pv
+					}
+				}
+			}
+			if newObj != nil {
+				newObj.set(k, nv)
+			}
+		}
+		if newObj == nil {
+			return v
+		}
+		return newObj
 	default:
 		return v
 	}
