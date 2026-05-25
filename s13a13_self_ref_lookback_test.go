@@ -39,6 +39,18 @@ var s13a13SuccessFixtures = []string{
 	"sr09-nested-no-prior",
 	"sr10-nested-with-prior",
 	"sr11-mutual-ref-forward",
+	// S13a.x follow-ups (xx.hocon#27, E14) — pin the 4 cross-impl resolver
+	// bugs surfaced by Round 2 multi-agent-review of the cluster 3f PRs.
+	// Pre-fix go.hocon status: sr12/sr13/sr14/sr16 already PASS via the
+	// pointer-identity self-ref detection mechanism; only sr15 (same-field
+	// double-self-ref `a = ${?a}1; a = ${?a}2` → "12") fails because the
+	// prior_values map population timing drops the first assignment's
+	// resolved value before the second assignment's ${?a} reads it.
+	"sr12-nested-external-ref-no-prior",
+	"sr13-nested-external-ref-with-prior",
+	"sr14-cache-prior-external",
+	"sr15-double-self-ref",
+	"sr16-external-before-self-ref",
 }
 
 // s13a13ErrorFixtures lists fixtures that must produce a non-nil error.

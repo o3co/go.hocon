@@ -72,6 +72,10 @@ testdata:
 	  mkdir -p testdata/hocon/path-expr-whitespace && \
 	  cp "$$tmpdir/testdata/hocon/path-expr-whitespace/"*.conf testdata/hocon/path-expr-whitespace/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/self-ref-lookback" ]; then \
+	  mkdir -p testdata/hocon/self-ref-lookback && \
+	  cp "$$tmpdir/testdata/hocon/self-ref-lookback/"*.conf testdata/hocon/self-ref-lookback/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 

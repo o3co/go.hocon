@@ -168,7 +168,35 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 	//    history across iterated WithFallback calls — including priors that
 	//    were installed by an earlier merge where the receiver itself was a
 	//    merged result and a key came from that earlier fallback.
+	//
+	//    Exception: if the receiver's prior CONTAINS a knownAbsent sentinel
+	//    anywhere in its value tree (detected by containsKnownAbsentSentinel,
+	//    not a root-only check — sentinels produced by foldOptionalSelfRefAbsent
+	//    can sit inside substPlaceholder, concatPlaceholder, ArrayVal, or
+	//    ObjectVal containers), AND the result already has a real (non-absent)
+	//    prior from the fallback, rehydrate the sentinel positions against the
+	//    fallback prior. This ensures that
+	//    `r = parse("a=${?a}1\na=${?a}2", deferred); f = parse("a=base", deferred);
+	//    r.WithFallback(f).Resolve(...)` correctly feeds "base" as the prior
+	//    seed for the double-self-ref fold, yielding "base12" rather than "12".
 	for k, v := range receiver.priorValues {
+		if containsKnownAbsentSentinel(v) {
+			if fallbackPrior, hasExisting := result.priorValues[k]; hasExisting && !containsKnownAbsentSentinel(fallbackPrior) {
+				// Receiver prior is a knownAbsent sentinel (produced by
+				// foldOptionalSelfRefAbsent when no local prior existed at
+				// BuildTree time). The fallback already supplied a real prior
+				// for this key; rehydrate the sentinel against the fallback
+				// prior so that deferred resolution chains the fallback value
+				// through all assignments (xx.hocon#27 sr15).
+				//
+				// Example: receiver prior = concat(knownAbsent,"1"),
+				// fallback prior = "base" → rehydrate → concat("base","1")
+				// which resolves to "base1". That value becomes the effective
+				// prior for the outer a=${?a}2, yielding "base12" overall.
+				result.priorValues[k] = rehydrateSentinel(v, fallbackPrior)
+				continue
+			}
+		}
 		result.priorValues[k] = v
 	}
 	return result
@@ -614,6 +642,9 @@ type substPlaceholder struct {
 	segments   []lexer.Segment // path segments — source of truth
 	prefixLen  int             // 0 for normal, >0 for relativized (number of prefix segments)
 	listSuffix bool            // true when '[]' suffix present — triggers resolveEnvList (S13c)
+	// knownAbsent is an internal sentinel for a folded optional self-ref with
+	// no prior value. It resolves to undefined without performing a lookup.
+	knownAbsent bool
 }
 
 func (s *substPlaceholder) val() {}
@@ -712,6 +743,10 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 }
 
 func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, error) {
+	if s.knownAbsent {
+		return nil, nil
+	}
+
 	n := s.node
 	segStrs := segTexts(s.segments)
 	key := segmentsToKey(segStrs)
@@ -733,8 +768,21 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		if cached, ok := r.resolvedCache[key]; ok {
 			return cached, nil
 		}
-		// Check for prior (pre-overwrite) value saved during first pass.
-		if prior, ok := r.priorValues[key]; ok {
+		// Check for prior (pre-overwrite) value saved during first pass. Nested
+		// paths keep their immediate prior on the parent object, so use the same
+		// lookup policy as the pointer-identity self-ref branch below.
+		//
+		// findPrior checks r.priorValues[key] first (top-level priors), then falls
+		// back to parentObj.priorValues[lastKey] for nested paths.  For a nested
+		// path like "foo.a", phase 2 does NOT populate r.priorValues["foo.a"]
+		// (only root-level priors are re-seeded from tree.priorValues).  The prior
+		// for "foo.a" therefore lives exclusively on the foo object's priorValues.
+		//
+		// The case where r.priorValues[key] is empty but parentObj.priorValues has
+		// the prior is exercised by TestSpecS13a_13_SelfRefLookback/nested_optional_with_prior
+		// ("foo.a = \"x\"\nfoo.a = ${?foo.a}bar" → "xbar").  Adding a redundant
+		// test here would not improve coverage (same code path, same branch).
+		if prior := r.findPrior(root, segStrs, key); prior != nil {
 			// Resolve the prior value (it may itself contain placeholders).
 			return r.resolveVal(prior, root, key)
 		}
@@ -775,17 +823,8 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// (foldselfref.go) does the recursive walk.
 		isSelfRef := containsSubstByIdentity(val, s)
 		if isSelfRef {
-			if prior, ok2 := r.priorValues[key]; ok2 {
+			if prior := r.findPrior(root, segStrs, key); prior != nil {
 				return r.resolveVal(prior, root, key)
-			}
-			// For nested paths, check the parent object's per-object priorValues.
-			if len(segStrs) > 1 {
-				if parent, pok := r.lookupPathObj(root, segStrs[:len(segStrs)-1]); pok {
-					lastKey := segStrs[len(segStrs)-1]
-					if prior2, ok3 := parent.priorValues[lastKey]; ok3 {
-						return r.resolveVal(prior2, root, key)
-					}
-				}
 			}
 			// Spec HOCON.md L841: no prior + self-ref → short-circuit.
 			// Do NOT resolve the found current value (which is the concat-in-progress);
@@ -1444,7 +1483,13 @@ func relativizeVal(v Val, prefixSegments []string) Val {
 		newSegments = append(newSegments, strSegs(prefixSegments)...)
 		newSegments = append(newSegments, vv.segments...)
 		newNode.Path = segmentsToKey(segTexts(newSegments))
-		return &substPlaceholder{node: newNode, segments: newSegments, prefixLen: vv.prefixLen + len(prefixSegments), listSuffix: vv.listSuffix}
+		return &substPlaceholder{
+			node:        newNode,
+			segments:    newSegments,
+			prefixLen:   vv.prefixLen + len(prefixSegments),
+			listSuffix:  vv.listSuffix,
+			knownAbsent: vv.knownAbsent,
+		}
 	case *concatPlaceholder:
 		newVals := make([]Val, len(vv.vals))
 		for i, cv := range vv.vals {

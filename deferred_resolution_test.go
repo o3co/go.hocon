@@ -857,3 +857,114 @@ outer = "top"`,
 		t.Fatalf("outer=%q, want 'top'", resolved.GetString("outer"))
 	}
 }
+
+// TestS13a_DeferredOptional_DoubleSelfRef_PrefersFallback is a regression test
+// for the Codex P2 issue from PR #126 review: a receiver built in deferred mode
+// with a double optional self-ref assignment (`a = ${?a}1; a = ${?a}2`) stores
+// a knownAbsent sentinel in priorValues["a"].  Before this fix, MergeUnresolved
+// step 3 unconditionally overwrote the fallback prior with that sentinel, so
+// WithFallback(f).Resolve() could not feed the fallback value as the starting
+// prior for the double-self-ref fold.
+//
+// Expected: fallback value "base" feeds through both assignments →
+// "base" → "base1" (first concat) → "base12" (second concat).
+//
+// Spec authority: S13a.13 — optional ${?a} with no LOCAL prior must resolve to
+// undefined (yielding the literal piece alone). When a fallback provides the
+// prior, it acts as the starting value for the chain.
+//
+// Fix: MergeUnresolved step 3 rehydrates knownAbsent sentinels in receiver
+// priorValues against the real fallback prior instead of discarding it.
+// Refs xx.hocon#27 (E14), go.hocon PR #126.
+func TestS13a_DeferredOptional_DoubleSelfRef_PrefersFallback(t *testing.T) {
+	r, err := hocon.ParseStringWithOptions(
+		`a = ${?a}1`+"\n"+`a = ${?a}2`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("parse receiver: %v", err)
+	}
+	f, err := hocon.ParseStringWithOptions(
+		`a = base`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("parse fallback: %v", err)
+	}
+	resolved, err := r.WithFallback(f).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	// "base" from fallback feeds ${?a} in first concat → "base1";
+	// "base1" feeds ${?a} in second concat → "base12".
+	if got := resolved.GetString("a"); got != "base12" {
+		t.Fatalf("a=%q, want %q", got, "base12")
+	}
+}
+
+// TestS13a_DeferredOptional_DoubleSelfRef_ArrayVal_FallbackPreserved is a
+// regression test for the round-2 multi-reviewer convergent finding in
+// go.hocon PR #126 (Codex P2 + Claude M1 convergence → must-fix):
+//
+// containsKnownAbsentSentinel and rehydrateSentinel previously only handled
+// substPlaceholder and concatPlaceholder, missing the case where
+// foldOptionalSelfRefAbsent places sentinels inside ArrayVal.Elements (e.g.
+// `a = [${?a}, "x"]` with no prior stores ArrayVal{[knownAbsent, "x"]} as the
+// prior for the next assignment). MergeUnresolved step 3 then unconditionally
+// overwrote the fallback prior with the sentinel-containing ArrayVal, losing
+// the fallback value entirely.
+//
+// Syntax note: `a = [${?a}, "x"]` is "element-in-array" syntax: ${?a} is
+// element 0 of the array, not a concat operand. When ${?a} resolves to an
+// ArrayVal prior, it appears as a nested-array element (NOT flattened).
+// This differs from `a = ${?a} ["x"]` (concat syntax) which flattens via
+// joinPair. See HOCON spec §Value concatenation.
+//
+// Rehydration semantics (xx.hocon#27 round-3 review): place the WHOLE fallback
+// prior as a SINGLE element where the sentinel was — no splicing. This matches
+// HOCON spec semantics where ${?a} in array literal `[${?a}, "x"]` resolves
+// to the prior value as a single element. Equivalence with immediate-resolve:
+// `a=["base"]; a=[${?a},"x"]; a=[${?a},"y"]` produces `[[["base"],"x"],"y"]`
+// (triple nesting). Deferred + fallback must give the same triple-nested
+// output for spec consistency. (Earlier round-3 commit used splice-flatten,
+// producing `[["base","x"],"y"]` — corrected here.)
+//
+// Fix: extend containsKnownAbsentSentinel + rehydrateSentinel for ArrayVal/
+// ObjectVal containers (xx.hocon#27, round-2 review PR #126).
+func TestS13a_DeferredOptional_DoubleSelfRef_ArrayVal_FallbackPreserved(t *testing.T) {
+	r, err := hocon.ParseStringWithOptions(
+		`a = [${?a}, "x"]`+"\n"+`a = [${?a}, "y"]`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("parse receiver: %v", err)
+	}
+	f, err := hocon.ParseStringWithOptions(
+		`a = ["base"]`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("parse fallback: %v", err)
+	}
+	resolved, err := r.WithFallback(f).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	// The fallback prior ["base"] is rehydrated INTO the receiver's sentinel
+	// position as a SINGLE element (no splice), giving the rehydrated prior
+	// [["base"], "x"]. The live value [${?a},"y"] then resolves ${?a} to that
+	// prior [["base"], "x"], producing the final nesting [[["base"],"x"],"y"].
+	//
+	// This matches go.hocon's immediate-resolve output for the equivalent
+	// `a=["base"]; a=[${?a},"x"]; a=[${?a},"y"]` (verified via probe), which
+	// in turn matches HOCON spec / Lightbend behavior.
+	//
+	// Without the rehydration fix, the sentinel-containing ArrayVal overwrites
+	// the fallback prior, ${?a} finds no prior and resolves to absent (dropped),
+	// giving ["y"].
+	got, err := hocon.RenderJSON_ForTest(resolved)
+	if err != nil {
+		t.Fatalf("RenderJSON: %v", err)
+	}
+	const want = `{"a":[[["base"],"x"],"y"]}`
+	if got != want {
+		t.Fatalf("a json:\n got  %s\n want %s\n\n(without fix: would be {\"a\":[\"y\"]})", got, want)
+	}
+}
