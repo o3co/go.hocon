@@ -168,7 +168,32 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 	//    history across iterated WithFallback calls — including priors that
 	//    were installed by an earlier merge where the receiver itself was a
 	//    merged result and a key came from that earlier fallback.
+	//
+	//    Exception: if the receiver's prior is a pure knownAbsent sentinel
+	//    (produced by foldOptionalSelfRefAbsent during deferred BuildTree when
+	//    there was no local prior), AND the result already has a real (non-absent)
+	//    prior from the fallback, prefer the fallback prior. This ensures that
+	//    `r = parse("a=${?a}1\na=${?a}2", deferred); f = parse("a=base", deferred);
+	//    r.WithFallback(f).Resolve(...)` correctly feeds "base" as the prior for
+	//    the double-self-ref fold, yielding "base12" rather than "12".
 	for k, v := range receiver.priorValues {
+		if containsKnownAbsentSentinel(v) {
+			if fallbackPrior, hasExisting := result.priorValues[k]; hasExisting && !containsKnownAbsentSentinel(fallbackPrior) {
+				// Receiver prior is a knownAbsent sentinel (produced by
+				// foldOptionalSelfRefAbsent when no local prior existed at
+				// BuildTree time). The fallback already supplied a real prior
+				// for this key; rehydrate the sentinel against the fallback
+				// prior so that deferred resolution chains the fallback value
+				// through all assignments (xx.hocon#27 sr15).
+				//
+				// Example: receiver prior = concat(knownAbsent,"1"),
+				// fallback prior = "base" → rehydrate → concat("base","1")
+				// which resolves to "base1". That value becomes the effective
+				// prior for the outer a=${?a}2, yielding "base12" overall.
+				result.priorValues[k] = rehydrateSentinel(v, fallbackPrior)
+				continue
+			}
+		}
 		result.priorValues[k] = v
 	}
 	return result

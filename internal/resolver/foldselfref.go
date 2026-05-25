@@ -207,6 +207,74 @@ func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
 	}
 }
 
+// containsKnownAbsentSentinel reports whether v was produced by
+// foldOptionalSelfRefAbsent — i.e. it contains at least one knownAbsent
+// substPlaceholder. Such a value means "this prior was folded under the
+// assumption that no local prior existed at BuildTree time; ${?key} inside
+// it should resolve to absent."
+//
+// When MergeUnresolved applies receiver priorValues over fallback priors, a
+// prior that contains a knownAbsent sentinel must not overwrite a real
+// (non-sentinel) fallback prior: the fallback's value should serve as the
+// prior for the cross-layer self-reference fold instead.
+//
+// Only substPlaceholder and concatPlaceholder are inspected; ScalarVal,
+// ArrayVal, ObjectVal are never sentinels and return false.
+func containsKnownAbsentSentinel(v Val) bool {
+	switch vv := v.(type) {
+	case *substPlaceholder:
+		return vv.knownAbsent
+	case *concatPlaceholder:
+		for _, e := range vv.vals {
+			if containsKnownAbsentSentinel(e) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// rehydrateSentinel replaces knownAbsent substPlaceholder nodes within v
+// with replacement. It is used by MergeUnresolved to fold a receiver prior
+// that was built under a "no local prior" assumption against a real fallback
+// prior, so that deferred resolution can correctly chain the fallback value
+// through all assignments.
+//
+// For example: receiver prior = concat(knownAbsent, "1"), fallback = "base"
+// → rehydrate → concat("base", "1") which resolves to "base1". That "base1"
+// value then serves as the effective prior for the outer a = ${?a}2 concat,
+// yielding "base12" as the final resolved value.
+//
+// Only knownAbsent substPlaceholder nodes are replaced; live (non-absent)
+// substPlaceholder nodes and all other Val types are passed through unchanged.
+func rehydrateSentinel(v Val, replacement Val) Val {
+	switch vv := v.(type) {
+	case *substPlaceholder:
+		if !vv.knownAbsent {
+			return v
+		}
+		return replacement
+	case *concatPlaceholder:
+		newVals := make([]Val, len(vv.vals))
+		changed := false
+		for i, e := range vv.vals {
+			ne := rehydrateSentinel(e, replacement)
+			newVals[i] = ne
+			if ne != e {
+				changed = true
+			}
+		}
+		if !changed {
+			return v
+		}
+		return &concatPlaceholder{vals: newVals, line: vv.line, col: vv.col}
+	default:
+		return v
+	}
+}
+
 // substFullKey returns the dotted-path key of a substPlaceholder's segments.
 // Segments are already relativized at this point if the placeholder lives
 // inside an included file under a nested pathPrefix.

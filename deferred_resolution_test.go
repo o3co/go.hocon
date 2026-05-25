@@ -857,3 +857,45 @@ outer = "top"`,
 		t.Fatalf("outer=%q, want 'top'", resolved.GetString("outer"))
 	}
 }
+
+// TestS13a_DeferredOptional_DoubleSelfRef_PrefersFallback is a regression test
+// for the Codex P2 issue from PR #126 review: a receiver built in deferred mode
+// with a double optional self-ref assignment (`a = ${?a}1; a = ${?a}2`) stores
+// a knownAbsent sentinel in priorValues["a"].  Before this fix, MergeUnresolved
+// step 3 unconditionally overwrote the fallback prior with that sentinel, so
+// WithFallback(f).Resolve() could not feed the fallback value as the starting
+// prior for the double-self-ref fold.
+//
+// Expected: fallback value "base" feeds through both assignments →
+// "base" → "base1" (first concat) → "base12" (second concat).
+//
+// Spec authority: S13a.13 — optional ${?a} with no LOCAL prior must resolve to
+// undefined (yielding the literal piece alone). When a fallback provides the
+// prior, it acts as the starting value for the chain.
+//
+// Fix: MergeUnresolved step 3 rehydrates knownAbsent sentinels in receiver
+// priorValues against the real fallback prior instead of discarding it.
+// Refs xx.hocon#27 (E14), go.hocon PR #126.
+func TestS13a_DeferredOptional_DoubleSelfRef_PrefersFallback(t *testing.T) {
+	r, err := hocon.ParseStringWithOptions(
+		`a = ${?a}1`+"\n"+`a = ${?a}2`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("parse receiver: %v", err)
+	}
+	f, err := hocon.ParseStringWithOptions(
+		`a = base`,
+		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("parse fallback: %v", err)
+	}
+	resolved, err := r.WithFallback(f).Resolve(hocon.DefaultResolveOptions().WithUseSystemEnvironment(false))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	// "base" from fallback feeds ${?a} in first concat → "base1";
+	// "base1" feeds ${?a} in second concat → "base12".
+	if got := resolved.GetString("a"); got != "base12" {
+		t.Fatalf("a=%q, want %q", got, "base12")
+	}
+}
