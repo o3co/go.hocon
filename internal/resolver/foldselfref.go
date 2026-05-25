@@ -23,6 +23,14 @@ package resolver
 // originating prior-save sites this fixes the full chain-class for #118
 // (concat/subst patterns) and #120 (array-element / object-field interior
 // self-references).
+//
+// knownAbsent exclusion: substPlaceholder nodes with knownAbsent=true are
+// internal sentinels produced by foldOptionalSelfRefAbsent (xx.hocon#27 sr15).
+// They are NOT rewritten and NOT counted as self-ref hits — the fast-path
+// at the substPlaceholder case returns (v, false) immediately so callers do
+// not double-fold or misclassify a sentinel-bearing prior as needing rewrite.
+// Rehydration of sentinels happens separately in rehydrateSentinel during
+// MergeUnresolved when a fallback prior is available.
 func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 	switch vv := v.(type) {
 	case *substPlaceholder:
@@ -275,14 +283,17 @@ func containsKnownAbsentSentinel(v Val) bool {
 // value then serves as the effective prior for the outer a = ${?a}2 concat,
 // yielding "base12" as the final resolved value.
 //
-// ArrayVal semantics (round-2, PR #126): when a knownAbsent sentinel element
-// in an ArrayVal is replaced and the replacement is itself an ArrayVal, its
-// elements are spliced in-place (one level of flattening). This preserves
-// HOCON array self-ref semantics: `a = [${?a}, "x"]` with fallback `["base"]`
-// rehydrates to `["base", "x"]` rather than the doubly-nested `[["base"], "x"]`.
-// When replacement is a non-array (scalar/object), it is placed as a single
-// element — the resulting type mismatch will surface as a ResolveError at
-// resolution time if the array elements are type-incompatible.
+// ArrayVal semantics (round-3 correction, PR #126): the replacement is always
+// inserted as a SINGLE element where the sentinel was — NO splicing, even if
+// the replacement is itself an ArrayVal. This matches HOCON spec: `${?a}` in
+// array literal `[${?a}, "x"]` resolves to the prior value as a single
+// element, NOT flattened. For the deferred-resolution + fallback case,
+// receiver prior `[knownAbsent, "x"]` with fallback `["base"]` rehydrates to
+// `[["base"], "x"]` (single-element insertion), matching the immediate-resolve
+// equivalent of `a=["base"]; a=[${?a}, "x"]; a=[${?a}, "y"]` →
+// `[[["base"], "x"], "y"]`. (Earlier round-2 commit used splice flatten,
+// producing the inconsistent `[["base","x"], "y"]` — corrected by single-
+// element semantics here.)
 //
 // ObjectVal semantics: recurse into each field value and rehydrate in place.
 // The replacement is passed unchanged to each field's sentinel — the sentinel

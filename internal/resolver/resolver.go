@@ -169,13 +169,16 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 	//    were installed by an earlier merge where the receiver itself was a
 	//    merged result and a key came from that earlier fallback.
 	//
-	//    Exception: if the receiver's prior is a pure knownAbsent sentinel
-	//    (produced by foldOptionalSelfRefAbsent during deferred BuildTree when
-	//    there was no local prior), AND the result already has a real (non-absent)
-	//    prior from the fallback, prefer the fallback prior. This ensures that
+	//    Exception: if the receiver's prior CONTAINS a knownAbsent sentinel
+	//    anywhere in its value tree (detected by containsKnownAbsentSentinel,
+	//    not a root-only check — sentinels produced by foldOptionalSelfRefAbsent
+	//    can sit inside substPlaceholder, concatPlaceholder, ArrayVal, or
+	//    ObjectVal containers), AND the result already has a real (non-absent)
+	//    prior from the fallback, rehydrate the sentinel positions against the
+	//    fallback prior. This ensures that
 	//    `r = parse("a=${?a}1\na=${?a}2", deferred); f = parse("a=base", deferred);
-	//    r.WithFallback(f).Resolve(...)` correctly feeds "base" as the prior for
-	//    the double-self-ref fold, yielding "base12" rather than "12".
+	//    r.WithFallback(f).Resolve(...)` correctly feeds "base" as the prior
+	//    seed for the double-self-ref fold, yielding "base12" rather than "12".
 	for k, v := range receiver.priorValues {
 		if containsKnownAbsentSentinel(v) {
 			if fallbackPrior, hasExisting := result.priorValues[k]; hasExisting && !containsKnownAbsentSentinel(fallbackPrior) {
