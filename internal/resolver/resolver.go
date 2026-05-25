@@ -768,6 +768,17 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// Check for prior (pre-overwrite) value saved during first pass. Nested
 		// paths keep their immediate prior on the parent object, so use the same
 		// lookup policy as the pointer-identity self-ref branch below.
+		//
+		// findPrior checks r.priorValues[key] first (top-level priors), then falls
+		// back to parentObj.priorValues[lastKey] for nested paths.  For a nested
+		// path like "foo.a", phase 2 does NOT populate r.priorValues["foo.a"]
+		// (only root-level priors are re-seeded from tree.priorValues).  The prior
+		// for "foo.a" therefore lives exclusively on the foo object's priorValues.
+		//
+		// The case where r.priorValues[key] is empty but parentObj.priorValues has
+		// the prior is exercised by TestSpecS13a_13_SelfRefLookback/nested_optional_with_prior
+		// ("foo.a = \"x\"\nfoo.a = ${?foo.a}bar" → "xbar").  Adding a redundant
+		// test here would not improve coverage (same code path, same branch).
 		if prior := r.findPrior(root, segStrs, key); prior != nil {
 			// Resolve the prior value (it may itself contain placeholders).
 			return r.resolveVal(prior, root, key)
