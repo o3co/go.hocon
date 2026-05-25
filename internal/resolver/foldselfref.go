@@ -314,10 +314,17 @@ func rehydrateSentinel(v Val, replacement Val) Val {
 		return &concatPlaceholder{vals: newVals, line: vv.line, col: vv.col}
 	case *ArrayVal:
 		// Rehydrate sentinel elements within the array.
-		// When an element is a knownAbsent sentinel and replacement is an ArrayVal,
-		// splice replacement's elements in place (one level of flattening) to
-		// match HOCON array self-ref semantics. For non-array replacements, place
-		// the replacement as a single element.
+		// Always place the replacement as a SINGLE element where the sentinel
+		// was, NOT spliced. This matches HOCON spec semantics: `${?a}` inside
+		// array literal `[${?a}, "x"]` resolves to the prior value AS a single
+		// element of the new array (no flattening), so the equivalent immediate-
+		// resolve case `a=["base"]; a=[${?a},"x"]; a=[${?a},"y"]` produces
+		// `[[["base"],"x"],"y"]` (triple nesting). The deferred+fallback case
+		// must produce the same triple-nested result for spec equivalence.
+		//
+		// xx.hocon#27 round-3 review #126: previous splice-when-array-replacement
+		// behavior produced `[["base","x"],"y"]` (one-level flatten), inconsistent
+		// with go.hocon's own immediate-resolve output. Verified via probe.
 		var newEls []Val
 		changed := false
 		for _, e := range vv.Elements {
@@ -334,11 +341,7 @@ func rehydrateSentinel(v Val, replacement Val) Val {
 					}
 				}
 				changed = true
-				if repArr, isArr := replacement.(*ArrayVal); isArr {
-					newEls = append(newEls, repArr.Elements...)
-				} else {
-					newEls = append(newEls, replacement)
-				}
+				newEls = append(newEls, replacement)
 			} else {
 				ne := rehydrateSentinel(e, replacement)
 				if ne != e {

@@ -918,12 +918,14 @@ func TestS13a_DeferredOptional_DoubleSelfRef_PrefersFallback(t *testing.T) {
 // This differs from `a = ${?a} ["x"]` (concat syntax) which flattens via
 // joinPair. See HOCON spec §Value concatenation.
 //
-// Rehydration semantics chosen (ArrayVal splicing): when a knownAbsent
-// sentinel element in the ArrayVal prior is replaced and the fallback prior is
-// itself an ArrayVal, the fallback elements are spliced in-place (one level of
-// flattening). This gives the rehydrated prior ["base","x"] rather than
-// [["base"],"x"]. The live value [${?a},"y"] then resolves sp_a to the prior
-// ["base","x"], yielding the final value [["base","x"],"y"] in JSON.
+// Rehydration semantics (xx.hocon#27 round-3 review): place the WHOLE fallback
+// prior as a SINGLE element where the sentinel was — no splicing. This matches
+// HOCON spec semantics where ${?a} in array literal `[${?a}, "x"]` resolves
+// to the prior value as a single element. Equivalence with immediate-resolve:
+// `a=["base"]; a=[${?a},"x"]; a=[${?a},"y"]` produces `[[["base"],"x"],"y"]`
+// (triple nesting). Deferred + fallback must give the same triple-nested
+// output for spec consistency. (Earlier round-3 commit used splice-flatten,
+// producing `[["base","x"],"y"]` — corrected here.)
 //
 // Fix: extend containsKnownAbsentSentinel + rehydrateSentinel for ArrayVal/
 // ObjectVal containers (xx.hocon#27, round-2 review PR #126).
@@ -945,20 +947,23 @@ func TestS13a_DeferredOptional_DoubleSelfRef_ArrayVal_FallbackPreserved(t *testi
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	// The fallback prior ["base"] feeds into the rehydrated sentinel in the first
-	// assignment's ArrayVal prior. rehydrateSentinel splices ["base"] elements in
-	// place of the knownAbsent sentinel, giving prior = ["base","x"].
+	// The fallback prior ["base"] is rehydrated INTO the receiver's sentinel
+	// position as a SINGLE element (no splice), giving the rehydrated prior
+	// [["base"], "x"]. The live value [${?a},"y"] then resolves ${?a} to that
+	// prior [["base"], "x"], producing the final nesting [[["base"],"x"],"y"].
 	//
-	// The live value [${?a},"y"] then resolves ${?a} to that prior ["base","x"],
-	// producing the final element-in-array nesting: [["base","x"],"y"].
+	// This matches go.hocon's immediate-resolve output for the equivalent
+	// `a=["base"]; a=[${?a},"x"]; a=[${?a},"y"]` (verified via probe), which
+	// in turn matches HOCON spec / Lightbend behavior.
 	//
-	// Without the fix, the sentinel-containing ArrayVal overwrites the fallback
-	// prior, ${?a} finds no prior and resolves to absent (dropped), giving ["y"].
+	// Without the rehydration fix, the sentinel-containing ArrayVal overwrites
+	// the fallback prior, ${?a} finds no prior and resolves to absent (dropped),
+	// giving ["y"].
 	got, err := hocon.RenderJSON_ForTest(resolved)
 	if err != nil {
 		t.Fatalf("RenderJSON: %v", err)
 	}
-	const want = `{"a":[["base","x"],"y"]}`
+	const want = `{"a":[[["base"],"x"],"y"]}`
 	if got != want {
 		t.Fatalf("a json:\n got  %s\n want %s\n\n(without fix: would be {\"a\":[\"y\"]})", got, want)
 	}
