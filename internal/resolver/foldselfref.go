@@ -190,6 +190,15 @@ func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
 		}
 		return &ArrayVal{Elements: newEls}, true
 	case *ObjectVal:
+		// Walk live keys via vv.keys, rebuild each field value.  priorValues are
+		// copied verbatim afterwards — the same pattern used by foldSelfRef
+		// (see its ObjectVal branch) and deepMerge.
+		//
+		// ObjectVal invariant: priorValues may contain keys that are NOT in the
+		// live keys slice (e.g. priors carried over from a fallback layer via
+		// MergeUnresolved where the live key was overridden).  Copying priorValues
+		// directly without iterating them through vv.keys is intentional and
+		// correct — the rebuilt object must preserve the full prior chain.
 		newObj := newObjectVal()
 		for _, k := range vv.keys {
 			folded, ok := foldOptionalSelfRefAbsent(vv.values[k], fullKey)
