@@ -672,6 +672,15 @@ func (c *concatPlaceholder) val() {}
 // resolveSubstitutions performs the second pass, replacing placeholders.
 func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*ObjectVal, error) {
 	result := newObjectVal()
+	// Preserve priorValues so a later resolver pass (e.g. parent resolving an
+	// include child's still-placeholder output) can fall back to the prior
+	// in-source assignment when an optional substitution evaluates to nothing.
+	// Without this, the include child's resolveSubstitutions strips
+	// obj.priorValues, and the parent's `${?ENV}` (env unset) silently erases
+	// the `key = "default"` assignment that preceded it.
+	for k, v := range obj.priorValues {
+		result.priorValues[k] = v
+	}
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
 		resolved, err := r.resolveVal(v, root, k)
