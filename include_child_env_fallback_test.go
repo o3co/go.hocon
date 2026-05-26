@@ -12,30 +12,48 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/o3co/go.hocon"
 )
 
-// Bug regression suite: env-var fallback (${?ENV_NAME}) inside content reached
-// through an `include` (file or package) was being processed by a child
-// resolver whose Options dropped UseSystemEnvironment, so the substitution
-// could not see the process env. Combined with the lenient-pass placeholder
-// preservation (#45 fix), env-unset turned into "drop the field entirely",
-// erasing the prior assignment that the env override was meant to layer on.
-//
-// The classic operator pattern is "default in source + optional env override":
+// Bug regression suite for #128: the include-child path of resolveSubstitutions
+// constructed a fresh result object and copied obj.values[k] forward but
+// dropped obj.priorValues. For the canonical "default + optional env override"
+// pattern
 //
 //	registry {
 //	  instance-id = "localhost"
 //	  instance-id = ${?REGISTRY_INSTANCE_ID}
 //	}
 //
-// With the bug, env set → ignored (default returned); env unset → field
-// vanishes (silent regression vs. the documented Lightbend semantics where
-// the prior assignment is retained). Both broke real operator-facing
-// reference.conf files shipped via include package(...) (E11).
+// reached through an include (file or package), this stripped the prior chain
+// at the include boundary. When the parent's strict resolve pass then evaluated
+// the still-placeholder ${?…} and the env var was unset, the optional return
+// looked up obj.priorValues[k] in an empty map and dropped the field entirely
+// — silently regressing the documented Lightbend semantics where the prior
+// duplicate-key assignment must be retained.
+//
+// The fix (PR #129) preserves obj.priorValues into result.priorValues in
+// resolveSubstitutions, scoped to inIncludeChild to avoid leaking already-
+// resolved state into later WithFallback / MergeUnresolved composition.
+//
+// These regression tests pin both halves of the bug (env set → applied; env
+// unset → prior retained) on both the file-include and include-package
+// (E11) paths, plus the deferred parse/resolve lifecycle.
+
+// unsetEnvForTest unsets `key` for the duration of the test and restores any
+// prior value via t.Cleanup. Mirrors t.Setenv's auto-restore semantics for the
+// unset case (which testing does not provide a direct helper for).
+func unsetEnvForTest(t *testing.T, key string) {
+	t.Helper()
+	if prev, ok := os.LookupEnv(key); ok {
+		t.Cleanup(func() { _ = os.Setenv(key, prev) })
+	}
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset %s: %v", key, err)
+	}
+}
 
 // TestIncludeFile_OptionalEnvFallback_AppliesSystemEnv pins: env set →
 // child-included content resolves ${?VAR} against the process environment.
@@ -48,8 +66,7 @@ func TestIncludeFile_OptionalEnvFallback_AppliesSystemEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	parentFile := filepath.Join(dir, "parent.conf")
-	slashChild := strings.ReplaceAll(childFile, "\\", "/")
-	src := fmt.Sprintf(`include "%s"`+"\n", slashChild)
+	src := fmt.Sprintf(`include "%s"`+"\n", filepath.ToSlash(childFile))
 	if err := os.WriteFile(parentFile, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +88,7 @@ func TestIncludeFile_OptionalEnvFallback_AppliesSystemEnv(t *testing.T) {
 // the failing-half of the bug: env unset → the prior in-source default
 // assignment must remain, not be erased.
 func TestIncludeFile_OptionalEnvFallback_PreservesPriorDefaultWhenEnvUnset(t *testing.T) {
-	os.Unsetenv("ICEF_TEST_VAR_UNSET")
+	unsetEnvForTest(t, "ICEF_TEST_VAR_UNSET")
 
 	dir := t.TempDir()
 	childFile := filepath.Join(dir, "child.conf")
@@ -85,8 +102,7 @@ registry {
 		t.Fatal(err)
 	}
 	parentFile := filepath.Join(dir, "parent.conf")
-	slashChild := strings.ReplaceAll(childFile, "\\", "/")
-	src := fmt.Sprintf(`include "%s"`+"\n", slashChild)
+	src := fmt.Sprintf(`include "%s"`+"\n", filepath.ToSlash(childFile))
 	if err := os.WriteFile(parentFile, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +125,7 @@ registry {
 // the process environment.
 func TestIncludePackage_OptionalEnvFallback_AppliesSystemEnv(t *testing.T) {
 	t.Setenv("ICEF_PKG_VAR_SET", "from-pkg-env")
+	t.Cleanup(hocon.ResetPackageRegistry)
 
 	const refContent = `result = ${?ICEF_PKG_VAR_SET}`
 	const pkgID = "github.com/o3co/go.hocon/test/include-env-fallback-set"
@@ -133,7 +150,8 @@ func TestIncludePackage_OptionalEnvFallback_AppliesSystemEnv(t *testing.T) {
 // pins the failing-half of the bug for the E11 path: env unset → the prior
 // in-source default assignment must remain.
 func TestIncludePackage_OptionalEnvFallback_PreservesPriorDefaultWhenEnvUnset(t *testing.T) {
-	os.Unsetenv("ICEF_PKG_VAR_UNSET")
+	unsetEnvForTest(t, "ICEF_PKG_VAR_UNSET")
+	t.Cleanup(hocon.ResetPackageRegistry)
 
 	const refContent = `
 registry {
@@ -164,7 +182,8 @@ registry {
 // then explicit Resolve): the include-child prior chain must still surface
 // when the optional env-var fallback evaluates to nothing.
 func TestIncludePackage_OptionalEnvFallback_DeferredPath_PreservesPriorDefault(t *testing.T) {
-	os.Unsetenv("ICEF_PKG_VAR_DEFERRED")
+	unsetEnvForTest(t, "ICEF_PKG_VAR_DEFERRED")
+	t.Cleanup(hocon.ResetPackageRegistry)
 
 	const refContent = `
 registry {
