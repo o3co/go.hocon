@@ -672,14 +672,22 @@ func (c *concatPlaceholder) val() {}
 // resolveSubstitutions performs the second pass, replacing placeholders.
 func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*ObjectVal, error) {
 	result := newObjectVal()
-	// Preserve priorValues so a later resolver pass (e.g. parent resolving an
-	// include child's still-placeholder output) can fall back to the prior
-	// in-source assignment when an optional substitution evaluates to nothing.
-	// Without this, the include child's resolveSubstitutions strips
-	// obj.priorValues, and the parent's `${?ENV}` (env unset) silently erases
-	// the `key = "default"` assignment that preceded it.
-	for k, v := range obj.priorValues {
-		result.priorValues[k] = v
+	// Include-child only: preserve priorValues so the parent's later strict
+	// resolve pass can fall back to the prior in-source assignment when an
+	// optional substitution evaluates to nothing. Without this carry, the
+	// include child's resolveSubstitutions strips obj.priorValues across the
+	// include boundary, and the parent's `${?ENV}` (env unset) silently
+	// erases the `key = "default"` assignment that preceded it.
+	//
+	// Scoped to `inIncludeChild` so already-resolved Configs in the top-level
+	// resolve path don't carry stale priorValues forward — that would give
+	// later WithFallback composition (MergeUnresolved) extra prior state from
+	// completed resolutions and risk spurious composition-barrier firing
+	// (Codex review on PR #129).
+	if r.inIncludeChild {
+		for k, v := range obj.priorValues {
+			result.priorValues[k] = v
+		}
 	}
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
