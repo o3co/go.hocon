@@ -629,7 +629,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S14c.2** Original (non-relativized) path also tried as fallback — §Include semantics: substitution (L1048)
-  tests: internal/resolver/resolver_test.go:773 (TestResolver_IncludeRelativizeFallbackToParent); internal/resolver/resolver_test.go:800 (TestResolver_IncludeRelativizeListSuffixFallbackToParent — E6 cross-source, xx.hocon#22); lightbend_test.go (TestLightbend_Test03_S14c2SubtreeFallback)
+  tests: internal/resolver/resolver_test.go:773 (TestResolver_IncludeRelativizeFallbackToParent); internal/resolver/resolver_test.go:810 (TestResolver_IncludeRelativizeListSuffixFallbackToParent — E6 cross-source, xx.hocon#22); lightbend_test.go (TestLightbend_Test03_S14c2SubtreeFallback)
   status: ✅
 
 ### S14d. Include semantics: missing / required
