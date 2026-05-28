@@ -981,13 +981,15 @@ func (c *Config) renderJSON() (string, error) {
 }
 
 // RenderJSONForTest serializes the resolved config tree to canonical JSON
-// (object keys sorted, numbers emitted as their source literal). It errors if
-// the config still holds unresolved substitution placeholders.
+// (object keys sorted, numbers emitted from their stored canonical literal —
+// integers are canonicalized at parse time, so leading zeros / -0 in the
+// source text are not preserved). It errors if the config still holds
+// unresolved substitution placeholders.
 //
 // This is NOT part of the stable public API (the library's contract is
-// parse() + typed getters); the name encodes that it exists only for the
-// cross-impl conformance / differential tooling, mirroring rs.hocon's
-// _render_json_for_test and ts.hocon's _renderJSONForTest.
+// parse() + typed getters) and may change without notice; the name encodes
+// that it exists only for the cross-impl conformance / differential tooling,
+// mirroring rs.hocon's _render_json_for_test and ts.hocon's _renderJSONForTest.
 func (c *Config) RenderJSONForTest() (string, error) {
 	return c.renderJSON()
 }
