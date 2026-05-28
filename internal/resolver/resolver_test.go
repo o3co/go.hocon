@@ -196,7 +196,13 @@ func TestResolver_ObjectEqualsReplacesWithScalar(t *testing.T) {
 }
 
 func TestResolver_ObjectPlusEqualsAppendsArray(t *testing.T) {
-	// `key += [...]` appends elements to the existing array.
+	// `key += value` appends the RHS as a SINGLE element (S13b.2: `a += b` ≡
+	// `a = ${?a} [b]`, so `a += [3]` ≡ `a = ${?a} [[3]]`). The RHS array is NOT
+	// flattened: `a=[1,2]; a+=[3]` → `[1, 2, [3]]`. Pre-#134 go.hocon flattened
+	// to `[1,2,3]` (the eager append spread the RHS array's elements), which was
+	// inconsistent with ts.hocon / rs.hocon and the spec desugar; the #134
+	// desugar corrected it. This test now pins the nested (spec-correct) shape so
+	// the flatten behavior cannot silently return.
 	res := resolve(t, "a=[1,2]\na+=[3]")
 	v, ok := res.Root.Get("a")
 	if !ok {
@@ -204,7 +210,17 @@ func TestResolver_ObjectPlusEqualsAppendsArray(t *testing.T) {
 	}
 	arr := v.(*resolver.ArrayVal)
 	if len(arr.Elements) != 3 {
-		t.Errorf("expected 3 elements, got %d", len(arr.Elements))
+		t.Fatalf("expected 3 elements, got %d", len(arr.Elements))
+	}
+	nested, ok := arr.Elements[2].(*resolver.ArrayVal)
+	if !ok {
+		t.Fatalf("expected arr[2] to be the nested [3] (ArrayVal), got %T (flattened?)", arr.Elements[2])
+	}
+	if len(nested.Elements) != 1 {
+		t.Fatalf("expected nested array of length 1, got %d", len(nested.Elements))
+	}
+	if sv, ok := nested.Elements[0].(*resolver.ScalarVal); !ok || sv.Raw != "3" {
+		t.Fatalf("expected nested element [3], got %v", nested.Elements[0])
 	}
 }
 

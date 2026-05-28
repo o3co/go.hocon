@@ -847,6 +847,12 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// accumulation chain off an earlier include's value. The sentinel form
 		// (vs a live placeholder) lets containsKnownAbsentSentinel/rehydrateSentinel
 		// splice it, and composes through a within-file `+=` chain in the child.
+		//
+		// This is the re-entrant-cycle-path twin of the isSelfRef sentinel return
+		// below (the `containsSubstByIdentity` branch). The cache fast-path and
+		// that pointer-identity branch preempt this one in the exercised
+		// scenarios; it is kept as the matching guard for the resolving-set entry
+		// path so the two self-ref detection routes behave identically.
 		if n.Optional && r.inIncludeChild {
 			return r.knownAbsentSentinel(s), nil
 		}
