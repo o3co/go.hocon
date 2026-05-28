@@ -1,0 +1,5 @@
+# CLI entrypoints are excluded from coverage: cmd/hocon-json is the dev-tool
+# adapter for xx.hocon's cross-impl differential harness, exercised end-to-end
+# by that harness rather than by Go unit tests.
+ignore:
+  - "cmd/**"
