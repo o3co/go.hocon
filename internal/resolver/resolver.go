@@ -262,6 +262,11 @@ type ScalarVal struct {
 	// decoded escape sequences, so Raw contains the decoded value.
 	Raw  string
 	Type ScalarType
+	// Separator is true when this scalar is a parser-synthesized whitespace
+	// run between concatenated value tokens (carried from ScalarNode.Separator).
+	// isSeparator uses it to strip the run for object/array concat (S10.14)
+	// while preserving it verbatim for string concat (S10.5, go.hocon#132).
+	Separator bool
 }
 
 func (s *ScalarVal) val() {}
@@ -611,7 +616,7 @@ func (r *resolver) resolveNode(node parser.Node, ctx *ObjectVal, pathPrefix []st
 		case "null":
 			st = ScalarNull
 		}
-		return &ScalarVal{Raw: n.Raw, Type: st}, nil
+		return &ScalarVal{Raw: n.Raw, Type: st, Separator: n.Separator}, nil
 	case *parser.ObjectNode:
 		return r.resolveObject(n, nil, pathPrefix)
 	case *parser.ArrayNode:
@@ -1069,9 +1074,7 @@ func (r *resolver) findPrior(root *ObjectVal, segments []string, pathStr string)
 
 func isSeparator(v Val) bool {
 	if s, ok := v.(*ScalarVal); ok {
-		if s.Type == ScalarString && s.Raw == " " {
-			return true
-		}
+		return s.Separator
 	}
 	return false
 }

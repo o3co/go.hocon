@@ -52,6 +52,14 @@ type ScalarNode struct {
 	pos
 	Raw       string
 	ValueType string
+	// Separator is true when this scalar was synthesized by the parser as the
+	// whitespace run between two concatenated value tokens (not user-authored).
+	// The resolver's isSeparator uses this flag to decide whether the node
+	// contributes to string concatenation (S10.5) or is stripped for
+	// object/array concatenation (S10.14). Carrying a flag (rather than
+	// detecting a single-space Raw) lets the parser preserve the literal
+	// whitespace run per S10.5 (go.hocon#132) without losing separator identity.
+	Separator bool
 }
 
 func (n *ScalarNode) node() {}

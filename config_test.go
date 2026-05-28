@@ -849,25 +849,20 @@ func TestConfig_DotPrefixedFloat_ToObject(t *testing.T) {
 	}
 }
 
-func TestConfig_GetString_OctalLikeNormalized(t *testing.T) {
-	// E8 BREAKING (xx.hocon#31 / commit dd102e8): leading-zero integers are
-	// canonicalized at value-position in `parser.parseSingleValue`'s
-	// TokenInt case (`strconv.ParseInt` + `FormatInt`) — `0100` parses as
-	// int64 100, and the resulting `ScalarNode.Raw` is `"100"`. GetString
-	// returns ScalarVal.Raw from the resolver, which carries the
-	// normalized form. Pre-E8 this test pinned the raw "0100" preservation;
-	// that surface was retracted with the E8 amendment to match Lightbend's
-	// parseLong behavior. Note: the lexer's `TokenInt.Value` is kept
-	// verbatim (parseKey reads the same token upstream, so normalizing in
-	// the lexer would silently rewrite keys — see PR #97 / commit 0a83805).
-	// Callers that need the original .conf text must read the source
-	// themselves; GetInt64 and JSON serialization are unchanged (still 100).
+func TestConfig_GetString_OctalLikePreservesLexeme(t *testing.T) {
+	// S10.11 (go.hocon#133): a numeric value stringifies "as written in the
+	// source file", so the stored `ScalarNode.Raw` keeps the original lexeme
+	// `"0100"` for GetString / string concatenation. The numeric accessors
+	// re-parse Raw, so GetInt64 still drops the leading zero (100). This
+	// refines the earlier E8/F3 decision that over-canonicalized the stored
+	// lexeme via `strconv.FormatInt`. (The lexer's TokenInt.Value was always
+	// verbatim; parseKey reads it upstream and is unaffected.)
 	cfg := mustParseCfg(t, `val = 0100`)
-	if got := cfg.GetString("val"); got != "100" {
-		t.Errorf("got %q, want %q (E8 leading-zero normalization)", got, "100")
+	if got := cfg.GetString("val"); got != "0100" {
+		t.Errorf("got %q, want %q (S10.11 lexeme preserved)", got, "0100")
 	}
 	if got := cfg.GetInt64("val"); got != 100 {
-		t.Errorf("GetInt64 got %d, want 100", got)
+		t.Errorf("GetInt64 got %d, want 100 (semantic value canonical)", got)
 	}
 }
 

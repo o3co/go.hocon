@@ -855,14 +855,24 @@ func (p *parser) parseValue() (Node, error) {
 		p.current.Type != lexer.TokenRBrace &&
 		p.current.Type != lexer.TokenRBracket {
 		// If there was whitespace between the previous value and this token,
-		// insert a space node for proper concatenation.
+		// insert a separator node for proper concatenation. S10.5 (go.hocon#132):
+		// preserve the literal whitespace run verbatim rather than collapsing to
+		// a single space. Capture PrecedingWhitespace BEFORE parseSingleValue
+		// advances the token. Fall back to a single space if the lexer reported
+		// PrecedingSpace but captured no chars (comment-only shape, which cannot
+		// occur mid-value-concat — the loop breaks on newline).
 		hadSpace := p.current.PrecedingSpace
+		precedingWS := p.current.PrecedingWhitespace
 		next, err2 := p.parseSingleValue()
 		if err2 != nil {
 			break
 		}
 		if hadSpace {
-			nodes = append(nodes, &ScalarNode{Raw: " ", ValueType: "string"})
+			sep := precedingWS
+			if sep == "" {
+				sep = " "
+			}
+			nodes = append(nodes, &ScalarNode{Raw: sep, ValueType: "string", Separator: true})
 		}
 		nodes = append(nodes, next)
 	}
@@ -903,15 +913,19 @@ func (p *parser) parseSingleValue() (Node, error) {
 	case lexer.TokenInt:
 		raw := p.current.Value
 		p.advance()
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
+		if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
 			return nil, newError(line, col, "invalid int %q", raw)
 		}
-		// E8 (xx.hocon#31): canonicalize leading zeros and negative-zero sign
-		// at value-position only. `parseKey` reads the same TokenInt.Value
-		// upstream, so normalizing in the lexer would silently rewrite keys
-		// (`01 = x` → `1`); keep it confined to the value path.
-		return &ScalarNode{pos: pos{line, col}, Raw: strconv.FormatInt(parsed, 10), ValueType: "number"}, nil
+		// S10.11 (go.hocon#133): preserve the source lexeme so a numeric value
+		// stringifies "as written" when concatenated (`minor = 05` →
+		// `${major}.${minor}` = "26.05", and `00_example` keeps its "00"
+		// prefix). The numeric accessors (GetInt64 etc. at config.go re-parse
+		// Raw via strconv.ParseInt) still drop leading zeros / negative-zero
+		// sign for the standalone value, so this refines — not reverses — the
+		// earlier E8/F3 canonicalization, which over-canonicalized the stored
+		// lexeme. `parseKey` reads the same TokenInt.Value upstream and is
+		// unaffected (keys were never canonicalized here).
+		return &ScalarNode{pos: pos{line, col}, Raw: raw, ValueType: "number"}, nil
 	case lexer.TokenFloat:
 		raw := p.current.Value
 		p.advance()

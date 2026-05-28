@@ -173,32 +173,37 @@ func TestE8_ValueStartHyphenAlone_LexesAsUnquoted(t *testing.T) {
 	}
 }
 
-func TestE8_ValueStartLeadingZero_NormalizesToNumber(t *testing.T) {
-	// F3 BREAKING: `a = 01` was previously TokenInt{Value: "01"} (raw preserved
-	// by readNumber); E8 normalizes via strconv.ParseInt → TokenInt{Value: "1"}.
-	// JSON serialization is unchanged (Unmarshal already produced 1), but
-	// GetString now returns "1" (was "01") — that's the breaking surface.
+func TestE8_ValueStartLeadingZero_PreservesLexeme(t *testing.T) {
+	// `a = 01` is a digit-leading run coerced via the E8 greedy numeric path
+	// (ValueType "number"). S10.11 (go.hocon#133) refines the earlier F3
+	// decision: a numeric value stringifies "as written in the source file",
+	// so the stored Raw keeps the lexeme "01" for GetString / concat, while
+	// GetInt64 re-parses it to the canonical 1. (Earlier this asserted "1",
+	// over-canonicalizing the lexeme — the go.hocon#133 bug.)
 	cfg, err := hocon.ParseString("a = 01")
 	if err != nil {
 		t.Fatalf("E8: `a = 01` must parse, got: %v", err)
 	}
-	if got := cfg.GetString("a"); got != "1" {
-		t.Errorf("E8: expected GetString(a)=\"1\" (normalized), got %q", got)
+	if got := cfg.GetString("a"); got != "01" {
+		t.Errorf("S10.11: expected GetString(a)=\"01\" (lexeme preserved), got %q", got)
 	}
 	if got := cfg.GetInt64("a"); got != 1 {
-		t.Errorf("E8: expected GetInt64(a)=1, got %d", got)
+		t.Errorf("E8: expected GetInt64(a)=1 (semantic value canonical), got %d", got)
 	}
 }
 
-func TestE8_ValueStartNegativeZero_NormalizesToZero(t *testing.T) {
-	// `-0` parses as int 0; canonical form drops the sign (no negative zero in
-	// integer arithmetic). Lightbend's parseLong does the same.
+func TestE8_ValueStartNegativeZero_PreservesLexeme(t *testing.T) {
+	// `-0` reads as int 0 (no negative zero in integer arithmetic), but its
+	// source lexeme "-0" is preserved in Raw for S10.11 stringification.
 	cfg, err := hocon.ParseString("a = -0")
 	if err != nil {
 		t.Fatalf("E8: `a = -0` must parse, got: %v", err)
 	}
-	if got := cfg.GetString("a"); got != "0" {
-		t.Errorf("E8: expected GetString(a)=\"0\" (canonicalized), got %q", got)
+	if got := cfg.GetString("a"); got != "-0" {
+		t.Errorf("S10.11: expected GetString(a)=\"-0\" (lexeme preserved), got %q", got)
+	}
+	if got := cfg.GetInt64("a"); got != 0 {
+		t.Errorf("E8: expected GetInt64(a)=0 (semantic value canonical), got %d", got)
 	}
 }
 
