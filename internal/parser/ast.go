@@ -8,7 +8,11 @@
 
 package parser
 
-import "github.com/o3co/go.hocon/internal/lexer"
+import (
+	"strings"
+
+	"github.com/o3co/go.hocon/internal/lexer"
+)
 
 // Node is the interface implemented by all AST nodes.
 type Node interface {
@@ -36,6 +40,41 @@ type FieldNode struct {
 	Key    []string
 	Value  Node
 	Append bool
+}
+
+// AppendToConcat rewrites a `key += value` field into the equivalent
+// `key = ${?prefix.key} [value]` field (S13b.2, HOCON.md L732). The resolver
+// uses this to route `+=` through the chained-self-reference machinery, which
+// already accumulates duplicate-key self-ref concats across include boundaries —
+// so a `+=` in one included file accumulates onto an earlier include's value
+// instead of overwriting it (go.hocon#134).
+//
+// The substitution path is the field's FULLY-QUALIFIED key (pathPrefix +
+// n.Key): HOCON substitutions resolve from the document root, so a `+=` nested
+// inside an object `srv { items += x }` (resolved with pathPrefix=["srv"]) must
+// reference `${?srv.items}`, not the bare `${?items}` (which would resolve to a
+// top-level `items`). Positions are inherited from the original field so
+// resolve-time errors (e.g. the S13b.2 non-array type check, now surfaced via
+// the scalar+array concat) keep a useful location. Returns a NEW node; the
+// receiver AST is left unmutated.
+func (n *FieldNode) AppendToConcat(pathPrefix []string) *FieldNode {
+	line, col := n.nodePos()
+	full := make([]string, 0, len(pathPrefix)+len(n.Key))
+	full = append(full, pathPrefix...)
+	full = append(full, n.Key...)
+	segs := make([]lexer.Segment, len(full))
+	for i, s := range full {
+		segs[i] = lexer.Segment{Text: s, Line: line, Col: col}
+	}
+	subst := &SubstNode{
+		pos:      pos{line, col},
+		Path:     strings.Join(full, "."),
+		Optional: true,
+		Segments: &lexer.SubstPayload{Segments: segs, Optional: true},
+	}
+	arr := &ArrayNode{pos: pos{line, col}, Elements: []Node{n.Value}}
+	concat := &ConcatNode{pos: pos{line, col}, Nodes: []Node{subst, arr}}
+	return &FieldNode{pos: pos{line, col}, Key: n.Key, Value: concat, Append: false}
 }
 
 // ArrayNode represents a HOCON array [ elem, elem, ... ].

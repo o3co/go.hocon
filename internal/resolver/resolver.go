@@ -224,6 +224,16 @@ func deepMerge(dst, src *ObjectVal) *ObjectVal {
 					continue
 				}
 			}
+			// #134: dst's value chains off an outer `${?k}` (a desugared `+=`
+			// folded to a knownAbsent sentinel in an include child). deepMerge is
+			// called as deepMerge(included, existing) — "included on top" — so the
+			// sentinel lives on dst (the later include) and must be filled with src
+			// (the earlier value) to preserve document order: earlier elements
+			// first, then the later include's appended elements.
+			if containsKnownAbsentSentinel(dv) {
+				result.values[k] = rehydrateSentinel(dv, sv)
+				continue
+			}
 			// dst wins — skip
 			continue
 		}
@@ -509,6 +519,16 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 						}
 						obj.priorValues[k] = prior
 					}
+					// #134: if the included value chains off an outer `${?k}` (a
+					// desugared `+=` whose self-ref folded to a knownAbsent sentinel
+					// in the include child), rehydrate that sentinel against the
+					// parent's existing value so the included (within-file-
+					// accumulated) elements append onto the parent's value across
+					// the boundary instead of overwriting it. A reset (explicit
+					// `k = [...]`) leaves no sentinel, so it correctly overwrites.
+					if containsKnownAbsentSentinel(iv) {
+						iv = rehydrateSentinel(iv, existing)
+					}
 				} else if inclPrior, hasInclPrior := included.priorValues[k]; hasInclPrior {
 					// No collision in parent, but include's own dup-key chain
 					// produced a prior. Preserve it (with the same scope rule).
@@ -533,6 +553,18 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 			continue
 		}
 
+		// S13b.2: desugar `key += value` → `key = ${?key} [value]` (HOCON.md
+		// L732) so it flows through the chained-self-ref machinery that already
+		// accumulates duplicate-key self-ref concats across include boundaries.
+		// The previous eager lookup-and-append snapshotted the existing array in
+		// each included file's isolated scope, so the cross-include merge then
+		// overwrote it, dropping earlier includes' appended elements
+		// (go.hocon#134). After desugaring, `+=` is an ordinary self-ref
+		// assignment and needs no special-casing here or in the merge.
+		if field.Append {
+			field = *field.AppendToConcat(pathPrefix)
+		}
+
 		// Extend pathPrefix with the field key for child resolution.
 		// For multi-segment keys like a.b, all segments form the path
 		// prefix for includes nested within the value.
@@ -540,26 +572,6 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 		val, err := r.resolveNode(field.Value, obj, childPrefix)
 		if err != nil {
 			return nil, err
-		}
-
-		if field.Append {
-			// += : look up existing array and append
-			existing, _ := r.lookupPath(obj, field.Key)
-			if existing == nil {
-				// treat as empty array
-				existing = &ArrayVal{}
-			}
-			existArr, ok := existing.(*ArrayVal)
-			if !ok {
-				return nil, &ResolveError{Message: "'+=' on non-array value", Path: segmentsToKey(field.Key)}
-			}
-			newArr, ok2 := val.(*ArrayVal)
-			if !ok2 {
-				newArr = &ArrayVal{Elements: []Val{val}}
-			}
-			combined := &ArrayVal{Elements: append(existArr.Elements, newArr.Elements...)}
-			r.setPath(obj, field.Key, combined, field.Key)
-			continue
 		}
 
 		// normal assignment — handle duplicate key merging
@@ -764,8 +776,28 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 	}
 }
 
+// knownAbsentSentinel returns a copy of s marked as a knownAbsent sentinel — a
+// folded optional self-ref with no prior. It resolves to undefined except in an
+// include child, where it is preserved (see resolveSubst's knownAbsent branch)
+// so the parent's include-merge can rehydrate it against the parent's prior
+// (go.hocon#134). Mirrors the sentinel foldOptionalSelfRefAbsent produces.
+func (r *resolver) knownAbsentSentinel(s *substPlaceholder) *substPlaceholder {
+	absent := *s
+	absent.knownAbsent = true
+	return &absent
+}
+
 func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, error) {
 	if s.knownAbsent {
+		// #134: in an include child, keep the sentinel in the resolved value
+		// (don't collapse to absent) so the chain bottom survives the child's
+		// own resolution pass; the parent's include-merge then rehydrates it
+		// against the parent's prior, accumulating a multi-`+=` chain across
+		// the boundary. At the parent (non-include-child) pass any sentinel that
+		// rehydration did not replace collapses to absent here, as before.
+		if r.inIncludeChild {
+			return s, nil
+		}
 		return nil, nil
 	}
 
@@ -807,6 +839,16 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		if prior := r.findPrior(root, segStrs, key); prior != nil {
 			// Resolve the prior value (it may itself contain placeholders).
 			return r.resolveVal(prior, root, key)
+		}
+		// #134: in an include child, an optional self-ref with no in-child prior
+		// becomes a knownAbsent sentinel (not dropped to absent) so the parent's
+		// include-merge can rehydrate it against the parent's prior. A desugared
+		// `+=` (≡ `${?key} [elem]`) in a later include otherwise loses the
+		// accumulation chain off an earlier include's value. The sentinel form
+		// (vs a live placeholder) lets containsKnownAbsentSentinel/rehydrateSentinel
+		// splice it, and composes through a within-file `+=` chain in the child.
+		if n.Optional && r.inIncludeChild {
+			return r.knownAbsentSentinel(s), nil
 		}
 		if !n.Optional {
 			return nil, &ResolveError{Message: "circular reference detected", Path: key, Line: n.Line(), Col: n.Col()}
@@ -851,6 +893,14 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			// Spec HOCON.md L841: no prior + self-ref → short-circuit.
 			// Do NOT resolve the found current value (which is the concat-in-progress);
 			// that would produce "foofoo" for `a = ${?a}foo` with no prior `a`.
+			//
+			// #134: in an include child, an optional self-ref with no prior becomes
+			// a knownAbsent sentinel (not dropped) so the parent's include-merge
+			// rehydrates it against the parent's prior — the desugared `+=`
+			// accumulation chain across includes. Mirrors foldOptionalSelfRefAbsent.
+			if n.Optional && r.inIncludeChild {
+				return r.knownAbsentSentinel(s), nil
+			}
 			if n.Optional {
 				return nil, nil
 			}
