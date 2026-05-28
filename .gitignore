@@ -5,6 +5,7 @@
 *.so
 *.dylib
 /dist/
+/bin/
 
 # Test artifacts
 *.test
