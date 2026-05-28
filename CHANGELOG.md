@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-28
+
+Cross-impl release coordinated to land at v1.6.0 across go.hocon / ts.hocon / rs.hocon. Two string-concat spec fixes from the go.hocon#131–#135 audit, plus an incidental S10.15 spec-compliance fix that fell out of the #132 refactor. No public API changes; safe drop-in upgrade from v1.5.3. (go.hocon#134 — `+=` accumulation across includes — and the go-only #131 / #135 are deferred to follow-ups: #134 needs the multi-agent-review treatment the chained-self-ref machinery already required, and #135 is a Critical include-child eager-vs-deferred resolution change in the same family as #128.)
+
+### Fixed — S10.5 inner whitespace in value concatenation ([#132](https://github.com/o3co/go.hocon/issues/132))
+
+- **Literal whitespace runs between simple values in a string concatenation are now preserved verbatim** (HOCON.md §String value concatenation L332). `parseValue` inserted a single hardcoded `" "` separator between concat pieces, collapsing every multi-space run to one space (`foo   bar` → `"foo bar"`, and `"left"  ${?UNSET}  "right"` → `"left  right"` instead of Lightbend's `"left    right"`). The fix carries the literal `Token.PrecedingWhitespace` run (the lexer field E13 added for key-position whitespace) into the value-position separator. To keep separator identity while preserving the literal run, `ScalarNode` / `ScalarVal` gain a `Separator bool` flag and `isSeparator` now reads the flag instead of detecting a single-space `Raw`. Single-space concatenations are unchanged. Pinned by `TestS10_5_ValueConcatWhitespace` + `TestS10_5_UndefinedOptionalKeepsBothRuns`.
+
+### Fixed — S10.11 numeric lexeme preserved for stringification ([#133](https://github.com/o3co/go.hocon/issues/133))
+
+- **Numbers now stringify "as written in the source file" when concatenated** (HOCON.md L366). `parseSingleValue` canonicalized integer lexemes via `strconv.FormatInt` (`05` → `"5"`, and `00_example` — lexed as `TokenInt("00")` + unquoted `_example` — → `"0_example"`), losing the source spelling. `version = ${major}.${minor}` with `minor = 05` produced `"26.5"` instead of `"26.05"`. The `ScalarNode.Raw` now retains the source lexeme; the numeric accessors (`GetInt64` etc. re-parse `Raw` via `strconv.ParseInt`) still drop leading zeros / negative-zero sign for the standalone value, so this refines — not reverses — the earlier E8/F3 canonicalization. The two E8 unit tests + the octal-like `GetString` test are updated to assert lexeme preservation plus a semantic-accessor check. Pinned by `TestS10_11_NumericLexemePreserved` + `TestS10_11_NumericPrefixUnquotedKeepsLexeme`.
+
+### Fixed — S10.15 quoted whitespace between array substitutions now errors ([#83](https://github.com/o3co/go.hocon/issues/83))
+
+- **`${a} " " ${b}` (a quoted whitespace string between two array substitutions) now raises the spec-required type error** (HOCON.md L442) instead of silently merging the arrays. This fell out of the #132 refactor: the old `isSeparator` matched on `Raw == " "`, which also classified a *quoted* `" "` as a parser separator and stripped it (merging `[1]` and `[2]` into `[1,2]`). With the explicit `Separator` flag, a quoted `" "` correctly carries `Separator=false` and is not stripped, so the array + string + array concat raises the S10.13 type error. The `_Pin` test documenting the merged-array bug was removed and the `_Spec` test un-skipped.
+
 ## [1.5.3] - 2026-05-26
 
 Bugfix release: include-child env-with-default fallback ([#128](https://github.com/o3co/go.hocon/issues/128)), E6 cross-source list-suffix env-fallback ordering ([xx.hocon#22](https://github.com/o3co/xx.hocon/issues/22) + S13c.5), C3 cluster 3h cross-impl resolver bugs ([xx.hocon#27](https://github.com/o3co/xx.hocon/issues/27) — sr15 / sr13), and E13 key-position parsing alignment ([xx.hocon#42](https://github.com/o3co/xx.hocon/issues/42)). No public API changes; safe drop-in upgrade from v1.5.2.

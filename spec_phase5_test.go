@@ -202,45 +202,27 @@ func TestSpec_S10_12_SingleValuePreservesType(t *testing.T) {
 
 // ── S10.15: quoted whitespace between obj/array substitutions is an error ─────
 
-// TestSpec_S10_15_QuotedWSBetweenArraySubsts_Pin pins current behaviour:
-// quoted whitespace between two array substitutions is silently accepted and
-// the arrays are merged. Spec HOCON.md L442 requires this to be an error.
-func TestSpec_S10_15_QuotedWSBetweenArraySubsts_Pin(t *testing.T) {
-	// pin: see #83 — quoted " " between two array substs produces merged array [1,2]
-	// Tight pin: assert the precise length and contents so the test reliably
-	// detects behavior changes (e.g. if the impl starts erroring as the spec
-	// requires, or if the merge logic changes the output shape).
-	_ = specIssueS10_15_QuotedWS
-	cfg := mustParseCfg(t, `
-a = [1]
-b = [2]
-c = ${a} " " ${b}
-`)
-	got, ok := cfg.GetInt64SliceOption("c").Get()
-	if !ok {
-		t.Fatal("[pin] expected Some (current impl merges arrays), got None")
-	}
-	want := []int64{1, 2}
-	if len(got) != len(want) {
-		t.Fatalf("[pin] expected merged array length %d, got %d (%v)", len(want), len(got), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("[pin] expected got[%d]=%d, got %d", i, want[i], got[i])
-		}
-	}
-}
-
-// TestSpec_S10_15_QuotedWSBetweenArraySubsts_Spec is the spec-correct assertion.
+// TestSpec_S10_15_QuotedWSBetweenArraySubsts_Spec is the spec-correct assertion
+// (HOCON.md L442): a quoted whitespace string `" "` between two array
+// substitutions is a real string operand, not an ignorable separator, so
+// `${a} " " ${b}` is array + string + array — a type error per S10.13.
+//
+// Closed by go.hocon#132 as a side effect: the S10.5 value-concat whitespace
+// fix replaced isSeparator's content-based detection (`Raw == " "`, which
+// wrongly classified a *quoted* " " as a parser separator and stripped it,
+// silently merging the arrays) with a parser-set Separator flag. A quoted
+// " " now correctly carries Separator=false and is not stripped, so the
+// array+string concat raises the type error the spec requires. The old _Pin
+// test that documented the merged-array bug was removed. See #83.
 func TestSpec_S10_15_QuotedWSBetweenArraySubsts_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S10.15 — quoted ws between array substs should error; see #%d", specIssueS10_15_QuotedWS)
+	_ = specIssueS10_15_QuotedWS
 	_, err := hocon.ParseString(`
 a = [1]
 b = [2]
 c = ${a} " " ${b}
 `)
 	if err == nil {
-		t.Error("expected error: quoted whitespace between array substitutions must be rejected")
+		t.Error("expected error: quoted whitespace between array substitutions must be rejected (S10.15 / HOCON.md L442)")
 	}
 }
 
