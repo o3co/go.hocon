@@ -34,9 +34,12 @@ import (
 // — silently regressing the documented Lightbend semantics where the prior
 // duplicate-key assignment must be retained.
 //
-// The fix (PR #129) preserves obj.priorValues into result.priorValues in
-// resolveSubstitutions, scoped to inIncludeChild to avoid leaking already-
-// resolved state into later WithFallback / MergeUnresolved composition.
+// Originally fixed in PR #129 by carrying obj.priorValues across the include
+// child's own resolve pass. Since #135 the include child no longer resolves at
+// all — it returns an unresolved tree, the parent merges it (priors and all),
+// and ResolveTree's single top-level pass falls back to the merged prior when
+// the optional ${?…} is unsatisfied — so the original-source assignment is
+// retained without any child-scoped carry.
 //
 // These regression tests pin both halves of the bug (env set → applied; env
 // unset → prior retained) on both the file-include and include-package
