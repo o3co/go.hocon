@@ -781,13 +781,13 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S17.7** object → other type: error — §Automatic type conversions (L1254)
   tests: config_test.go (TestSpec_S17_7_ObjectToOtherTypePanics); config_test.go (TestSpec_S17_7_ObjectToOtherTypeOptionReturnsNone)
-  status: ⚠️
-  note: non-Option accessors panic (conformant). Option accessors return None instead of an error, indistinguishable from a missing key — partial violation; see issue #72.
+  status: ✅
+  note: non-Option accessors panic on the conversion (= error, conformant). Option accessors return None on a type mismatch by design — a soft "try-get" that collapses absence and failed conversion into None, matching rs.hocon's `get_string_option` (= `get_string().ok()`). This is not a violation: the spec requires the *conversion* to be an error, which the panic accessor satisfies. ([#72](https://github.com/o3co/go.hocon/issues/72), closed by-design.) A non-panic `(T, error)` accessor — the one API shape go currently lacks vs Lightbend/ts (throw) and rs (`Result`) — is tracked additively in [#142](https://github.com/o3co/go.hocon/issues/142).
 
 - **S17.8** array → other (except numeric-indexed): error — §Automatic type conversions (L1255)
   tests: config_test.go (TestSpec_S17_8_ArrayToOtherTypePanics); config_test.go (TestSpec_S17_8_ArrayToOtherTypeOptionReturnsNone)
-  status: ⚠️
-  note: non-Option accessors panic (conformant). Option accessors return None instead of an error, indistinguishable from a missing key — partial violation; see issue #72.
+  status: ✅
+  note: same as S17.7 — non-Option accessors panic (conformant); Option accessors return None on a type mismatch by design (soft try-get, matches rs.hocon). ([#72](https://github.com/o3co/go.hocon/issues/72) by-design; non-panic `(T, error)` accessor tracked in [#142](https://github.com/o3co/go.hocon/issues/142).)
 
 ## S18. Units format
 
