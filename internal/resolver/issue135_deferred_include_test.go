@@ -61,12 +61,19 @@ func TestIssue135_DeferredSubstitutionNestedMount(t *testing.T) {
 	if !ok {
 		t.Fatal("app not found")
 	}
-	obj := app.(*resolver.ObjectVal)
+	obj, ok := app.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("app: expected ObjectVal, got %T", app)
+	}
 	v, ok := obj.Get("computed")
 	if !ok {
 		t.Fatal("app.computed not found")
 	}
-	if sv := v.(*resolver.ScalarVal); sv.Raw != "17" {
+	sv, ok := v.(*resolver.ScalarVal)
+	if !ok {
+		t.Fatalf("app.computed: expected ScalarVal, got %T", v)
+	}
+	if sv.Raw != "17" {
 		t.Errorf("app.computed = %q, want 17", sv.Raw)
 	}
 }
