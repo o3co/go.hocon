@@ -981,10 +981,12 @@ func (c *Config) renderJSON() (string, error) {
 }
 
 // RenderJSONForTest serializes the resolved config tree to canonical JSON
-// (object keys sorted, numbers emitted from their stored canonical literal —
-// integers are canonicalized at parse time, so leading zeros / -0 in the
-// source text are not preserved). It errors if the config still holds
-// unresolved substitution placeholders.
+// (object keys sorted). Numeric values render from their stored lexeme with
+// redundant leading zeros stripped (xx.hocon#50), so "023"->23 / "08.53"->8.53
+// are valid, canonical JSON. Other lexeme forms (exponent "1e3", trailing-zero
+// "1.50", "-0") are currently emitted verbatim and still differ from Lightbend's
+// fully-canonical rendering — tracked by xx.hocon#53. It errors if the config
+// still holds unresolved substitution placeholders.
 //
 // This is NOT part of the stable public API (the library's contract is
 // parse() + typed getters) and may change without notice; the name encodes
@@ -992,6 +994,32 @@ func (c *Config) renderJSON() (string, error) {
 // mirroring rs.hocon's _render_json_for_test and ts.hocon's _renderJSONForTest.
 func (c *Config) RenderJSONForTest() (string, error) {
 	return c.renderJSON()
+}
+
+// normalizeLeadingZeroNumber strips redundant leading zeros from the integer
+// part of a numeric lexeme so it renders as a valid JSON number (xx.hocon#50):
+// "023"->"23", "-08.53"->"-8.53", "007"->"7", while "0", "0.5", "1.0" are
+// unchanged. The fractional/exponent portion is left verbatim — this only
+// removes the leading-zero divergence that produced invalid JSON, and is scoped
+// to the rendering path (the source lexeme is still preserved for S10.11
+// string coercion via GetString/concat).
+func normalizeLeadingZeroNumber(raw string) string {
+	s := raw
+	sign := ""
+	if len(s) > 0 && (s[0] == '+' || s[0] == '-') {
+		sign = s[:1]
+		s = s[1:]
+	}
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	intPart, rest := s[:i], s[i:]
+	j := 0
+	for j < len(intPart)-1 && intPart[j] == '0' {
+		j++
+	}
+	return sign + intPart[j:] + rest
 }
 
 func writeValJSON(sb *strings.Builder, v resolver.Val) error {
@@ -1032,9 +1060,13 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 		case resolver.ScalarBoolean:
 			sb.WriteString(vv.Raw)
 		case resolver.ScalarNumber:
-			// Emit as-is if it's a valid number literal; otherwise quote.
-			if _, err := strconv.ParseFloat(vv.Raw, 64); err == nil {
-				sb.WriteString(vv.Raw)
+			// Canonicalize leading zeros so the lexeme renders as a valid JSON
+			// number matching Lightbend/rs.hocon (e.g. "023"->23, "-08.5"->-8.5);
+			// xx.hocon#50. Render-only: GetString/concat still see the verbatim
+			// lexeme (S10.11), so this does not affect string coercion.
+			norm := normalizeLeadingZeroNumber(vv.Raw)
+			if _, err := strconv.ParseFloat(norm, 64); err == nil {
+				sb.WriteString(norm)
 			} else {
 				sb.WriteString(strconv.Quote(vv.Raw))
 			}
