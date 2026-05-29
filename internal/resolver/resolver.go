@@ -245,6 +245,21 @@ func deepMerge(dst, src *ObjectVal) *ObjectVal {
 				result.values[k] = rehydrateSentinel(dv, sv)
 				continue
 			}
+			// #135: dst's value is a deferred `+=` chain that still carries a LIVE
+			// self-ref `${?…k}` (the include child no longer resolves it). deepMerge
+			// is "included(dst) on top", so dst is the later include: keep its live
+			// value and record src (the earlier include's value) as the self-ref
+			// prior, folded self-ref-free against any running prior. The live ${?…k}
+			// then resolves against this prior on the single top-level pass,
+			// accumulating across the nested-object boundary instead of dropping
+			// src. Matches the top-level include-merge stitch; the eager model
+			// handled this via the sentinel branch above.
+			if fullKey, isSelfRef := selfRefFullKey(dv, k); isSelfRef {
+				if folded, ok := foldOrSkipPrior(sv, fullKey, result.priorValues[k]); ok {
+					result.priorValues[k] = folded
+				}
+				continue
+			}
 			// dst wins — skip
 			continue
 		}
@@ -450,8 +465,7 @@ type resolver struct {
 	priorValues      map[string]Val  // previous value before self-referential overwrite (first pass)
 	includeStack     *[]string       // shared stack for circular include detection (normalized paths)
 	lenient          bool            // when true, unresolved substitutions are left as placeholders instead of erroring
-	preserveOptional bool            // when true, phase-2 preserves optional/sentinel substitution placeholders (#45/#134) instead of dropping them, so the parent's later pass can resolve them against its prior. Distinct from deferredChild: this governs phase-2 behavior, not whether phase-2 runs at all.
-	deferredChild    bool            // when true, this resolver is an include sub-resolver whose phase-2 is deferred to the parent (#135): parseAndResolve returns the unresolved tree and the parent resolves it once over the fully-merged document
+	preserveOptional bool            // when true, phase-2 preserves optional/sentinel substitution placeholders (#45/#134) instead of dropping them, so the parent's later pass can resolve them against its prior. (Include children defer phase-2 entirely (#135) — parseAndResolve returns the unresolved tree — so this only governs HOW phase-2 behaves, not whether it runs.)
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, pathPrefix []string) (*ObjectVal, error) {
@@ -505,21 +519,36 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 							continue
 						}
 					}
-					// Non-object override: prior value for self-reference lookback.
-					// If included carries its own prior chain for k, that prior
-					// is the immediately-prior value within the include's own
-					// dup-key chain (what an inline-equivalent reader would
-					// see). Otherwise the parent's existing value becomes the
-					// prior.
-					prior := existing
+					// Non-object override: build the self-reference prior for
+					// lookback. #118 chain invariant: fold any self-ref in
+					// `existing` against the running prior so the saved value is
+					// self-ref-free (else resolveSubst loops on a `+=` concat
+					// carried unresolved from an earlier include).
+					foldedExisting, doSave := foldOrSkipPrior(existing, fullKey, obj.priorValues[k])
+					prior := foldedExisting
 					if inclPrior, hasInclPrior := included.priorValues[k]; hasInclPrior {
-						prior = inclPrior
+						// The include carries its own within-file dup-key chain
+						// (e.g. a multi-`+=` block). #135 deferred-include: the
+						// child no longer runs phase-2, so that chain is still
+						// unresolved — `inclPrior` is it, bottomed at a knownAbsent
+						// sentinel ⊥ meaning "whatever precedes the include".
+						// Stitch the include's chain onto the parent's accumulated
+						// value by rehydrating ⊥ with foldedExisting, so the saved
+						// prior is `existing ++ include-within-file-prefix` (still
+						// self-ref-free). `iv` keeps its live ${?k}, which resolves
+						// against this prior on the single top-level pass and
+						// accumulates across the boundary. A reset inside the
+						// include (`k = [...]` before `k += ...`) leaves inclPrior
+						// with no ⊥, so rehydrate is a no-op and foldedExisting is
+						// correctly discarded — matching reset semantics.
+						if doSave {
+							prior = rehydrateSentinel(inclPrior, foldedExisting)
+						} else {
+							// existing had a required self-ref with no usable prior
+							// — fall back to the include's own chain (pre-#135).
+							prior, doSave = foldOrSkipPrior(inclPrior, fullKey, obj.priorValues[k])
+						}
 					}
-					// #118: fold self-ref in `prior` against the previous prior so
-					// the saved value is self-ref-free. Without this, chained
-					// includes (`branches = ${branches} ["x"]` in each file) save
-					// a self-referential concat and resolveSubst loops forever.
-					prior, doSave := foldOrSkipPrior(prior, fullKey, obj.priorValues[k])
 					if doSave {
 						// Write r.priorValues ONLY at top of the current resolver's
 						// scope. When the include is nested (pathPrefix != []), `k`
@@ -531,13 +560,11 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 						}
 						obj.priorValues[k] = prior
 					}
-					// #134: if the included value chains off an outer `${?k}` (a
-					// desugared `+=` whose self-ref folded to a knownAbsent sentinel
-					// in the include child), rehydrate that sentinel against the
-					// parent's existing value so the included (within-file-
-					// accumulated) elements append onto the parent's value across
-					// the boundary instead of overwriting it. A reset (explicit
-					// `k = [...]`) leaves no sentinel, so it correctly overwrites.
+					// #134 (eager-model residue): an included VALUE that itself
+					// carries a ⊥ sentinel rehydrates against existing. In the
+					// deferred model included values are unresolved and never carry
+					// a ⊥ (only saved priors do), so this is normally inert; kept
+					// as a guard for any value-borne sentinel.
 					if containsKnownAbsentSentinel(iv) {
 						iv = rehydrateSentinel(iv, existing)
 					}
@@ -960,19 +987,24 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// Delayed merge (site 2): after resolving a substitution lookup, if the
 		// result is an object and there is a prior value that also resolves to an
 		// object, deep-merge them (prior as base, current on top).
-		// Restricted to single-segment paths to avoid incorrect merges on nested paths.
-		if len(segStrs) == 1 {
-			if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
-				prior := r.findPrior(root, segStrs, key)
-				if prior != nil {
-					priorResolved, perr := r.resolveVal(prior, root, key)
-					if perr != nil {
-						return nil, perr
-					}
-					if priorResolved != nil {
-						if priorObj, poOk := priorResolved.(*ObjectVal); poOk {
-							resolved = deepMerge(resolvedObj, priorObj)
-						}
+		//
+		// Applies to multi-segment (nested) paths too: findPrior resolves the
+		// prior from the parent object's priorValues[lastKey], so a relativized
+		// `${foo.a}` (an `include`d `${a}` mounted under `foo`, #135) sees the
+		// same delayed-merge `a` (= ${x} ⊕ {c:3}) that a top-level `${a}` would.
+		// Before #135 deferred resolution, included files resolved at their own
+		// root, so cross-references were single-segment and this was gated to
+		// len==1; deferral relativizes them, so the gate is lifted.
+		if resolvedObj, rOk := resolved.(*ObjectVal); rOk {
+			prior := r.findPrior(root, segStrs, key)
+			if prior != nil {
+				priorResolved, perr := r.resolveVal(prior, root, key)
+				if perr != nil {
+					return nil, perr
+				}
+				if priorResolved != nil {
+					if priorObj, poOk := priorResolved.(*ObjectVal); poOk {
+						resolved = deepMerge(resolvedObj, priorObj)
 					}
 				}
 			}
@@ -1447,7 +1479,19 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val, fullPath 
 			// (`r.s = {v=1}; r.s = {history = ${r.s}, v=2}`) where the merged
 			// val retained `${r.s}` but no prior was recorded.
 			// See foldOrSkipPrior for the three-way decision (save / fold / skip).
-			priorToSave, doSave := foldOrSkipPrior(existing, fullKey, r.priorValues[fullKey])
+			//
+			// #135: prefer r.priorValues[fullKey] as the running prior, but fall
+			// back to the object-scoped prior obj.priorValues[key]. A nested
+			// include `+=` chain (e.g. `srv { items += ... }` across includes)
+			// records its accumulated prior on the merged object (deepMerge's
+			// selfRefFullKey stitch) rather than r.priorValues, so without this
+			// fallback `srv.items += "main"` folds against nil and drops the
+			// earlier includes' elements.
+			old := r.priorValues[fullKey]
+			if old == nil {
+				old = obj.priorValues[key]
+			}
+			priorToSave, doSave := foldOrSkipPrior(existing, fullKey, old)
 			if doSave {
 				// Write r.priorValues keyed by the FULL dotted path. The previous
 				// implementation deliberately avoided r.priorValues because it
@@ -1712,10 +1756,11 @@ func isEmptyOrCommentOnlyHocon(data []byte) bool {
 	return true
 }
 
-// parseAndResolve parses raw HOCON/JSON data and resolves it into an ObjectVal.
-// Substitutions that can be resolved within the included file are resolved here.
-// Substitutions that reference external paths are left as placeholders for the
-// parent resolver to relativize and resolve against the full tree.
+// parseAndResolve parses raw HOCON/JSON data and builds it into an UNRESOLVED
+// ObjectVal (#135). Substitutions are deliberately left as placeholders: the
+// parent relativizes them and resolves them once over the fully-merged
+// document, so a ref like `computed = ${base}` picks up a `base` overridden by
+// a later include rather than freezing to the include-local value.
 func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, error) {
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
@@ -1733,11 +1778,8 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 		lenient:          true, // don't error on unresolved substitutions; leave as placeholders
 		preserveOptional: true, // preserve optional substitutions for #45 (resolve against parent's prior on deep-merge)
 	}
-	obj, err := childResolver.resolveObject(ast, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	return childResolver.resolveSubstitutions(obj, obj)
+	// Phase 1 only: build the tree, leave substitutions unresolved.
+	return childResolver.resolveObject(ast, nil, nil)
 }
 
 // loadPackageInclude resolves a package(...) include directive (E11).
@@ -1826,22 +1868,16 @@ func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*Obj
 		lenient:          true,
 		preserveOptional: true, // preserve optional substitutions for #45 (resolve against parent's prior on deep-merge)
 	}
+	// Phase 1 only: build the tree, leave substitutions unresolved (#135).
 	obj, err := childResolver.resolveObject(ast, nil, nil)
 	if err != nil {
-		// Wrap resolve error with package context.
+		// Wrap build error with package context.
 		return nil, &ResolveError{
 			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
 			FilePath: virtualPath,
 		}
 	}
-	result, err := childResolver.resolveSubstitutions(obj, obj)
-	if err != nil {
-		return nil, &ResolveError{
-			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
-			FilePath: virtualPath,
-		}
-	}
-	return result, nil
+	return obj, nil
 }
 
 // propsToObjectVal converts a flat map[string]string (from a .properties file)

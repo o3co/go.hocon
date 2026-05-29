@@ -410,6 +410,49 @@ func rehydrateSentinel(v Val, replacement Val) Val {
 	}
 }
 
+// selfRefFullKey reports the dotted path of a live (non-knownAbsent)
+// self-reference inside v whose FINAL path segment equals key. deepMerge uses
+// it to recognise a deferred `+=` chain value — `${?path.to.key} [...]` carried
+// unresolved from an include (#135) — so it can stitch the earlier merge
+// counterpart in as the self-ref prior instead of dropping it. The final-segment
+// match (rather than full-path equality) is what makes it robust to include
+// relativization: a `${?items}` mounted under `srv` becomes `${?srv.items}`, and
+// the merge key is still the leaf `items`. Returns ("", false) when v carries no
+// such self-reference. Recurses through concat / array / object interiors so the
+// #120 chain shapes are covered.
+func selfRefFullKey(v Val, key string) (string, bool) {
+	switch vv := v.(type) {
+	case *substPlaceholder:
+		if vv.knownAbsent {
+			return "", false
+		}
+		segs := segTexts(vv.segments)
+		if len(segs) > 0 && segs[len(segs)-1] == key {
+			return segmentsToKey(segs), true
+		}
+		return "", false
+	case *concatPlaceholder:
+		for _, e := range vv.vals {
+			if fk, ok := selfRefFullKey(e, key); ok {
+				return fk, true
+			}
+		}
+	case *ArrayVal:
+		for _, e := range vv.Elements {
+			if fk, ok := selfRefFullKey(e, key); ok {
+				return fk, true
+			}
+		}
+	case *ObjectVal:
+		for _, kk := range vv.keys {
+			if fk, ok := selfRefFullKey(vv.values[kk], key); ok {
+				return fk, true
+			}
+		}
+	}
+	return "", false
+}
+
 // substFullKey returns the dotted-path key of a substPlaceholder's segments.
 // Segments are already relativized at this point if the placeholder lives
 // inside an included file under a nested pathPrefix.
