@@ -100,6 +100,19 @@ func TestS13b2_PlusEqualsWithPriorArraySeed(t *testing.T) {
 	}
 }
 
+// Separate object blocks each contributing a `+=` to a nested key (no includes)
+// must accumulate in document order. This routes through deepMerge's object
+// collision + the setPath prior fold; the #135 self-ref-prior stitch
+// (selfRefFullKey + setPath object-scoped prior fallback) fixed it incidentally
+// — it produced ["c"] then ["b","c"] before. Pinned so it cannot regress.
+func TestS13b2_NestedSeparateBlocksPlusEqualsAccumulate(t *testing.T) {
+	res := resolve(t, "srv { items = [\"a\"] }\nsrv { items += \"b\" }\nsrv { items += \"c\" }")
+	got := nestedStringSlice(t, res, "srv", "items")
+	if want := []string{"a", "b", "c"}; !equalStringSlice(got, want) {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
 func TestS13b2_PlusEqualsOnNonArrayPriorErrors(t *testing.T) {
 	if _, err := resolveErr("a = 42\na += 1"); err == nil {
 		t.Fatal("expected error for += on non-array prior")
