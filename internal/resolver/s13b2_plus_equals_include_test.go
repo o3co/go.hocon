@@ -119,6 +119,36 @@ srv.items += "main"`, dir)
 	}
 }
 
+// #135 regression: a within-file `+=` chain in a NESTED include (mounted under
+// an object key) must keep its chain bottom across the object merge. The nested
+// merge routes through deepMerge, which must stitch the earlier include's full
+// within-file prior (not just its last assignment) — the single-write nested
+// test above does not exercise this.
+func TestS13b2_NestedMultiWriteEarlierIncludeKeepsChainBottom(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.conf"), `srv { items += "a1"`+"\n"+`items += "a2" }`)
+	writeFile(t, filepath.Join(dir, "b.conf"), `srv { items += "b1" }`)
+	res := resolveWithDir(t, `include "a.conf"
+include "b.conf"`, dir)
+	got := nestedStringSlice(t, res, "srv", "items")
+	if want := []string{"a1", "a2", "b1"}; !equalStringSlice(got, want) {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
+func TestS13b2_TwoNestedMultiWriteIncludesAccumulate(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.conf"), `srv { items += "a1"`+"\n"+`items += "a2" }`)
+	writeFile(t, filepath.Join(dir, "b.conf"), `srv { items += "b1"`+"\n"+`items += "b2" }`)
+	res := resolveWithDir(t, `include "a.conf"
+include "b.conf"
+srv.items += "main"`, dir)
+	got := nestedStringSlice(t, res, "srv", "items")
+	if want := []string{"a1", "a2", "b1", "b2", "main"}; !equalStringSlice(got, want) {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
 func TestS13b2_PrefixMountedIncludeRelativizesSelfRef(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "inner.conf"), "items += \"i1\"\nitems += \"i2\"")

@@ -247,16 +247,26 @@ func deepMerge(dst, src *ObjectVal) *ObjectVal {
 			}
 			// #135: dst's value is a deferred `+=` chain that still carries a LIVE
 			// self-ref `${?…k}` (the include child no longer resolves it). deepMerge
-			// is "included(dst) on top", so dst is the later include: keep its live
-			// value and record src (the earlier include's value) as the self-ref
-			// prior, folded self-ref-free against any running prior. The live ${?…k}
-			// then resolves against this prior on the single top-level pass,
-			// accumulating across the nested-object boundary instead of dropping
-			// src. Matches the top-level include-merge stitch; the eager model
-			// handled this via the sentinel branch above.
+			// is "included(dst) on top", so dst is the later include and src the
+			// earlier one. Keep dst's live value and record src's FULL contribution
+			// as the self-ref prior — mirroring the top-level include-merge stitch:
+			//   - foldedSrc folds src's value self-ref-free against src's OWN
+			//     within-file prior (src.priorValues[k]), so a multi-`+=` block in
+			//     the earlier include keeps its chain bottom (e.g. both a1 AND a2),
+			//     not just its last assignment.
+			//   - if dst carries its own within-file chain (dst.priorValues[k],
+			//     bottomed at ⊥), stitch it onto foldedSrc so the later include's
+			//     elements append after the earlier ones.
+			// The live ${?…k} then resolves against this prior on the single
+			// top-level pass. (The eager model handled this via the sentinel branch
+			// above.)
 			if fullKey, isSelfRef := selfRefFullKey(dv, k); isSelfRef {
-				if folded, ok := foldOrSkipPrior(sv, fullKey, result.priorValues[k]); ok {
-					result.priorValues[k] = folded
+				if foldedSrc, ok := foldOrSkipPrior(sv, fullKey, src.priorValues[k]); ok {
+					if dstPrior, has := dst.priorValues[k]; has {
+						result.priorValues[k] = rehydrateSentinel(dstPrior, foldedSrc)
+					} else {
+						result.priorValues[k] = foldedSrc
+					}
 				}
 				continue
 			}
