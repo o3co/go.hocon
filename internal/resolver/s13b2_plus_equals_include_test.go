@@ -162,6 +162,24 @@ srv.items += "main"`, dir)
 	}
 }
 
+// selfRefFullKey matches on the final path segment (for relativization
+// robustness), so a NON-self-ref concat whose cross-key ref shares a leaf name
+// (`items = ${other.items} [..]`) trips the deepMerge self-ref-stitch and records
+// a spurious prior. This must stay harmless: the live value is not a self-ref, so
+// it resolves via its real path and never consults the spurious prior. Pinned so
+// the (currently inert) false-positive cannot silently start corrupting results.
+func TestS13b2_CrossKeyRefWithCollidingLeafIsNotSelfRef(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.conf"), `srv { items = ["a1"] }`)
+	res := resolveWithDir(t, `other = { items = ["X"] }
+include "a.conf"
+srv { items = ${other.items} ["b1"] }`, dir)
+	got := nestedStringSlice(t, res, "srv", "items")
+	if want := []string{"X", "b1"}; !equalStringSlice(got, want) {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
 func TestS13b2_PrefixMountedIncludeRelativizesSelfRef(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "inner.conf"), "items += \"i1\"\nitems += \"i2\"")

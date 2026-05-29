@@ -77,3 +77,40 @@ func TestIssue135_DeferredSubstitutionNestedMount(t *testing.T) {
 		t.Errorf("app.computed = %q, want 17", sv.Raw)
 	}
 }
+
+// An object self-reference inside an include that ALSO redefines the same object
+// key (`o={a:1}; o={history:${o},b:2}`) merged onto a parent `o={p:0}` resolves
+// ${o} to the parent value {p:0}, NOT the inline-equivalent {p:0,a:1}. This is a
+// shared cross-impl behavior: go, rs.hocon, AND ts.hocon all produce history={p:0}
+// for the include form (while pure-inline gives {p:0,a:1} in all three). Pinned
+// so a future "inline-equivalence" change can't make go diverge from the
+// reference implementations (a multi-agent-review probe flagged the difference;
+// matching rs/ts is the parity contract). See go.hocon#135.
+func TestIssue135_ObjectSelfRefAcrossIncludeMatchesReference(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "x.conf"), "o = {a:1}\no = {history:${o}, b:2}")
+	res := resolveWithDir(t, `o = {p:0}
+include "x.conf"`, dir)
+	o, ok := res.Root.Get("o")
+	if !ok {
+		t.Fatal("o not found")
+	}
+	oobj, ok := o.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("o: expected ObjectVal, got %T", o)
+	}
+	hv, ok := oobj.Get("history")
+	if !ok {
+		t.Fatal("o.history not found")
+	}
+	hobj, ok := hv.(*resolver.ObjectVal)
+	if !ok {
+		t.Fatalf("o.history: expected ObjectVal, got %T", hv)
+	}
+	if _, hasP := hobj.Get("p"); !hasP {
+		t.Error("o.history should contain the parent key p (={p:0})")
+	}
+	if _, hasA := hobj.Get("a"); hasA {
+		t.Error("o.history should NOT contain a:1 (include-local prior is not in the self-ref scope; matches rs/ts)")
+	}
+}
