@@ -977,8 +977,11 @@ func TestConfig_DelayedMergeNestedSubstitution(t *testing.T) {
 
 // ── Spec compliance Phase 4: S15, S17.5, S17.7, S17.8, S21.4, S21.5 ──────────────
 
-// specIssueS17_7_8 is the GitHub issue number for the S17.7/S17.8 spec violation.
-// Option accessors return None instead of an error for object/array type mismatches.
+// specIssueS17_7_8 is the GitHub issue that adjudicated S17.7/S17.8 for the
+// Option accessors: returning None on an object/array type mismatch is by-design
+// (a soft try-get, matching rs.hocon's get_string_option = get_string().ok());
+// the spec's "conversion is an error" is satisfied by the panic accessors.
+// #72 closed by-design; the additive non-panic (T, error) accessor is #142.
 const specIssueS17_7_8 = 72
 
 // TestSpec_S15_1_NumericObjectToArray verifies that an object with integer keys
@@ -1130,11 +1133,12 @@ func TestSpec_S17_7_ObjectToOtherTypePanics(t *testing.T) {
 }
 
 // TestSpec_S17_7_ObjectToOtherTypeOptionReturnsNone documents that Option accessors
-// return None (not an error) for object→scalar mismatches — a partial violation of
-// HOCON spec L1254 (should be an error, not silently absent).
-// pin: see #72
+// return None for object→scalar mismatches. This is by-design (HOCON spec L1254):
+// the spec requires the *conversion* to be an error, which the panic accessors
+// satisfy; the Option family is a soft try-get that collapses absence and failed
+// conversion into None, matching rs.hocon's get_string_option (= get_string().ok()).
+// pin: see #72 (closed by-design); non-panic (T, error) accessor tracked in #142.
 func TestSpec_S17_7_ObjectToOtherTypeOptionReturnsNone(t *testing.T) {
-	// pin: see #72 — Option accessors should return an error, not None
 	_ = specIssueS17_7_8
 	cfg := mustParseCfg(t, `obj: {a: 1}`)
 	if cfg.GetStringOption("obj").IsSome() {
@@ -1161,11 +1165,11 @@ func TestSpec_S17_8_ArrayToOtherTypePanics(t *testing.T) {
 }
 
 // TestSpec_S17_8_ArrayToOtherTypeOptionReturnsNone documents that Option accessors
-// return None (not an error) for array→scalar mismatches — a partial violation of
-// HOCON spec L1255 (should be an error, not silently absent).
-// pin: see #72
+// return None for array→scalar mismatches. By-design (HOCON spec L1255): the panic
+// accessors satisfy the spec's "conversion is an error"; the Option family is a soft
+// try-get returning None, matching rs.hocon's get_*_option (= get_*().ok()).
+// pin: see #72 (closed by-design); non-panic (T, error) accessor tracked in #142.
 func TestSpec_S17_8_ArrayToOtherTypeOptionReturnsNone(t *testing.T) {
-	// pin: see #72 — Option accessors should return an error, not None
 	cfg := mustParseCfg(t, `arr: [1,2,3]`)
 	if cfg.GetStringOption("arr").IsSome() {
 		t.Error("GetStringOption(array) should not return Some — expected None (pinned current behaviour)")
