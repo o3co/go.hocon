@@ -159,7 +159,18 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 			}
 			// non-object collision: receiver wins; capture fallback's
 			// value (existing) as prior for cross-layer self-ref lookback.
-			result.priorValues[k] = existing
+			//
+			// go.hocon#134: fold `existing` self-ref-free first. After the `+=`
+			// desugar, a fallback's `+=` value is a `${?k} [...]` self-ref concat;
+			// recording it raw makes the receiver's `${?k}` follow a prior that
+			// still contains `${?k}`, recursing forever (stack overflow on
+			// `items += "r"`.WithFallback(`items += "f"`)). foldOrSkipPrior with no
+			// old prior folds the self-ref to a knownAbsent bottom (resolves to the
+			// fallback's own base), so the receiver accumulates onto it →
+			// ["f","r"]. Mirrors the fold discipline the include-merge applies.
+			if folded, ok := foldOrSkipPrior(existing, k, nil); ok {
+				result.priorValues[k] = folded
+			}
 		}
 		result.set(k, rv)
 	}
