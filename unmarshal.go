@@ -147,7 +147,16 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
 		if anyType {
-			target.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(valToAny(v)))
+			// valToAny returns an untyped nil for an explicit null; reflect.ValueOf(nil)
+			// is an invalid Value, and SetMapIndex with an invalid value deletes the
+			// entry rather than storing key→nil. Use a typed zero of the interface
+			// element so explicit nulls remain visible keys (go.hocon#131).
+			av := valToAny(v)
+			rval := reflect.Zero(elemType)
+			if av != nil {
+				rval = reflect.ValueOf(av)
+			}
+			target.SetMapIndex(reflect.ValueOf(k), rval)
 		} else {
 			ev := reflect.New(elemType).Elem()
 			if err := unmarshalVal(v, ev); err != nil {
