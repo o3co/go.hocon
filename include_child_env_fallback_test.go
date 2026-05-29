@@ -35,7 +35,7 @@ import (
 // duplicate-key assignment must be retained.
 //
 // The fix (PR #129) preserves obj.priorValues into result.priorValues in
-// resolveSubstitutions, scoped to inIncludeChild to avoid leaking already-
+// resolveSubstitutions, scoped to preserveOptional to avoid leaking already-
 // resolved state into later WithFallback / MergeUnresolved composition.
 //
 // These regression tests pin both halves of the bug (env set → applied; env
