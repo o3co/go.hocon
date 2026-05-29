@@ -469,13 +469,12 @@ func valContainsPlaceholders(v Val) bool {
 }
 
 type resolver struct {
-	opts             Options
-	resolving        map[string]bool // cycle detection
-	resolvedCache    map[string]Val  // previously resolved values for self-reference
-	priorValues      map[string]Val  // previous value before self-referential overwrite (first pass)
-	includeStack     *[]string       // shared stack for circular include detection (normalized paths)
-	lenient          bool            // when true, unresolved substitutions are left as placeholders instead of erroring
-	preserveOptional bool            // when true, phase-2 preserves optional/sentinel substitution placeholders (#45/#134) instead of dropping them, so the parent's later pass can resolve them against its prior. (Include children defer phase-2 entirely (#135) — parseAndResolve returns the unresolved tree — so this only governs HOW phase-2 behaves, not whether it runs.)
+	opts          Options
+	resolving     map[string]bool // cycle detection
+	resolvedCache map[string]Val  // previously resolved values for self-reference
+	priorValues   map[string]Val  // previous value before self-referential overwrite (first pass)
+	includeStack  *[]string       // shared stack for circular include detection (normalized paths)
+	lenient       bool            // when true, unresolved substitutions are left as placeholders instead of erroring
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, pathPrefix []string) (*ObjectVal, error) {
@@ -738,23 +737,6 @@ func (c *concatPlaceholder) val() {}
 // resolveSubstitutions performs the second pass, replacing placeholders.
 func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*ObjectVal, error) {
 	result := newObjectVal()
-	// Include-child only: preserve priorValues so the parent's later strict
-	// resolve pass can fall back to the prior in-source assignment when an
-	// optional substitution evaluates to nothing. Without this carry, the
-	// include child's resolveSubstitutions strips obj.priorValues across the
-	// include boundary, and the parent's `${?ENV}` (env unset) silently
-	// erases the `key = "default"` assignment that preceded it.
-	//
-	// Scoped to `preserveOptional` so already-resolved Configs in the top-level
-	// resolve path don't carry stale priorValues forward — that would give
-	// later WithFallback composition (MergeUnresolved) extra prior state from
-	// completed resolutions and risk spurious composition-barrier firing
-	// (Codex review on PR #129).
-	if r.preserveOptional {
-		for k, v := range obj.priorValues {
-			result.priorValues[k] = v
-		}
-	}
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
 		resolved, err := r.resolveVal(v, root, k)
@@ -825,28 +807,13 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 	}
 }
 
-// knownAbsentSentinel returns a copy of s marked as a knownAbsent sentinel — a
-// folded optional self-ref with no prior. It resolves to undefined except in an
-// include child, where it is preserved (see resolveSubst's knownAbsent branch)
-// so the parent's include-merge can rehydrate it against the parent's prior
-// (go.hocon#134). Mirrors the sentinel foldOptionalSelfRefAbsent produces.
-func (r *resolver) knownAbsentSentinel(s *substPlaceholder) *substPlaceholder {
-	absent := *s
-	absent.knownAbsent = true
-	return &absent
-}
-
 func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, error) {
 	if s.knownAbsent {
-		// #134: in an include child, keep the sentinel in the resolved value
-		// (don't collapse to absent) so the chain bottom survives the child's
-		// own resolution pass; the parent's include-merge then rehydrates it
-		// against the parent's prior, accumulating a multi-`+=` chain across
-		// the boundary. At the parent (non-include-child) pass any sentinel that
-		// rehydration did not replace collapses to absent here, as before.
-		if r.preserveOptional {
-			return s, nil
-		}
+		// A knownAbsent sentinel (produced by foldOptionalSelfRefAbsent at a
+		// phase-1 prior-save site, #134) that reached resolution unfilled means
+		// the `+=` chain bottom had nothing preceding it — collapse to absent.
+		// Rehydration (deepMerge / the include-merge stitch) replaces sentinels
+		// that DO have a predecessor before they ever reach here.
 		return nil, nil
 	}
 
@@ -888,22 +855,6 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		if prior := r.findPrior(root, segStrs, key); prior != nil {
 			// Resolve the prior value (it may itself contain placeholders).
 			return r.resolveVal(prior, root, key)
-		}
-		// #134: in an include child, an optional self-ref with no in-child prior
-		// becomes a knownAbsent sentinel (not dropped to absent) so the parent's
-		// include-merge can rehydrate it against the parent's prior. A desugared
-		// `+=` (≡ `${?key} [elem]`) in a later include otherwise loses the
-		// accumulation chain off an earlier include's value. The sentinel form
-		// (vs a live placeholder) lets containsKnownAbsentSentinel/rehydrateSentinel
-		// splice it, and composes through a within-file `+=` chain in the child.
-		//
-		// This is the re-entrant-cycle-path twin of the isSelfRef sentinel return
-		// below (the `containsSubstByIdentity` branch). The cache fast-path and
-		// that pointer-identity branch preempt this one in the exercised
-		// scenarios; it is kept as the matching guard for the resolving-set entry
-		// path so the two self-ref detection routes behave identically.
-		if n.Optional && r.preserveOptional {
-			return r.knownAbsentSentinel(s), nil
 		}
 		if !n.Optional {
 			return nil, &ResolveError{Message: "circular reference detected", Path: key, Line: n.Line(), Col: n.Col()}
@@ -948,14 +899,6 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			// Spec HOCON.md L841: no prior + self-ref → short-circuit.
 			// Do NOT resolve the found current value (which is the concat-in-progress);
 			// that would produce "foofoo" for `a = ${?a}foo` with no prior `a`.
-			//
-			// #134: in an include child, an optional self-ref with no prior becomes
-			// a knownAbsent sentinel (not dropped) so the parent's include-merge
-			// rehydrates it against the parent's prior — the desugared `+=`
-			// accumulation chain across includes. Mirrors foldOptionalSelfRefAbsent.
-			if n.Optional && r.preserveOptional {
-				return r.knownAbsentSentinel(s), nil
-			}
 			if n.Optional {
 				return nil, nil
 			}
@@ -1085,17 +1028,6 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		if ev, ok := os.LookupEnv(strings.Join(segStrs, ".")); ok {
 			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
 		}
-	}
-	// In an `include` child resolver, do NOT drop optional substitutions yet
-	// — the parent resolver's deep-merge pass may supply the value via the
-	// parent's prior (#45). The placeholder is preserved; the parent's
-	// strict / final pass then decides: resolved → use it; still missing →
-	// drop per the optional rule. User-facing AllowUnresolved=true mode is
-	// NOT scoped here: it keeps the documented contract that optional
-	// substitutions drop (required-but-unsatisfied placeholders are still
-	// preserved via the r.lenient branch below).
-	if r.preserveOptional {
-		return s, nil
 	}
 	if n.Optional {
 		return nil, nil // field will be dropped (user-facing default + AllowUnresolved=true mode)
@@ -1781,12 +1713,11 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 			BaseDir:       filepath.Dir(filePath),
 			PackageLookup: r.opts.PackageLookup, // E11: propagate so nested package includes resolve (Codex must-fix #1)
 		},
-		resolving:        make(map[string]bool),
-		resolvedCache:    make(map[string]Val),
-		priorValues:      make(map[string]Val),
-		includeStack:     r.includeStack,
-		lenient:          true, // don't error on unresolved substitutions; leave as placeholders
-		preserveOptional: true, // preserve optional substitutions for #45 (resolve against parent's prior on deep-merge)
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
+		includeStack:  r.includeStack,
+		lenient:       true, // don't error on unresolved substitutions; leave as placeholders
 	}
 	// Phase 1 only: build the tree, leave substitutions unresolved.
 	return childResolver.resolveObject(ast, nil, nil)
@@ -1871,12 +1802,11 @@ func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*Obj
 			BaseDir:       r.opts.BaseDir, // inherit parent BaseDir for nested file includes
 			PackageLookup: r.opts.PackageLookup,
 		},
-		resolving:        make(map[string]bool),
-		resolvedCache:    make(map[string]Val),
-		priorValues:      make(map[string]Val),
-		includeStack:     r.includeStack,
-		lenient:          true,
-		preserveOptional: true, // preserve optional substitutions for #45 (resolve against parent's prior on deep-merge)
+		resolving:     make(map[string]bool),
+		resolvedCache: make(map[string]Val),
+		priorValues:   make(map[string]Val),
+		includeStack:  r.includeStack,
+		lenient:       true,
 	}
 	// Phase 1 only: build the tree, leave substitutions unresolved (#135).
 	obj, err := childResolver.resolveObject(ast, nil, nil)
