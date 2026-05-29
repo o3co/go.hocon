@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.1] - 2026-05-29
+
+Bugfix release: S13b.2 `+=` accumulation across includes ([#134](https://github.com/o3co/go.hocon/issues/134)) — the follow-up deferred from v1.6.0 — plus an `Unmarshal`-into-map explicit-null preservation fix ([#131](https://github.com/o3co/go.hocon/issues/131)) from the go.hocon#131–#135 audit. No public API changes; safe drop-in upgrade from v1.6.0. (The remaining go-only audit item — [#135](https://github.com/o3co/go.hocon/issues/135), defer substitution resolution across includes — is a Critical include-child eager-vs-deferred resolution change in the same family as #128 and stays deferred to a follow-up.)
 
 ### Fixed — S13b.2 `+=` accumulation across includes ([#134](https://github.com/o3co/go.hocon/issues/134))
 
