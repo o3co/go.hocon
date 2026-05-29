@@ -188,9 +188,10 @@ server { port = 8080 }      // 結果: { host: localhost, port: 8080 }
 path = ["/usr/bin"]
 path = ${path} ["/usr/local/bin"]  // ["/usr/bin", "/usr/local/bin"]
 
-# += 演算子
+# += 演算子（値を 1 要素として追記: a += b ≡ a = ${?a} [b]）
 items = [1]
-items += [2, 3]   // [1, 2, 3]
+items += 2        // [1, 2]
+items += [3, 4]   // [1, 2, [3, 4]]  （配列を渡すと 1 つのネスト要素として追記）
 
 # インクルード
 include "defaults.conf"

@@ -227,9 +227,10 @@ server { port = 8080 }      // result: { host: localhost, port: 8080 }
 path = ["/usr/bin"]
 path = ${path} ["/usr/local/bin"]  // ["/usr/bin", "/usr/local/bin"]
 
-# += shorthand
+# += shorthand (appends the value as a single element: a += b ≡ a = ${?a} [b])
 items = [1]
-items += [2, 3]   // [1, 2, 3]
+items += 2        // [1, 2]
+items += [3, 4]   // [1, 2, [3, 4]]  (an array RHS is appended as one nested element)
 
 # Include
 include "defaults.conf"
