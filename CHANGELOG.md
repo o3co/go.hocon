@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.7.1] - 2026-06-14
 
-Cross-impl coordinated patch release (v1.7.1 across go.hocon / ts.hocon / rs.hocon). **No functional changes in go.hocon.** The substantive change in this patch is rs.hocon's false-positive `circular substitution` fix ([rs.hocon#136](https://github.com/o3co/rs.hocon/pull/136)); go.hocon already resolves the same self-ref-below-merge shapes as of v1.7.0 (its #135 defer-substitution-resolution work), so this release carries no go-side change and exists for cross-impl version parity (precedent: v1.7.0's coordinated sync). A cross-impl audit added [#148](https://github.com/o3co/go.hocon/pull/148) — test-only regression pins for that resolved behavior ([#147](https://github.com/o3co/go.hocon/issues/147)). No public API changes; safe drop-in upgrade from v1.7.0.
+Cross-impl coordinated patch release (v1.7.1 across go.hocon / ts.hocon / rs.hocon). **No functional changes in go.hocon.** The substantive change in this patch is rs.hocon's false-positive `circular substitution` fix ([rs.hocon#136](https://github.com/o3co/rs.hocon/pull/136)); go.hocon already resolves the same self-ref-below-merge shapes as of v1.7.0 (its [#135](https://github.com/o3co/go.hocon/pull/135) defer-substitution-resolution work), so this release carries no go-side change and exists for cross-impl version parity (precedent: v1.7.0's coordinated sync). A cross-impl audit added [#148](https://github.com/o3co/go.hocon/pull/148) — test-only regression pins for that resolved behavior ([#147](https://github.com/o3co/go.hocon/issues/147)). No public API changes; safe drop-in upgrade from v1.7.0.
 
 ## [1.7.0] - 2026-05-30
 
