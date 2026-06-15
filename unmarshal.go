@@ -364,20 +364,20 @@ func wholeFloatToInt64(raw string) (int64, bool) {
 	case strings.HasPrefix(s, "+"):
 		s = s[1:]
 	}
-	// Mantissa and base-10 exponent (default 0).
+	// Mantissa and base-10 exponent (default 0). The exponent is parsed into the
+	// int32 range (matching rs.hocon's `e.parse::<i32>()`) and all of `r`/`zeros`
+	// is computed in int64, so the arithmetic cannot overflow on any platform
+	// (including 32-bit `int`) — a value like "1e-2147483648" would otherwise
+	// wrap and panic strings.Repeat with a negative count.
 	mantissa := s
-	exp := 0
+	var exp int64
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		mantissa = s[:i]
-		// Parse the exponent into an int32 range (matching rs.hocon's
-		// `e.parse::<i32>()`): an exponent outside that range is rejected here, so
-		// the int64 arithmetic on `r`/`zeros` below cannot overflow (a value like
-		// "1e-9223372036854775808" would otherwise wrap and panic strings.Repeat).
 		e, err := strconv.ParseInt(s[i+1:], 10, 32)
 		if err != nil {
 			return 0, false
 		}
-		exp = int(e)
+		exp = e
 	}
 	// Integer and fractional digit runs.
 	intPart, fracPart := mantissa, ""
@@ -397,24 +397,25 @@ func wholeFloatToInt64(raw string) (int64, bool) {
 	if digits == "" {
 		return 0, true
 	}
-	r := len(fracPart) - exp // digits to the right of the decimal point
+	r := int64(len(fracPart)) - exp // digits to the right of the decimal point
 	var magStr string
 	if r <= 0 {
 		zeros := -r
 		// int64 has at most 19 digits; bound BEFORE building the string so a huge
-		// exponent like "1e2147483647" can't allocate gigabytes. Check zeros
-		// alone first to avoid int overflow when exp is enormous.
-		if zeros > 19 || len(digits) > 19 || len(digits)+zeros > 19 {
+		// exponent like "1e2147483647" can't allocate gigabytes. (zeros fits int
+		// once we know it is <= 19.)
+		if zeros > 19 || int64(len(digits))+zeros > 19 {
 			return 0, false
 		}
-		magStr = digits + strings.Repeat("0", zeros)
+		magStr = digits + strings.Repeat("0", int(zeros))
 	} else {
 		// digits is non-empty with a non-zero leading byte, so if every digit is
 		// fractional the value is < 1 and not whole.
-		if r >= len(digits) {
+		if r >= int64(len(digits)) {
 			return 0, false
 		}
-		head, tail := digits[:len(digits)-r], digits[len(digits)-r:]
+		rr := int(r) // safe: r < len(digits), which fits int
+		head, tail := digits[:len(digits)-rr], digits[len(digits)-rr:]
 		if !allZero(tail) {
 			return 0, false
 		}

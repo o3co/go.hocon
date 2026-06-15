@@ -114,6 +114,7 @@ func TestUnmarshalIntCoercion_HugeExponentNoHugeAlloc(t *testing.T) {
 	// r/zeros arithmetic and panic strings.Repeat).
 	for _, conf := range []string{
 		`n = "1e2147483647"`,
+		`n = "1e-2147483648"`, // int32-min exponent: must not overflow r/zeros (32-bit)
 		`n = "1e9999999999999999999"`,
 		`n = "1e2147483648"`,
 		`n = "1e-9223372036854775808"`,
