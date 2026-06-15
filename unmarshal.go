@@ -10,6 +10,7 @@ package hocon
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -26,6 +27,29 @@ func (c *Config) Unmarshal(v any) error {
 		return fmt.Errorf("hocon: Unmarshal requires a non-nil pointer")
 	}
 	return unmarshalVal(c.root, rv.Elem())
+}
+
+// UnmarshalPath maps the value at path into v using `hocon` struct tags.
+// v must be a non-nil pointer. Unlike GetConfig(path).Unmarshal (which accepts
+// only objects), path may reference any node — object, array, or scalar — so
+// e.g. UnmarshalPath("servers", &[]Server{}) deserializes a list directly.
+//
+// Returns an error if the path is missing, if the value (or any nested value)
+// is an unresolved substitution (the error wraps ErrNotResolved, detectable via
+// errors.Is), or if the value cannot be unmarshalled into v.
+func (c *Config) UnmarshalPath(path string, v any) error {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return fmt.Errorf("hocon: UnmarshalPath requires a non-nil pointer")
+	}
+	node, ok := lookupSegments(c.root, splitPath(path))
+	if !ok {
+		return fmt.Errorf("hocon: path %q: key not found", path)
+	}
+	if !c.resolved && isUnresolvedPlaceholder(node) {
+		return fmt.Errorf("hocon: path %q is not resolved: %w", path, ErrNotResolved)
+	}
+	return unmarshalVal(node, rv.Elem())
 }
 
 func unmarshalVal(val resolver.Val, target reflect.Value) error {
@@ -50,6 +74,27 @@ func unmarshalVal(val resolver.Val, target reflect.Value) error {
 		return unmarshalMap(val, target)
 	case reflect.Slice:
 		return unmarshalSlice(val, target)
+	case reflect.Interface:
+		// Generic target (`any`): decode the node into the natural Go value
+		// (map[string]any / []any / string / float64 / bool / nil). Only the
+		// empty interface is supported; a non-empty interface (e.g. error,
+		// fmt.Stringer) can't hold an arbitrary decoded value.
+		if target.NumMethod() != 0 {
+			return fmt.Errorf("hocon: cannot unmarshal into non-empty interface %s", target.Type())
+		}
+		a := valToAny(val)
+		if a == nil {
+			// null / nil node → reset the interface to its typed zero (nil),
+			// so an explicit null overwrites any pre-populated value.
+			target.Set(reflect.Zero(target.Type()))
+			return nil
+		}
+		av := reflect.ValueOf(a)
+		if !av.Type().AssignableTo(target.Type()) {
+			return fmt.Errorf("hocon: cannot assign %T to %s", a, target.Type())
+		}
+		target.Set(av)
+		return nil
 	default:
 		return unmarshalScalar(val, target)
 	}
@@ -211,7 +256,17 @@ func valToAny(v resolver.Val) any {
 func unmarshalSlice(val resolver.Val, target reflect.Value) error {
 	arr, ok := val.(*resolver.ArrayVal)
 	if !ok {
-		return fmt.Errorf("hocon: expected array for slice, got %T", val)
+		// S15 parity: a numeric-keyed object converts to an array in slice
+		// context (matching the typed slice getters and rs serde sequences).
+		if obj, isObj := val.(*resolver.ObjectVal); isObj {
+			if converted, convOK := resolver.NumericObjectToArray(obj); convOK {
+				arr = converted
+			} else {
+				return fmt.Errorf("hocon: expected array for slice, got %T", val)
+			}
+		} else {
+			return fmt.Errorf("hocon: expected array for slice, got %T", val)
+		}
 	}
 	elemType := target.Type().Elem()
 	slice := reflect.MakeSlice(target.Type(), len(arr.Elements), len(arr.Elements))
@@ -249,16 +304,23 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 	case reflect.String:
 		target.SetString(sv.Raw)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		parsed, err := strconv.ParseInt(sv.Raw, 10, 64)
+		n, err := strconv.ParseInt(sv.Raw, 10, 64)
 		if err != nil {
-			// Try parsing as float and truncating (e.g. "3.0" → 3)
-			if f, ferr := strconv.ParseFloat(sv.Raw, 64); ferr == nil {
-				target.SetInt(int64(f))
-				return nil
+			// Whole-number float/exponent fallback, matching rs.hocon's get_i64:
+			// only for float-like raw, finite, integral, and within int64 range.
+			// A non-whole value such as "1.5" is rejected, not truncated.
+			f, ferr := strconv.ParseFloat(sv.Raw, 64)
+			if ferr != nil || !strings.ContainsAny(sv.Raw, ".eE") ||
+				math.IsInf(f, 0) || f != math.Trunc(f) ||
+				f < math.MinInt64 || f >= math.MaxInt64 {
+				return fmt.Errorf("hocon: expected int, got %q", sv.Raw)
 			}
-			return fmt.Errorf("hocon: expected int, got %q", sv.Raw)
+			n = int64(f)
 		}
-		target.SetInt(parsed)
+		if target.OverflowInt(n) {
+			return fmt.Errorf("hocon: int %d overflows %s", n, target.Type())
+		}
+		target.SetInt(n)
 	case reflect.Float32, reflect.Float64:
 		parsed, err := strconv.ParseFloat(sv.Raw, 64)
 		if err != nil {

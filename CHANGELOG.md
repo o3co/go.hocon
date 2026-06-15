@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Config.UnmarshalPath(path string, v any) error` — unmarshal the value at a
+  path into `v`, accepting **any** node (object, array, or scalar), e.g.
+  `UnmarshalPath("servers", &[]Server{})`. Unlike `GetConfig(path).Unmarshal`
+  (objects only) it returns an error (matching `Unmarshal`'s idiom, not the
+  panicking getters): missing path, an unresolved substitution at/under `path`
+  (the error wraps `ErrNotResolved`, detectable via `errors.Is`), or an
+  unmarshal failure.
+- `Unmarshal` / `UnmarshalPath` now support `any` (`interface{}`) targets,
+  decoding a node into the natural Go value (`map[string]any` / `[]any` /
+  `string` / `float64` / `bool` / `nil`).
+
+### Changed
+
+- Integer unmarshalling is now consistent with the typed getters and with
+  rs.hocon: a whole-number float/exponent (including quoted, e.g. `"1e3"`,
+  `1.0`) coerces, but a **non-whole** float such as `1.5` is now **rejected**
+  instead of silently truncated to `1`, and integer targets are overflow-checked
+  (`int8`/`int16`/`int32` no longer silently wrap).
+- A numeric-keyed object (`{ "0" = …, "1" = … }`) now unmarshals into a slice
+  target, matching the typed slice getters and rs.hocon sequence deserialization.
+
+Value introspection in Go remains served by the existing typed getters
+(`GetString` / `GetInt64` / …); rs.hocon's `HoconValue` accessors have no Go
+equivalent by design (Go exposes no public value handle).
+
 ## [1.7.1] - 2026-06-14
 
 Cross-impl coordinated patch release (v1.7.1 across go.hocon / ts.hocon / rs.hocon). **No functional changes in go.hocon.** The substantive change in this patch is rs.hocon's false-positive `circular substitution` fix ([rs.hocon#136](https://github.com/o3co/rs.hocon/pull/136)); go.hocon already resolves the same self-ref-below-merge shapes as of v1.7.0 (its [#135](https://github.com/o3co/go.hocon/pull/135) defer-substitution-resolution work), so this release carries no go-side change and exists for cross-impl version parity (precedent: v1.7.0's coordinated sync). A cross-impl audit added [#148](https://github.com/o3co/go.hocon/pull/148) — test-only regression pins for that resolved behavior ([#147](https://github.com/o3co/go.hocon/issues/147)). No public API changes; safe drop-in upgrade from v1.7.0.
