@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-16
+
 ### Added
 
 - `Config.UnmarshalPath(path string, v any) error` — unmarshal the value at a
