@@ -35,6 +35,21 @@ Value introspection in Go remains served by the existing typed getters
 (`GetString` / `GetInt64` / …); rs.hocon's `HoconValue` accessors have no Go
 equivalent by design (Go exposes no public value handle).
 
+### Fixed — integer coercion precision hole for float-like literals ≥ 2^52 ([xx.hocon#56](https://github.com/o3co/xx.hocon/issues/56))
+
+- **Float-like integer unmarshalling now derives wholeness and the integer value
+  from the raw decimal text instead of an intermediate `float64`.** The previous
+  `f != math.Trunc(f)` check was unsound at high magnitudes: above 2^52 a
+  `float64` cannot represent fractional parts, so a non-whole literal like
+  `9007199254740992.5` rounded to a whole `float64` and was wrongly accepted, and
+  a would-be-whole literal like `9007199254740993.0` rounded to the wrong integer
+  (silent off-by-one). The text-based `wholeFloatToInt64` helper rejects genuinely
+  non-whole values at any magnitude and yields the exact integer for whole ones
+  (including `int64` boundaries and large whole literals such as `1e16`), with a
+  guard so a huge exponent cannot trigger an unbounded allocation. Byte-identical
+  to rs.hocon's `whole_float_to_i64`. ts.hocon is unaffected (no integer
+  coercion). Pinned by `issue56_i64_coercion_test.go`.
+
 ## [1.7.1] - 2026-06-14
 
 Cross-impl coordinated patch release (v1.7.1 across go.hocon / ts.hocon / rs.hocon). **No functional changes in go.hocon.** The substantive change in this patch is rs.hocon's false-positive `circular substitution` fix ([rs.hocon#136](https://github.com/o3co/rs.hocon/pull/136)); go.hocon already resolves the same self-ref-below-merge shapes as of v1.7.0 (its [#135](https://github.com/o3co/go.hocon/pull/135) defer-substitution-resolution work), so this release carries no go-side change and exists for cross-impl version parity (precedent: v1.7.0's coordinated sync). A cross-impl audit added [#148](https://github.com/o3co/go.hocon/pull/148) — test-only regression pins for that resolved behavior ([#147](https://github.com/o3co/go.hocon/issues/147)). No public API changes; safe drop-in upgrade from v1.7.0.

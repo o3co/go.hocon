@@ -307,16 +307,17 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n, err := strconv.ParseInt(sv.Raw, 10, 64)
 		if err != nil {
-			// Whole-number float/exponent fallback, matching rs.hocon's get_i64:
-			// only for float-like raw, finite, integral, and within int64 range.
-			// A non-whole value such as "1.5" is rejected, not truncated.
-			f, ferr := strconv.ParseFloat(sv.Raw, 64)
-			if ferr != nil || !strings.ContainsAny(sv.Raw, ".eE") ||
-				math.IsInf(f, 0) || f != math.Trunc(f) ||
-				f < math.MinInt64 || f >= math.MaxInt64 {
+			// Whole-number float/exponent fallback, matching rs.hocon. Wholeness
+			// and the value are derived from the raw decimal text, never via
+			// float64 (xx.hocon#56): above 2^52 a float64 cannot represent
+			// fractional parts, so a non-whole literal like "9007199254740992.5"
+			// would round to a whole float64 and a would-be-whole one like
+			// "9007199254740993.0" would round to the wrong integer.
+			var ok bool
+			n, ok = wholeFloatToInt64(sv.Raw)
+			if !ok {
 				return fmt.Errorf("hocon: expected int, got %q", sv.Raw)
 			}
-			n = int64(f)
 		}
 		if target.OverflowInt(n) {
 			return fmt.Errorf("hocon: int %d overflows %s", n, target.Type())
@@ -338,4 +339,124 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 		return fmt.Errorf("hocon: unsupported target type %v", target.Type())
 	}
 	return nil
+}
+
+// wholeFloatToInt64 coerces a whole-number float/exponent raw string to an exact
+// int64, deriving both wholeness and the value from the decimal text rather than
+// an intermediate float64 (xx.hocon#56, byte-identical to rs.hocon's
+// whole_float_to_i64). Above 2^52 a float64 cannot represent fractional parts, so
+// a float64-based check both false-accepts non-whole values (e.g.
+// "9007199254740992.5") and off-by-one's would-be-whole ones (e.g.
+// "9007199254740993.0"). Returns ok=false for non-float-like, non-whole, or
+// out-of-int64-range input. Plain integers are handled by the caller's
+// strconv.ParseInt fast path.
+func wholeFloatToInt64(raw string) (int64, bool) {
+	// Plain integers are handled by the caller's strconv.ParseInt.
+	if !strings.ContainsAny(raw, ".eE") {
+		return 0, false
+	}
+	s := strings.TrimSpace(raw)
+	neg := false
+	switch {
+	case strings.HasPrefix(s, "-"):
+		neg = true
+		s = s[1:]
+	case strings.HasPrefix(s, "+"):
+		s = s[1:]
+	}
+	// Mantissa and base-10 exponent (default 0).
+	mantissa := s
+	exp := 0
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		mantissa = s[:i]
+		// Parse the exponent into an int32 range (matching rs.hocon's
+		// `e.parse::<i32>()`): an exponent outside that range is rejected here, so
+		// the int64 arithmetic on `r`/`zeros` below cannot overflow (a value like
+		// "1e-9223372036854775808" would otherwise wrap and panic strings.Repeat).
+		e, err := strconv.ParseInt(s[i+1:], 10, 32)
+		if err != nil {
+			return 0, false
+		}
+		exp = int(e)
+	}
+	// Integer and fractional digit runs.
+	intPart, fracPart := mantissa, ""
+	if i := strings.IndexByte(mantissa, '.'); i >= 0 {
+		intPart, fracPart = mantissa[:i], mantissa[i+1:]
+	}
+	if intPart == "" && fracPart == "" {
+		return 0, false
+	}
+	if !allDigits(intPart) || !allDigits(fracPart) {
+		return 0, false
+	}
+	// Significant digits; leading zeros never affect the value. An all-zero
+	// mantissa is exactly 0 for any exponent — handle before the append-zeros
+	// guard, which is keyed off the exponent.
+	digits := strings.TrimLeft(intPart+fracPart, "0")
+	if digits == "" {
+		return 0, true
+	}
+	r := len(fracPart) - exp // digits to the right of the decimal point
+	var magStr string
+	if r <= 0 {
+		zeros := -r
+		// int64 has at most 19 digits; bound BEFORE building the string so a huge
+		// exponent like "1e2147483647" can't allocate gigabytes. Check zeros
+		// alone first to avoid int overflow when exp is enormous.
+		if zeros > 19 || len(digits) > 19 || len(digits)+zeros > 19 {
+			return 0, false
+		}
+		magStr = digits + strings.Repeat("0", zeros)
+	} else {
+		// digits is non-empty with a non-zero leading byte, so if every digit is
+		// fractional the value is < 1 and not whole.
+		if r >= len(digits) {
+			return 0, false
+		}
+		head, tail := digits[:len(digits)-r], digits[len(digits)-r:]
+		if !allZero(tail) {
+			return 0, false
+		}
+		magStr = head
+	}
+	// Parse the unsigned magnitude, then apply the sign with an explicit range
+	// check so that math.MinInt64 (magnitude 2^63, which does not fit int64) is
+	// preserved for float-like spellings like "-9223372036854775808.0".
+	mag, err := strconv.ParseUint(magStr, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if neg {
+		switch {
+		case mag < uint64(math.MaxInt64)+1:
+			return -int64(mag), true
+		case mag == uint64(math.MaxInt64)+1:
+			return math.MinInt64, true
+		default:
+			return 0, false
+		}
+	}
+	if mag > uint64(math.MaxInt64) {
+		return 0, false
+	}
+	return int64(mag), true
+}
+
+func allDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func allZero(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '0' {
+			return false
+		}
+	}
+	return true
 }
