@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unmarshal failure.
 - `Unmarshal` / `UnmarshalPath` now support `any` (`interface{}`) targets,
   decoding a node into the natural Go value (`map[string]any` / `[]any` /
-  `string` / `float64` / `bool` / `nil`).
+  `string` / `int64` for integer-shaped numbers or `float64` otherwise / `bool`
+  / `nil`).
 
 ### Changed
 

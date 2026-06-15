@@ -42,6 +42,9 @@ func (c *Config) UnmarshalPath(path string, v any) error {
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("hocon: UnmarshalPath requires a non-nil pointer")
 	}
+	if path == "" {
+		return fmt.Errorf("hocon: UnmarshalPath requires a non-empty path")
+	}
 	node, ok := lookupSegments(c.root, splitPath(path))
 	if !ok {
 		return fmt.Errorf("hocon: path %q: key not found", path)

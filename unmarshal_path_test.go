@@ -76,6 +76,14 @@ func TestUnmarshalPath_NestedUnresolved(t *testing.T) {
 	}
 }
 
+func TestUnmarshalPath_EmptyPath_Errors(t *testing.T) {
+	cfg := mustParseCfg(t, `a = 1`)
+	var n int
+	if err := cfg.UnmarshalPath("", &n); err == nil {
+		t.Error("empty path must error")
+	}
+}
+
 func TestUnmarshalPath_NonPointer(t *testing.T) {
 	cfg := mustParseCfg(t, `port = 1`)
 	var n int
