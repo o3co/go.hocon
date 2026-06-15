@@ -143,6 +143,53 @@ func TestUnmarshalIntCoercion_AllZeroMantissaIsZero(t *testing.T) {
 	}
 }
 
+func TestUnmarshalIntCoercion_PlusSignAndZeroDot(t *testing.T) {
+	cfg := mustParseCfg(t, `a = "+1.0"
+	                        b = "5."
+	                        c = ".5"`)
+	var s struct {
+		A int64 `hocon:"a"`
+		B int64 `hocon:"b"`
+	}
+	if err := cfg.Unmarshal(&s); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if s.A != 1 || s.B != 5 {
+		t.Errorf("got %+v, want {1 5}", s)
+	}
+	// ".5" is not whole
+	var c struct {
+		C int64 `hocon:"c"`
+	}
+	if err := cfg.Unmarshal(&c); err == nil {
+		t.Errorf(".5 must error, got %d", c.C)
+	}
+}
+
+func TestUnmarshalIntCoercion_MalformedAndOutOfRangeRejected(t *testing.T) {
+	// Quoted so they reach the coercion path as string scalars rather than being
+	// rejected by the number lexer. Covers: non-float-like, multiple dots /
+	// non-digit runs, empty mantissa, and magnitudes that overflow int64/uint64
+	// (positive and the negative >int64 magnitude branch).
+	for _, conf := range []string{
+		`n = "abcd"`, // no '.'/'e'/'E' — hits the non-float-like early return
+		`n = "1.2.3"`,
+		`n = "1a.0"`,
+		`n = "."`,
+		`n = "12345678901234567890.0"`,    // 20-digit int part > int64 max
+		`n = "-18000000000000000000.0"`,   // ~1.8e19: fits uint64, exceeds int64
+		`n = "999999999999999999999.0"`,   // 21 digits > uint64 max (ParseUint err)
+	} {
+		cfg := mustParseCfg(t, conf)
+		var s struct {
+			N int64 `hocon:"n"`
+		}
+		if err := cfg.Unmarshal(&s); err == nil {
+			t.Errorf("%s must error, got %d", conf, s.N)
+		}
+	}
+}
+
 func TestUnmarshalIntCoercion_LeadingZeroFloatForms(t *testing.T) {
 	cfg := mustParseCfg(t, "a = 0100.0\nb = 0001e3")
 	var s struct {
