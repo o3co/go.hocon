@@ -176,9 +176,9 @@ func TestUnmarshalIntCoercion_MalformedAndOutOfRangeRejected(t *testing.T) {
 		`n = "1.2.3"`,
 		`n = "1a.0"`,
 		`n = "."`,
-		`n = "12345678901234567890.0"`,    // 20-digit int part > int64 max
-		`n = "-18000000000000000000.0"`,   // ~1.8e19: fits uint64, exceeds int64
-		`n = "999999999999999999999.0"`,   // 21 digits > uint64 max (ParseUint err)
+		`n = "12345678901234567890.0"`,  // 20-digit int part > int64 max
+		`n = "-18000000000000000000.0"`, // ~1.8e19: fits uint64, exceeds int64
+		`n = "999999999999999999999.0"`, // 21 digits > uint64 max (ParseUint err)
 	} {
 		cfg := mustParseCfg(t, conf)
 		var s struct {
