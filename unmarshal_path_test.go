@@ -125,6 +125,24 @@ func TestUnmarshalPath_NullAnyResetsToNil(t *testing.T) {
 	}
 }
 
+func TestUnmarshalPath_NonNumericObjectToSlice_Errors(t *testing.T) {
+	// A non-numeric-keyed object is not convertible to an array.
+	cfg := mustParseCfg(t, `m { foo = "a", bar = "b" }`)
+	var v []string
+	if err := cfg.UnmarshalPath("m", &v); err == nil {
+		t.Error("non-numeric object -> slice must error")
+	}
+}
+
+func TestUnmarshalPath_ScalarToSlice_Errors(t *testing.T) {
+	// A scalar (neither array nor object) is not a slice.
+	cfg := mustParseCfg(t, `n = 5`)
+	var v []int
+	if err := cfg.UnmarshalPath("n", &v); err == nil {
+		t.Error("scalar -> slice must error")
+	}
+}
+
 func TestUnmarshal_IntCoercion_NonWholeRejected(t *testing.T) {
 	cfg := mustParseCfg(t, `n = 1.5`)
 	var s struct {

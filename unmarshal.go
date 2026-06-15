@@ -89,11 +89,9 @@ func unmarshalVal(val resolver.Val, target reflect.Value) error {
 			target.Set(reflect.Zero(target.Type()))
 			return nil
 		}
-		av := reflect.ValueOf(a)
-		if !av.Type().AssignableTo(target.Type()) {
-			return fmt.Errorf("hocon: cannot assign %T to %s", a, target.Type())
-		}
-		target.Set(av)
+		// target is the empty interface here (non-empty rejected above), so any
+		// concrete value from valToAny is assignable.
+		target.Set(reflect.ValueOf(a))
 		return nil
 	default:
 		return unmarshalScalar(val, target)
