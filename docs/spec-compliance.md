@@ -414,8 +414,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13.11** Optional undefined in field value → field not created — §Substitutions (L632)
-  tests: internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); config_test.go:274 (TestUnsetEnvVarOptional)
-  status: ✅ — the lenient-mode nested-include drop ([#45](https://github.com/o3co/go.hocon/issues/45), closed completed) is fixed: a parent defining `parent_key = "x"` that includes a child with `child = ${?parent_key}` now resolves `child` to `"x"` (verified by runtime probe, 2026-07-14).
+  tests: internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); config_test.go:274 (TestUnsetEnvVarOptional); issue45_test.go (TestIssue45_* nested-include regression suite)
+  status: ✅ — the lenient-mode nested-include drop ([#45](https://github.com/o3co/go.hocon/issues/45), closed completed) is fixed: a parent defining `parent_key = "x"` that includes a child with `child = ${?parent_key}` resolves `child` to `"x"`, pinned by the issue45_test.go regression suite (TestIssue45_OptionalSubstThroughIncludeResolvesAgainstParent and 3 sibling cases).
 
 - **S13.12** Optional undefined in array element → element not added — §Substitutions (L635)
   tests: spec_phase5_test.go (TestSpec_S13_12_OptionalUndefinedInArrayElementSkipped)
