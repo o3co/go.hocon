@@ -288,8 +288,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S10.15** Quoted whitespace between obj/array substitutions is an error — §Concatenation with whitespace (L442)
-  tests: spec_phase5_test.go (TestSpec_S10_15_QuotedWSBetweenArraySubsts_Pin, TestSpec_S10_15_QuotedWSBetweenArraySubsts_Spec)
-  status: ❌ ([#83](https://github.com/o3co/go.hocon/issues/83)) — `${a} " " ${b}` where a, b are arrays is silently accepted and arrays are merged; spec requires error
+  tests: spec_phase5_test.go (TestSpec_S10_15_QuotedWSBetweenArraySubsts_Spec)
+  status: ✅ — `${a} " " ${b}` where a, b are arrays now errors ([#83](https://github.com/o3co/go.hocon/issues/83) fixed); the spec test runs unconditionally and passes, and the former pin test was removed with the fix.
 
 - **S10.16** Non-newline whitespace in arrays is concat, not separator — §Arrays without commas or newlines (L447)
   tests: spec_phase5_test.go (TestSpec_S10_16_WhitespaceInArrayIsConcat)
@@ -415,7 +415,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S13.11** Optional undefined in field value → field not created — §Substitutions (L632)
   tests: internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); config_test.go:274 (TestUnsetEnvVarOptional)
-  status: ⚠️ ([#45](https://github.com/o3co/go.hocon/issues/45))
+  status: ✅ — the lenient-mode nested-include drop ([#45](https://github.com/o3co/go.hocon/issues/45), closed completed) is fixed: a parent defining `parent_key = "x"` that includes a child with `child = ${?parent_key}` now resolves `child` to `"x"` (verified by runtime probe, 2026-07-14).
 
 - **S13.12** Optional undefined in array element → element not added — §Substitutions (L635)
   tests: spec_phase5_test.go (TestSpec_S13_12_OptionalUndefinedInArrayElementSkipped)
@@ -430,8 +430,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13.15** `foo : ${?bar}${?baz}` skipped only when BOTH undefined — §Substitutions (L640)
-  tests: spec_phase5_test.go (TestSpec_S13_15_BothUndefined_Pin, TestSpec_S13_15_BothUndefined_Spec, TestSpec_S13_15_OneDefinedCreatesField)
-  status: ❌ ([#78](https://github.com/o3co/go.hocon/issues/78)) — `foo = ${?bar}${?baz}` creates field with value "" when both undefined; spec requires field to be omitted entirely
+  tests: spec_phase5_test.go (TestSpec_S13_15_BothUndefined_Spec, TestSpec_S13_15_OneDefinedCreatesField)
+  status: ✅ — when both `${?bar}` and `${?baz}` are undefined, `foo` is omitted entirely ([#78](https://github.com/o3co/go.hocon/issues/78) fixed); the spec test passes and the former pin test was removed with the fix.
 
 - **S13.16** Substitutions only in field values / array elements — §Substitutions (L644)
   tests: internal/parser/parser_test.go:746 (TestSpecS13_16_SubstOnlyInFieldValuesNotKeys)
