@@ -16,7 +16,7 @@ A [Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) pars
 
 **Library stance** -- go.hocon is a HOCON config loader, not a low-level parser API. Its purpose is reading `.hocon` files and providing typed access via the Config API (`GetString`, `GetInt`, `GetFloat64`, `GetBool`, `GetDuration`, `GetBytes`, `Unmarshal`). Internal types such as `ScalarVal` may change between minor versions.
 
-**Cross-language conformance** -- This implementation is tested against shared expected-JSON fixtures from [o3co/xx.hocon](https://github.com/o3co/xx.hocon) alongside [ts.hocon](https://github.com/o3co/ts.hocon) and [rs.hocon](https://github.com/o3co/rs.hocon) to ensure all three implementations meet the same Lightbend HOCON specification.
+**Cross-language conformance** -- This implementation is tested against shared expected-JSON fixtures from [o3co/xx.hocon](https://github.com/o3co/xx.hocon) alongside [ts.hocon](https://github.com/o3co/ts.hocon), [rs.hocon](https://github.com/o3co/rs.hocon), and [py.hocon](https://github.com/o3co/py.hocon) to ensure all four implementations meet the same Lightbend HOCON specification.
 
 ---
 
@@ -323,9 +323,10 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 |---------|----------|----------|-------------|
 | [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | [npm](https://www.npmjs.com/package/@o3co/ts.hocon) | HOCON parser for TypeScript/Node.js |
 | [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/o3co-hocon) | HOCON parser for Rust |
+| [py.hocon](https://github.com/o3co/py.hocon) | Python | [PyPI](https://pypi.org/project/hocon-parser/) | HOCON parser for Python |
 | [hocon2](https://github.com/o3co/hocon2) | Go | [pkg.go.dev](https://pkg.go.dev/github.com/o3co/hocon2) | HOCON → JSON/YAML/TOML/Properties CLI |
 
-The three parser implementations ([ts.hocon](https://github.com/o3co/ts.hocon), [rs.hocon](https://github.com/o3co/rs.hocon), [go.hocon](https://github.com/o3co/go.hocon)) are all tracked against the same Lightbend HOCON spec — see the [cross-impl roll-up](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) for per-impl conformance rates.
+The four parser implementations ([ts.hocon](https://github.com/o3co/ts.hocon), [rs.hocon](https://github.com/o3co/rs.hocon), [go.hocon](https://github.com/o3co/go.hocon), [py.hocon](https://github.com/o3co/py.hocon)) are all tracked against the same Lightbend HOCON spec — see the [cross-impl roll-up](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) for per-impl conformance rates.
 
 ## Best Practices
 
