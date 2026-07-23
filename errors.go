@@ -63,7 +63,10 @@ func (e *ResolveError) Error() string {
 	return fmt.Sprintf("resolve error: %s", e.Message)
 }
 
-// ConfigError is used in panics from GetXxx methods.
+// ConfigError is the type-mismatch error class: used in panics from GetXxx
+// methods, returned by the GetXxxE variants, and returned by the Parse*
+// functions for an array-root document (S3.5 — the Lightbend WrongType
+// analog, where Path is empty because the mismatch is at the file root).
 type ConfigError struct {
 	Message string
 	Path    string // HOCON access path e.g. "server.host"
@@ -71,6 +74,10 @@ type ConfigError struct {
 }
 
 func (e *ConfigError) Error() string {
+	if e.Path == "" {
+		// File-root errors (S3.5 array-at-root) have no access path.
+		return fmt.Sprintf("config error: %s", e.Message)
+	}
 	return fmt.Sprintf("config error at path %q: %s", e.Path, e.Message)
 }
 

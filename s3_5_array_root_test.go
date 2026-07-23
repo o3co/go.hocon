@@ -192,3 +192,69 @@ func TestS3_5_ArrayRoot_Conformance(t *testing.T) {
 		})
 	}
 }
+
+// TestS3_5_NestedIncludeNamesInnermostFile pins that a nested include chain
+// (parent -> mid -> arr) names the innermost file that actually has the array
+// root — not an intermediate file. Regression guard for the conversion living
+// at the ParseBytes site rather than in loadIncludeFile (where errors.Is
+// re-fired at each level and re-wrapped with the outer file's path).
+func TestS3_5_NestedIncludeNamesInnermostFile(t *testing.T) {
+	dir := t.TempDir()
+	arrFile := filepath.Join(dir, "arr.conf")
+	if err := os.WriteFile(arrFile, []byte("[1,2]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	midFile := filepath.Join(dir, "mid.conf")
+	if err := os.WriteFile(midFile, []byte("include \"arr.conf\"\nb = 2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainFile := filepath.Join(dir, "parent.conf")
+	if err := os.WriteFile(mainFile, []byte("include \"mid.conf\"\na = 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := hocon.ParseFile(mainFile)
+	if err == nil {
+		t.Fatal("expected array-at-file-root error through the nested chain, got nil")
+	}
+	var re *hocon.ResolveError
+	if !errors.As(err, &re) {
+		t.Fatalf("expected *hocon.ResolveError, got %T: %v", err, err)
+	}
+	if !strings.Contains(re.Message, "arr.conf") {
+		t.Errorf("error must name the innermost file arr.conf, got: %s", re.Message)
+	}
+	if strings.Contains(re.Message, "mid.conf") {
+		t.Errorf("error must not accuse the intermediate file mid.conf, got: %s", re.Message)
+	}
+}
+
+// TestS3_5_FileIncludesPackageWithArrayRoot pins the file -> package nesting
+// direction: the error names the package virtual path, not the including file.
+func TestS3_5_FileIncludesPackageWithArrayRoot(t *testing.T) {
+	if err := hocon.RegisterPackage("test/s3-5-nested-pkg", "ref.conf", []byte("[1,2]\n")); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	dir := t.TempDir()
+	midFile := filepath.Join(dir, "mid.conf")
+	if err := os.WriteFile(midFile, []byte("include package(\"test/s3-5-nested-pkg\", \"ref.conf\")\nb = 2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainFile := filepath.Join(dir, "parent.conf")
+	if err := os.WriteFile(mainFile, []byte("include \"mid.conf\"\na = 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := hocon.ParseFile(mainFile)
+	if err == nil {
+		t.Fatal("expected array-at-file-root error through the file->package chain, got nil")
+	}
+	var re *hocon.ResolveError
+	if !errors.As(err, &re) {
+		t.Fatalf("expected *hocon.ResolveError, got %T: %v", err, err)
+	}
+	if !strings.Contains(re.Message, "test/s3-5-nested-pkg") {
+		t.Errorf("error must name the package virtual path, got: %s", re.Message)
+	}
+	if strings.Contains(re.Message, "mid.conf") {
+		t.Errorf("error must not accuse the including file mid.conf, got: %s", re.Message)
+	}
+}

@@ -616,7 +616,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ### S14b. Include semantics: merging
 
 - **S14b.1** Included root must be an object (array → error) — §Include semantics: merging (L993)
-  tests: internal/resolver/resolver_test.go:1166 (TestSpecS14b_1_ArrayRootIncludeIsError); s3_5_array_root_test.go (include + package variants)
+  tests: internal/resolver/resolver_test.go:1341 (TestSpecS14b_1_ArrayRootIncludeIsError); s3_5_array_root_test.go (include + package variants)
   status: ✅ — Diagnostics improved with S3.5 (2026-07-23): the resolver now raises
   `ResolveError` "included file has array at file root … (HOCON.md L993-994)" naming
   the included source (file path or package virtual path), instead of the parser's
