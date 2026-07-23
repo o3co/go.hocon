@@ -99,8 +99,8 @@ func TestIssue105_WhitespaceOnlyIncludeFile(t *testing.T) {
 // TestIssue105_UnicodeWhitespaceOnlyIncludeFile pins the multi-byte
 // whitespace path. HOCON's whitespace set (per HOCON.md §Whitespace) covers
 // NBSP, all Unicode Zs members, U+2028 (line sep), U+2029 (para sep), BOM,
-// etc. An included file containing only these characters must also be
-// treated as empty by the carve-out.
+// etc. An included file containing only these characters must also parse to
+// the empty object (corrected S3.1 — the parser handles it directly).
 func TestIssue105_UnicodeWhitespaceOnlyIncludeFile(t *testing.T) {
 	dir := t.TempDir()
 	uwsFile := filepath.Join(dir, "uws.conf")
@@ -146,11 +146,10 @@ func TestIssue105_BOMOnlyIncludeFile(t *testing.T) {
 	}
 }
 
-// TestIssue105_BlockCommentInIncludeIsRejected pins the narrow scope: HOCON
-// recognises only `#` and `//` comments. A `/* ... */` block-comment-only
-// include is NOT silently treated as empty; it falls through to the parser
-// which reports the syntax error. This guards against the carve-out
-// becoming a backdoor for masking malformed include files.
+// TestIssue105_BlockCommentInIncludeIsRejected: HOCON recognises only `#` and
+// `//` comments. A `/* ... */` block-comment-only document is a syntax error,
+// not an empty document — the S3.1 empty-parses-to-{} rule must not mask
+// malformed include files; the parser reports the syntax error.
 func TestIssue105_BlockCommentInIncludeIsRejected(t *testing.T) {
 	dir := t.TempDir()
 	bcFile := filepath.Join(dir, "block.conf")

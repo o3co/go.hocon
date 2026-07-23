@@ -61,6 +61,30 @@ func TestS3_1_EmptyFile_ParsesToEmptyObject(t *testing.T) {
 	}
 }
 
+// TestS3_1_EmptyDocument_DeferredParse pins the deferred-resolution path
+// (WithResolveSubstitutions(false)): an empty document parses to an empty
+// unresolved Config the same way the default path does — the parser is the
+// single gate for the corrected S3.1 rule.
+func TestS3_1_EmptyDocument_DeferredParse(t *testing.T) {
+	cfg, err := hocon.ParseStringWithOptions("", hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+	if err != nil {
+		t.Fatalf("deferred ParseStringWithOptions(\"\"): expected empty config, got error: %v", err)
+	}
+	if keys := cfg.Keys(); len(keys) != 0 {
+		t.Errorf("deferred parse of empty document: expected no keys, got %v", keys)
+	}
+}
+
+// TestS3_1_BlockCommentOnlyTopLevelIsRejected: HOCON recognises only `#` and
+// `//` comments. A `/* ... */`-only document is a syntax error, not an empty
+// document — the S3.1 empty-parses-to-{} rule must not mask malformed files.
+// (The include-path variant is pinned in issue105_test.go.)
+func TestS3_1_BlockCommentOnlyTopLevelIsRejected(t *testing.T) {
+	if _, err := hocon.ParseString("/* multi\nline\ncomment */\n"); err == nil {
+		t.Error("ParseString on block-comment-only input succeeded; expected syntax error")
+	}
+}
+
 // TestS3_1_NonEmpty_Accepted are positive guards: these must parse without error.
 func TestS3_1_NonEmpty_Accepted(t *testing.T) {
 	cases := []struct {
