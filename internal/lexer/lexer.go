@@ -827,7 +827,6 @@ func (l *Lexer) readNumber(line, col int) Token {
 	return Token{Type: tt, Value: string(l.src[startPos:lastValidEnd]), Line: line, Col: startCol}
 }
 
-
 // isHoconWhitespace reports whether r is a HOCON whitespace character per
 // HOCON.md §Whitespace (L165-184). The set is:
 //
