@@ -55,6 +55,18 @@ func parseWithOptions(input, filePath string, opts ParseOptions) (*Config, error
 	}
 	ast, err := parser.Parse(input)
 	if err != nil {
+		// S3.5: an array-root document parsed successfully — the rejection is
+		// a TYPE error at the Config boundary (Lightbend WrongType analog),
+		// not a syntax error, so it maps to ConfigError rather than ParseError.
+		if errors.Is(err, parser.ErrArrayAtRoot) {
+			msg := err.Error()
+			if filePath != "" {
+				msg = filePath + ": " + msg
+			} else if od := opts.OriginDescription(); od != "" {
+				msg = od + ": " + msg
+			}
+			return nil, &ConfigError{Message: msg}
+		}
 		pe := &ParseError{FilePath: filePath}
 		if filePath == "" {
 			pe.OriginDescription = opts.OriginDescription()

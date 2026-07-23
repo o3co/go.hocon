@@ -9,6 +9,7 @@
 package resolver
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1645,6 +1646,18 @@ func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, erro
 	// itself (parseRoot returns an empty ObjectNode for an EOF-only stream).
 	obj, err := r.parseAndResolve(data, path)
 	if err != nil {
+		// S14b.1 (HOCON.md L993-994): an included file must contain an object,
+		// not an array. The document is valid syntax (S3.5) — surface the type
+		// constraint as a ResolveError naming the included file, matching
+		// Lightbend's forceParsedToObject on the include path.
+		if errors.Is(err, parser.ErrArrayAtRoot) {
+			return nil, &ResolveError{
+				Message:  fmt.Sprintf("included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994): %s", path),
+				Path:     path,
+				FilePath: path,
+				Cause:    err,
+			}
+		}
 		return nil, err
 	}
 
@@ -1732,6 +1745,15 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 	virtualPath := fmt.Sprintf("package:%s:%s", identifier, file)
 	obj, err := r.parseAndResolvePackage(content, virtualPath)
 	if err != nil {
+		// S14b.1: registered package content with an array root — same type
+		// constraint as file includes, naming the virtual package path.
+		if errors.Is(err, parser.ErrArrayAtRoot) {
+			return nil, &ResolveError{
+				Message: fmt.Sprintf("included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994): %s", virtualPath),
+				Path:    virtualPath,
+				Cause:   err,
+			}
+		}
 		return nil, err
 	}
 	return obj, nil
@@ -1743,10 +1765,13 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*ObjectVal, error) {
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
-		// Wrap raw parser error with package context so the user knows which package failed.
+		// Wrap raw parser error with package context so the user knows which
+		// package failed. Cause preserves the chain so callers (e.g. the S3.5
+		// ErrArrayAtRoot check in loadPackageInclude) can errors.Is through it.
 		return nil, &ResolveError{
 			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
 			FilePath: virtualPath,
+			Cause:    err,
 		}
 	}
 	childResolver := &resolver{

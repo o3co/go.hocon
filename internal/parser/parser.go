@@ -9,6 +9,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -62,6 +63,14 @@ func ValidatePackageFile(file string) error {
 	return nil
 }
 
+// ErrArrayAtRoot marks a syntactically valid array-root document rejected by
+// the object-rooted Config API (S3.5, HOCON.md L989-991). The parser parses
+// the array successfully and returns an error wrapping this sentinel; the
+// public boundary (hocon.parseWithOptions) converts it to the type-mismatch
+// error class, and the resolver converts it for include paths (S14b.1,
+// HOCON.md L993-994). Detect with errors.Is.
+var ErrArrayAtRoot = errors.New("document has type array rather than object at file root")
+
 // Parse parses a HOCON string and returns the root ObjectNode.
 // The input may omit outer braces (root object shorthand).
 func Parse(src string) (*ObjectNode, error) {
@@ -98,6 +107,23 @@ func (p *parser) parseRoot() (*ObjectNode, error) {
 	// brace-omission relaxation (L130-132 is the JSON baseline). An EOF-only
 	// stream falls through to parseObjectFields(false), which returns an
 	// empty ObjectNode.
+	// S3.5 (HOCON.md L989-991): "both JSON and HOCON allow arrays as root
+	// values in a document" — an array-root document is valid syntax. Parse
+	// the array fully (malformed arrays and trailing content stay syntax
+	// errors), then return ErrArrayAtRoot so the Config boundary can reject
+	// it as a TYPE error, matching Lightbend's Parseable.forceParsedToObject
+	// (WrongType "has type LIST rather than object at file root").
+	if p.current.Type == lexer.TokenLBracket {
+		line, col := p.current.Line, p.current.Col
+		if _, err := p.parseArray(); err != nil {
+			return nil, err
+		}
+		p.skipNewlines()
+		if p.current.Type != lexer.TokenEOF {
+			return nil, newError(p.current.Line, p.current.Col, "unexpected token after root array")
+		}
+		return nil, fmt.Errorf("%d:%d: %w (HOCON.md L989-991); the Config API requires an object at file root", line, col, ErrArrayAtRoot)
+	}
 	// root may be a bare object (no braces) or an explicit { ... }
 	if p.current.Type != lexer.TokenLBrace {
 		return p.parseObjectFields(false)
