@@ -68,7 +68,7 @@ func TestS3_5_ArrayRoot_TopLevelIsTypeError(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := hocon.ParseString(tc.src)
-			requireConfigError(t, err, tc.name)
+			_ = requireConfigError(t, err, tc.name)
 		})
 	}
 }
@@ -83,7 +83,7 @@ func TestS3_5_ArrayRoot_ErrorCarriesPosition(t *testing.T) {
 
 func TestS3_5_ArrayRoot_DeferredLifecycle(t *testing.T) {
 	_, err := hocon.ParseStringWithOptions("[1,2]", hocon.DefaultParseOptions().WithResolveSubstitutions(false))
-	requireConfigError(t, err, "deferred")
+	_ = requireConfigError(t, err, "deferred")
 }
 
 func TestS3_5_MalformedArraysStaySyntaxErrors(t *testing.T) {
