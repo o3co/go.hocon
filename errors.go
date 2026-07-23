@@ -44,6 +44,15 @@ type ResolveError struct {
 	Col               int
 	FilePath          string // file path when resolving an include
 	OriginDescription string // E12: user-supplied label when no FilePath available
+	// Cause is the underlying error that triggered this resolve error, if
+	// any (e.g. the S3.5 array-at-root sentinel on include paths). Traverse
+	// with errors.Is / errors.As via Unwrap.
+	Cause error
+}
+
+// Unwrap returns the underlying cause for errors.Is / errors.As.
+func (e *ResolveError) Unwrap() error {
+	return e.Cause
 }
 
 func (e *ResolveError) Error() string {

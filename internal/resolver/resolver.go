@@ -1666,8 +1666,11 @@ func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, er
 		// at the ParseBytes site (not in loadIncludeFile) so nested include
 		// chains name the innermost file that actually has the array root.
 		if errors.Is(err, parser.ErrArrayAtRoot) {
+			// The included-source identity lives in FilePath (the public
+			// Error() prefixes it); keeping it out of Message avoids the
+			// path rendering twice.
 			return nil, &ResolveError{
-				Message:  fmt.Sprintf("included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994): %s", filePath),
+				Message:  "included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994)",
 				FilePath: filePath,
 				Cause:    err,
 			}
@@ -1761,8 +1764,9 @@ func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*Obj
 		// Converted here (the ParseBytes site) so nested chains name the
 		// innermost source.
 		if errors.Is(err, parser.ErrArrayAtRoot) {
+			// Same as the file-include variant: identity in FilePath only.
 			return nil, &ResolveError{
-				Message:  fmt.Sprintf("included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994): %s", virtualPath),
+				Message:  "included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994)",
 				FilePath: virtualPath,
 				Cause:    err,
 			}

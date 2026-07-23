@@ -128,12 +128,20 @@ func TestS3_5_IncludeOfArrayRootNamesIncludedFile(t *testing.T) {
 	if !strings.Contains(re.Message, "array at file root") {
 		t.Errorf("message must name the array-at-file-root condition, got: %s", re.Message)
 	}
+	// The included-source identity is carried in FilePath (rendered by
+	// Error()), not embedded in Message.
+	if !strings.Contains(re.FilePath, "arr.conf") {
+		t.Errorf("FilePath must name the included file, got: %q", re.FilePath)
+	}
 	if !strings.Contains(err.Error(), "arr.conf") {
-		t.Errorf("error must name the included file, got: %v", err)
+		t.Errorf("rendered error must name the included file, got: %v", err)
 	}
 }
 
 func TestS3_5_PackageIncludeOfArrayRootIsError(t *testing.T) {
+	// Global registry isolation (same idiom as e11_include_package_test.go).
+	hocon.ResetPackageRegistry()
+	t.Cleanup(hocon.ResetPackageRegistry)
 	if err := hocon.RegisterPackage("test/s3-5-array-root", "ref.conf", []byte("[1,2]\n")); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -220,17 +228,20 @@ func TestS3_5_NestedIncludeNamesInnermostFile(t *testing.T) {
 	if !errors.As(err, &re) {
 		t.Fatalf("expected *hocon.ResolveError, got %T: %v", err, err)
 	}
-	if !strings.Contains(re.Message, "arr.conf") {
-		t.Errorf("error must name the innermost file arr.conf, got: %s", re.Message)
+	if !strings.Contains(re.FilePath, "arr.conf") {
+		t.Errorf("FilePath must name the innermost file arr.conf, got: %q", re.FilePath)
 	}
-	if strings.Contains(re.Message, "mid.conf") {
-		t.Errorf("error must not accuse the intermediate file mid.conf, got: %s", re.Message)
+	if strings.Contains(re.FilePath, "mid.conf") || strings.Contains(re.Message, "mid.conf") {
+		t.Errorf("error must not accuse the intermediate file mid.conf, got: %v", re)
 	}
 }
 
 // TestS3_5_FileIncludesPackageWithArrayRoot pins the file -> package nesting
 // direction: the error names the package virtual path, not the including file.
 func TestS3_5_FileIncludesPackageWithArrayRoot(t *testing.T) {
+	// Global registry isolation (same idiom as e11_include_package_test.go).
+	hocon.ResetPackageRegistry()
+	t.Cleanup(hocon.ResetPackageRegistry)
 	if err := hocon.RegisterPackage("test/s3-5-nested-pkg", "ref.conf", []byte("[1,2]\n")); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -251,10 +262,10 @@ func TestS3_5_FileIncludesPackageWithArrayRoot(t *testing.T) {
 	if !errors.As(err, &re) {
 		t.Fatalf("expected *hocon.ResolveError, got %T: %v", err, err)
 	}
-	if !strings.Contains(re.Message, "test/s3-5-nested-pkg") {
-		t.Errorf("error must name the package virtual path, got: %s", re.Message)
+	if !strings.Contains(re.FilePath, "test/s3-5-nested-pkg") {
+		t.Errorf("FilePath must name the package virtual path, got: %q", re.FilePath)
 	}
-	if strings.Contains(re.Message, "mid.conf") {
-		t.Errorf("error must not accuse the including file mid.conf, got: %s", re.Message)
+	if strings.Contains(re.FilePath, "mid.conf") || strings.Contains(re.Message, "mid.conf") {
+		t.Errorf("error must not accuse the including file mid.conf, got: %v", re)
 	}
 }

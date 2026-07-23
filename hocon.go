@@ -135,6 +135,7 @@ func wrapResolveError(err error) error {
 			Line:     re.Line,
 			Col:      re.Col,
 			FilePath: re.FilePath,
+			Cause:    re.Cause,
 		}
 	}
 	return err
