@@ -81,6 +81,29 @@ func TestS3_5_ArrayRoot_ErrorCarriesPosition(t *testing.T) {
 	}
 }
 
+func TestS3_5_ArrayRoot_FileOriginNamed(t *testing.T) {
+	// ParseFile prefixes the ConfigError with the file path (Lightbend origin
+	// parity; the rs/py siblings behave the same).
+	dir := t.TempDir()
+	arrFile := filepath.Join(dir, "arr.conf")
+	if err := os.WriteFile(arrFile, []byte("[1,2]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := hocon.ParseFile(arrFile)
+	ce := requireConfigError(t, err, "file origin")
+	if !strings.Contains(ce.Message, "arr.conf") {
+		t.Errorf("file parse must name the file in the origin, got: %s", ce.Message)
+	}
+}
+
+func TestS3_5_ArrayRoot_CustomOriginNamed(t *testing.T) {
+	_, err := hocon.ParseStringWithOptions("[1,2]", hocon.DefaultParseOptions().WithOriginDescription("my-source"))
+	ce := requireConfigError(t, err, "custom origin")
+	if !strings.Contains(ce.Message, "my-source") {
+		t.Errorf("message must carry the custom origin, got: %s", ce.Message)
+	}
+}
+
 func TestS3_5_ArrayRoot_DeferredLifecycle(t *testing.T) {
 	_, err := hocon.ParseStringWithOptions("[1,2]", hocon.DefaultParseOptions().WithResolveSubstitutions(false))
 	_ = requireConfigError(t, err, "deferred")
@@ -135,6 +158,10 @@ func TestS3_5_IncludeOfArrayRootNamesIncludedFile(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "arr.conf") {
 		t.Errorf("rendered error must name the included file, got: %v", err)
+	}
+	// The cause chain survives the public wrapping (ResolveError.Unwrap).
+	if errors.Unwrap(re) == nil {
+		t.Error("ResolveError must expose its Cause via Unwrap")
 	}
 }
 
