@@ -65,9 +65,9 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 ## S3. Omit root braces
 
-- **S3.1** Empty file is invalid — §Omit root braces (L130)
-  tests: s3_1_empty_file_test.go (TestS3_1_EmptyFile_Error, TestS3_1_NonEmpty_Accepted); spec_phase5_test.go (TestSpec_S3_1_EmptyFileInvalid)
-  status: ✅ — Fixed in cluster 3h (Phase 6). `parseRoot` now rejects EOF-only token streams with a parse error per HOCON.md L130. Covers empty string, whitespace-only, newlines-only, comment-only, BOM-only, and mixed ws+comment inputs. Explicit empty object `{}` and files with content are unaffected.
+- **S3.1** Empty document (empty / whitespace-only / comment-only / BOM-only file) parses to the empty object `{}` — §Omit root braces (L130-136)
+  tests: s3_1_empty_file_test.go (TestS3_1_EmptyFile_ParsesToEmptyObject, TestS3_1_NonEmpty_Accepted); spec_phase5_test.go (TestSpec_S3_1_EmptyDocumentParsesToEmptyObject); issue105_test.go (TestIssue105_TopLevelEmptyParsesToEmptyObject); internal/resolver/package_include_test.go (TestPackageLookupWhitespaceOnlyContentSucceeds)
+  status: ✅ — Corrected 2026-07-23 (xx.hocon E10). The item previously read "Empty file is invalid" — a misreading of the L130-132 JSON baseline as HOCON-normative; the L134 brace-omission relaxation makes an empty document the empty object. The cluster 3h `parseRoot` reject-guard (a regression vs. pre-guard releases) is removed; the include-path `isEmptyOrCommentOnlyHocon` carve-out and the package-include zero-byte special-case are gone — empty documents parse to `{}` uniformly on every path.
 
 - **S3.2** Root non-object/non-array is invalid (when explicitly enclosed) — §Omit root braces (L131)
   tests: internal/parser/parser_test.go:532 (TestSpecS3_2_RootNonObjectNonArrayInvalid)

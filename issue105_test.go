@@ -10,10 +10,11 @@ import (
 	"github.com/o3co/go.hocon"
 )
 
-// Issue #105 (cgordon): empty or comment-only included files should
-// contribute an empty config instead of erroring. The narrower scope —
-// include path only — is implemented; top-level empty parses
-// (`ParseString("")`) remain invalid per S3.1 (HOCON.md L130).
+// Issue #105 (cgordon): empty or comment-only included files contribute an
+// empty config. Originally a narrow include-path carve-out while top-level
+// parses still rejected; since the S3.1 correction (xx.hocon E10, 2026-07-23)
+// the same rule applies everywhere — an empty document parses to {} at top
+// level too (HOCON.md §Omit root braces L134-136).
 
 func TestIssue105_EmptyIncludeFile(t *testing.T) {
 	dir := t.TempDir()
@@ -98,8 +99,8 @@ func TestIssue105_WhitespaceOnlyIncludeFile(t *testing.T) {
 // TestIssue105_UnicodeWhitespaceOnlyIncludeFile pins the multi-byte
 // whitespace path. HOCON's whitespace set (per HOCON.md §Whitespace) covers
 // NBSP, all Unicode Zs members, U+2028 (line sep), U+2029 (para sep), BOM,
-// etc. An included file containing only these characters must also be
-// treated as empty by the carve-out.
+// etc. An included file containing only these characters must also parse to
+// the empty object (corrected S3.1 — the parser handles it directly).
 func TestIssue105_UnicodeWhitespaceOnlyIncludeFile(t *testing.T) {
 	dir := t.TempDir()
 	uwsFile := filepath.Join(dir, "uws.conf")
@@ -145,11 +146,10 @@ func TestIssue105_BOMOnlyIncludeFile(t *testing.T) {
 	}
 }
 
-// TestIssue105_BlockCommentInIncludeIsRejected pins the narrow scope: HOCON
-// recognises only `#` and `//` comments. A `/* ... */` block-comment-only
-// include is NOT silently treated as empty; it falls through to the parser
-// which reports the syntax error. This guards against the carve-out
-// becoming a backdoor for masking malformed include files.
+// TestIssue105_BlockCommentInIncludeIsRejected: HOCON recognises only `#` and
+// `//` comments. A `/* ... */` block-comment-only document is a syntax error,
+// not an empty document — the S3.1 empty-parses-to-{} rule must not mask
+// malformed include files; the parser reports the syntax error.
 func TestIssue105_BlockCommentInIncludeIsRejected(t *testing.T) {
 	dir := t.TempDir()
 	bcFile := filepath.Join(dir, "block.conf")
@@ -166,10 +166,10 @@ func TestIssue105_BlockCommentInIncludeIsRejected(t *testing.T) {
 	}
 }
 
-// TestIssue105_TopLevelEmptyStillRejected pins the narrower scope: only
-// the include path treats empty/comment-only as no-op. ParseString of an
-// empty top-level document still errors per S3.1 (HOCON.md L130).
-func TestIssue105_TopLevelEmptyStillRejected(t *testing.T) {
+// TestIssue105_TopLevelEmptyParsesToEmptyObject pins top-level parity with the
+// include path: an empty document parses to {} everywhere per the corrected
+// S3.1 (HOCON.md L134-136; the former rejection was revoked — xx.hocon E10).
+func TestIssue105_TopLevelEmptyParsesToEmptyObject(t *testing.T) {
 	cases := []struct {
 		name string
 		src  string
@@ -181,8 +181,12 @@ func TestIssue105_TopLevelEmptyStillRejected(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := hocon.ParseString(tc.src); err == nil {
-				t.Errorf("ParseString(%q) succeeded; spec S3.1 requires rejection", tc.src)
+			cfg, err := hocon.ParseString(tc.src)
+			if err != nil {
+				t.Fatalf("ParseString(%q): expected empty config per corrected S3.1, got error: %v", tc.src, err)
+			}
+			if keys := cfg.Keys(); len(keys) != 0 {
+				t.Errorf("ParseString(%q): expected empty config, got keys %v", tc.src, keys)
 			}
 		})
 	}

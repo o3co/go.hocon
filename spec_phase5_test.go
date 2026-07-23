@@ -93,18 +93,24 @@ func TestSpec_S1_1_InvalidUTF8_Spec(t *testing.T) {
 	}
 }
 
-// ── S3.1: empty file is invalid ──────────────────────────────────────────────
+// ── S3.1: empty document parses to {} ────────────────────────────────────────
 
-// TestSpec_S3_1_EmptyFileInvalid asserts that empty and comment-only inputs are
-// rejected by ParseString with a non-nil error (HOCON.md L130, fixed in cluster 3h).
+// TestSpec_S3_1_EmptyDocumentParsesToEmptyObject asserts that empty and
+// comment-only inputs parse to an empty config (HOCON.md L134-136 brace-omission
+// relaxation; the former L130-based rejection misread the JSON baseline as
+// HOCON-normative — corrected 2026-07-23, xx.hocon E10).
 // Positive guards (explicit empty object, single field, comment+field) must succeed.
-func TestSpec_S3_1_EmptyFileInvalid(t *testing.T) {
-	errInputs := []string{"", "   ", "\n\n", "# only comment\n", "\xef\xbb\xbf", "  # x \n  \n"}
-	for _, src := range errInputs {
+func TestSpec_S3_1_EmptyDocumentParsesToEmptyObject(t *testing.T) {
+	emptyInputs := []string{"", "   ", "\n\n", "# only comment\n", "\xef\xbb\xbf", "  # x \n  \n"}
+	for _, src := range emptyInputs {
 		src := src
-		t.Run("error/"+fmt.Sprintf("%q", src), func(t *testing.T) {
-			if _, err := hocon.ParseString(src); err == nil {
-				t.Errorf("expected error for empty input %q, got nil", src)
+		t.Run("empty/"+fmt.Sprintf("%q", src), func(t *testing.T) {
+			cfg, err := hocon.ParseString(src)
+			if err != nil {
+				t.Fatalf("expected empty config for %q per corrected S3.1, got error: %v", src, err)
+			}
+			if keys := cfg.Keys(); len(keys) != 0 {
+				t.Errorf("expected empty config for %q, got keys %v", src, keys)
 			}
 		})
 	}

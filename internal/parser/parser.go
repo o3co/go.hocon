@@ -92,15 +92,12 @@ func (p *parser) skipNewlines() {
 
 func (p *parser) parseRoot() (*ObjectNode, error) {
 	p.skipNewlines()
-	// S3.1: empty file is invalid (HOCON.md L130). After stripping newlines,
-	// if only EOF remains the document has no semantic content — reject it.
-	// This covers: empty string, whitespace-only, newlines-only, comment-only,
-	// BOM-only, and mixed whitespace+comment inputs. The lexer strips BOM at
-	// init and strips comments in skipWhitespaceAndComments, so they produce
-	// no tokens other than newlines and EOF.
-	if p.current.Type == lexer.TokenEOF {
-		return nil, newError(1, 1, "empty file is not a valid HOCON document (HOCON.md L130)")
-	}
+	// S3.1 (corrected, xx.hocon E10): an empty document — empty string,
+	// whitespace-only, newlines-only, comment-only, BOM-only, or mixed — is
+	// valid HOCON and parses to the empty object, per the HOCON.md L134-136
+	// brace-omission relaxation (L130-132 is the JSON baseline). An EOF-only
+	// stream falls through to parseObjectFields(false), which returns an
+	// empty ObjectNode.
 	// root may be a bare object (no braces) or an explicit { ... }
 	if p.current.Type != lexer.TokenLBrace {
 		return p.parseObjectFields(false)

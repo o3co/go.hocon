@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/o3co/go.hocon/internal/lexer"
 	"github.com/o3co/go.hocon/internal/parser"
@@ -1640,62 +1639,16 @@ func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, erro
 		return propsToObjectVal(properties.Parse(string(data))), nil
 	}
 
-	// Lightbend-compat carve-out for #105: an empty or comment-only include
-	// file contributes nothing instead of erroring with "empty file is not a
-	// valid HOCON document". Top-level empty parses (ParseString("")) remain
-	// invalid per spec S3.1 (HOCON.md L130); this carve-out applies ONLY to
-	// the include path so the common optional-override-file pattern works.
-	if isEmptyOrCommentOnlyHocon(data) {
-		return newObjectVal(), nil
-	}
-
+	// S3.1 (corrected, xx.hocon E10): an empty / whitespace-only / comment-only
+	// include file parses to the empty object naturally — the former #105
+	// Lightbend-compat carve-out is now simply the rule, enforced by the parser
+	// itself (parseRoot returns an empty ObjectNode for an EOF-only stream).
 	obj, err := r.parseAndResolve(data, path)
 	if err != nil {
 		return nil, err
 	}
 
 	return obj, nil
-}
-
-// isEmptyOrCommentOnlyHocon reports whether the given HOCON source has no
-// semantic content — i.e. only HOCON whitespace (per the lexer's full
-// definition — including NBSP, Unicode Zs, U+2028/U+2029, BOM, etc.) and
-// the two HOCON line-comment forms (# and //). Block comments are NOT a
-// HOCON syntax; if `/* ... */` appears, it falls through and the parser
-// produces its proper error. Used by loadIncludeFile to short-circuit the
-// S3.1 empty-document rejection for included files (Lightbend-compat for
-// #105).
-func isEmptyOrCommentOnlyHocon(data []byte) bool {
-	s := string(data)
-	for i := 0; i < len(s); {
-		// Decode one rune so we treat all HOCON whitespace (NBSP, U+2028,
-		// U+FEFF, etc. — multi-byte under UTF-8) consistently with the lexer.
-		r, size := utf8.DecodeRuneInString(s[i:])
-		// HOCON whitespace (per lexer.isHoconWhitespace) covers LF as well as
-		// BOM at any position, not just the leading byte — so a single
-		// IsHoconWhitespace check is sufficient.
-		if lexer.IsHoconWhitespace(r) {
-			i += size
-			continue
-		}
-		if r == '#' {
-			// # line comment — skip until newline or EOF.
-			for i < len(s) && s[i] != '\n' {
-				i++
-			}
-			continue
-		}
-		if r == '/' && i+1 < len(s) && s[i+1] == '/' {
-			// // line comment — skip until newline or EOF.
-			i += 2
-			for i < len(s) && s[i] != '\n' {
-				i++
-			}
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 // parseAndResolve parses raw HOCON/JSON data and builds it into an UNRESOLVED
@@ -1768,10 +1721,9 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 		}
 	}
 
-	// Empty content is not a failure — contributes empty object per E11 decision 4 note.
-	if len(content) == 0 {
-		return newObjectVal(), nil
-	}
+	// S3.1 (corrected, xx.hocon E10): empty / whitespace-only / comment-only
+	// content parses to the empty object naturally and contributes {} (E11
+	// decision 4 note) — no zero-byte special-case needed.
 
 	// Build a synthetic virtual path used as a descriptive label in error messages.
 	// parseAndResolvePackage inherits r.opts.BaseDir for any nested file includes
