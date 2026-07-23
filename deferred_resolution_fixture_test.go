@@ -315,10 +315,12 @@ func categoryMatches(category string, err error) bool {
 	case "NotResolved":
 		return errors.Is(err, hocon.ErrNotResolved)
 	case "TypeError":
-		// go.hocon currently surfaces type errors as parse or resolve errors.
+		// go.hocon surfaces type errors as parse, resolve, or config errors
+		// (ConfigError since S3.5 — the array-at-file-root class).
 		var pe *hocon.ParseError
 		var re *hocon.ResolveError
-		return errors.As(err, &pe) || errors.As(err, &re)
+		var ce *hocon.ConfigError
+		return errors.As(err, &pe) || errors.As(err, &re) || errors.As(err, &ce)
 	case "CycleError":
 		// go.hocon surfaces cycles as ResolveError with "circular" / "cycle" / "self-referential" message.
 		var re *hocon.ResolveError

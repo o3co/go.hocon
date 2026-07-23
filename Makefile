@@ -5,7 +5,7 @@ EXPECTED_DIR   := testdata/expected
 .PHONY: testdata test
 
 testdata:
-	@if [ -f .xx-hocon-version ] && [ -d "$(EXPECTED_DIR)" ]; then \
+	@if [ -f .xx-hocon-version ] && [ -d "$(EXPECTED_DIR)" ] && [ -d testdata/hocon/array-root ]; then \
 	  remote_sha=$$(curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4) && \
 	  local_sha=$$(cat .xx-hocon-version) && \
 	  if [ "$$remote_sha" = "$$local_sha" ]; then \
@@ -75,6 +75,10 @@ testdata:
 	if [ -d "$$tmpdir/testdata/hocon/self-ref-lookback" ]; then \
 	  mkdir -p testdata/hocon/self-ref-lookback && \
 	  cp "$$tmpdir/testdata/hocon/self-ref-lookback/"*.conf testdata/hocon/self-ref-lookback/ 2>/dev/null || true; \
+	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/array-root" ]; then \
+	  mkdir -p testdata/hocon/array-root && \
+	  cp "$$tmpdir/testdata/hocon/array-root/"*.conf testdata/hocon/array-root/ 2>/dev/null || true; \
 	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"

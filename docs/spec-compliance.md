@@ -1,6 +1,6 @@
 # HOCON Spec Compliance — go.hocon
 
-This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx.hocon/blob/main/docs/spec-checklist.md) with go.hocon-specific status and test references. It inherits all 209 items in the same order; description lines are verbatim from the template and must not be edited here.
+This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx.hocon/blob/main/docs/spec-checklist.md) with go.hocon-specific status and test references. It inherits all 210 items in the same order; description lines are verbatim from the template and must not be edited here.
 
 - **`tests:`** records the test or fixture exercising each item, or `—` if no test covers it (test debt).
 - **`status:`** meanings follow the legend in the template (✅ ⚠️ ❌ 🤷 ➖).
@@ -80,6 +80,15 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 - **S3.4** Unbalanced trailing `}` without opening `{` is invalid — §Omit root braces (L138)
   tests: internal/parser/parser_test.go:427 (TestBracedRootTrailingGarbage)
   status: ✅
+
+- **S3.5** Array-root document is valid syntax; object-rooted parse API rejects with a type error — §Include semantics: merging (L989-991)
+  tests: s3_5_array_root_test.go (top-level + position + deferred + malformed guards + include/package variants + ar01–ar03 conformance loop)
+  status: ✅ — Added 2026-07-23. `parseRoot` parses the array fully (malformed arrays /
+  trailing content stay syntax errors) and returns `parser.ErrArrayAtRoot`;
+  `parseWithOptions` maps it to `ConfigError` ("document has type array rather than
+  object at file root", with origin + bracket position), matching Lightbend's
+  `Parseable.forceParsedToObject` (`WrongType`). Previously a parse error
+  "expected key" — right net outcome, wrong kind at the wrong layer.
 
 ## S4. Key-value separator
 
@@ -607,8 +616,11 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ### S14b. Include semantics: merging
 
 - **S14b.1** Included root must be an object (array → error) — §Include semantics: merging (L993)
-  tests: internal/resolver/resolver_test.go:1166 (TestSpecS14b_1_ArrayRootIncludeIsError)
-  status: ✅
+  tests: internal/resolver/resolver_test.go:1341 (TestSpecS14b_1_ArrayRootIncludeIsError); s3_5_array_root_test.go (include + package variants)
+  status: ✅ — Diagnostics improved with S3.5 (2026-07-23): the resolver now raises
+  `ResolveError` "included file has array at file root … (HOCON.md L993-994)" naming
+  the included source (file path or package virtual path), instead of the parser's
+  generic syntax error.
 
 - **S14b.2** Included keys merge per duplicate-key rules — §Include semantics: merging (L997)
   tests: internal/resolver/resolver_test.go:286 (TestResolver_IncludeMergeAll); testdata/hocon/test03.conf (fixture)

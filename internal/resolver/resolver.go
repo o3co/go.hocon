@@ -9,6 +9,7 @@
 package resolver
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1659,6 +1660,21 @@ func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, erro
 func (r *resolver) parseAndResolve(data []byte, filePath string) (*ObjectVal, error) {
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
+		// S14b.1 (HOCON.md L993-994): an included file must contain an object,
+		// not an array. The document is valid syntax (S3.5) — surface the type
+		// constraint as a ResolveError naming THIS file. The conversion lives
+		// at the ParseBytes site (not in loadIncludeFile) so nested include
+		// chains name the innermost file that actually has the array root.
+		if errors.Is(err, parser.ErrArrayAtRoot) {
+			// The included-source identity lives in FilePath (the public
+			// Error() prefixes it); keeping it out of Message avoids the
+			// path rendering twice.
+			return nil, &ResolveError{
+				Message:  "included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994)",
+				FilePath: filePath,
+				Cause:    err,
+			}
+		}
 		return nil, err
 	}
 	childResolver := &resolver{
@@ -1743,10 +1759,24 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 func (r *resolver) parseAndResolvePackage(data []byte, virtualPath string) (*ObjectVal, error) {
 	ast, err := parser.ParseBytes(data)
 	if err != nil {
-		// Wrap raw parser error with package context so the user knows which package failed.
+		// S14b.1: registered package content with an array root — same type
+		// constraint as file includes, naming the virtual package path.
+		// Converted here (the ParseBytes site) so nested chains name the
+		// innermost source.
+		if errors.Is(err, parser.ErrArrayAtRoot) {
+			// Same as the file-include variant: identity in FilePath only.
+			return nil, &ResolveError{
+				Message:  "included file has array at file root — an included file must contain an object, not an array (HOCON.md L993-994)",
+				FilePath: virtualPath,
+				Cause:    err,
+			}
+		}
+		// Wrap raw parser error with package context so the user knows which
+		// package failed. Cause preserves the chain for errors.Is/As.
 		return nil, &ResolveError{
 			Message:  fmt.Sprintf("in %s: %s", virtualPath, err.Error()),
 			FilePath: virtualPath,
+			Cause:    err,
 		}
 	}
 	childResolver := &resolver{
