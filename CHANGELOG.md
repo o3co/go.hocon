@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-23
+
+Cross-impl release coordinated to land at v1.9.0 across ts.hocon / go.hocon / rs.hocon / py.hocon. Covers the two same-day spec corrections from [xx.hocon#62](https://github.com/o3co/xx.hocon/pull/62) (S3.1 — empty document parses to `{}`) and [xx.hocon#64](https://github.com/o3co/xx.hocon/pull/64) (S3.5 — array-root document rejected with a type error). MINOR (not PATCH): go adds public API surface (`ResolveError.Cause` field + `Unwrap()` method — additive, enables `errors.Is/As` traversal), and the error-taxonomy / empty-document behavior changes are consumer-observable. The tag is the version (no version file).
+
 ### Fixed — array-root document rejected with a type error (S3.5, [xx.hocon#64](https://github.com/o3co/xx.hocon/pull/64))
 
 - **`ParseString("[1,2]")` now returns `*ConfigError` ("document has type array rather
