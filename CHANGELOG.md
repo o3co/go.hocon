@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — empty document parses to `{}` (S3.1 corrected, [xx.hocon#62](https://github.com/o3co/xx.hocon/pull/62))
+
+- **`ParseString("")` (and whitespace-only / comment-only / BOM-only input) returns an
+  empty `Config` instead of erroring.** The S3.1 checklist item "Empty file is invalid
+  (HOCON.md L130)" misread the L130-132 *JSON baseline* as HOCON-normative; the
+  L134-136 brace-omission relaxation parses any document not beginning with `[` or `{`
+  as if enclosed in `{}` — an empty document is therefore the empty object. Confirmed
+  by the reference implementation (Lightbend's `"Empty document"` error is
+  `ConfigSyntax.JSON`-only; `ConfigFactory.parseString("")` is a valid empty config in
+  its own test suite). Restores pre-guard behavior — the cluster 3h `parseRoot` reject
+  was a regression. The rule now applies uniformly: top-level parse, file includes
+  (the former #105 `isEmptyOrCommentOnlyHocon` carve-out is removed — the parser
+  handles it naturally), and package includes (whitespace-only / comment-only
+  registered content now contributes `{}` like zero-byte content — the zero-byte-only
+  special-case is gone). Pure loosening — no previously-valid input changes meaning;
+  previously-rejected empty documents now succeed. Pinned by
+  `TestS3_1_EmptyFile_ParsesToEmptyObject` (ef01–ef06 `{}` sidecars now normative),
+  `TestSpec_S3_1_EmptyDocumentParsesToEmptyObject`,
+  `TestIssue105_TopLevelEmptyParsesToEmptyObject`, and
+  `TestPackageLookupWhitespaceOnlyContentSucceeds`.
+
 ## [1.8.0] - 2026-06-16
 
 ### Added

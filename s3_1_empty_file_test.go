@@ -6,14 +6,17 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-// S3.1 — empty file is an invalid HOCON document conformance tests.
-// Spec authority: HOCON.md L130 ("Empty files are invalid documents").
-// Fixtures: testdata/hocon/empty-file/ef01-ef06 (from xx.hocon, SHA 5beedfa).
+// S3.1 — an empty document is valid HOCON and parses to the empty object {}.
+// Spec authority: HOCON.md §Omit root braces L134-136 (a file that does not
+// begin with `[` or `{` is parsed as if enclosed in `{}`; an empty document
+// vacuously qualifies). L130-132 ("Empty files are invalid documents") is the
+// JSON baseline, not HOCON-normative — the former reject-posture was revoked
+// 2026-07-23 (xx.hocon E10). Confirmed by the Lightbend reference
+// implementation, whose "Empty document" error is ConfigSyntax.JSON-only.
+// Fixtures: testdata/hocon/empty-file/ef01-ef06 (from xx.hocon); the {}
+// -expected.json sidecars are normative — no per-impl override applies.
 //
-// All six fixtures must produce a non-nil parse error; no expected JSON sidecar
-// is needed for error cases. The test gate checks for the .conf fixtures directly.
-//
-// Positive guards: "{}", "a = 1", and "# comment\na = 1" must succeed.
+// Positive guards: "{}", "a = 1", and "# comment\na = 1" must also succeed.
 
 package hocon_test
 
@@ -25,8 +28,8 @@ import (
 	hocon "github.com/o3co/go.hocon"
 )
 
-// s3_1ErrorFixtures lists the names of empty-file error fixtures (without extension).
-var s3_1ErrorFixtures = []string{
+// s3_1EmptyFixtures lists the names of empty-file fixtures (without extension).
+var s3_1EmptyFixtures = []string{
 	"ef01-empty",
 	"ef02-whitespace-only",
 	"ef03-newlines-only",
@@ -35,21 +38,24 @@ var s3_1ErrorFixtures = []string{
 	"ef06-mixed-ws-comment",
 }
 
-// TestS3_1_EmptyFile_Error asserts that each empty-file fixture produces a non-nil
-// parse or resolve error (HOCON.md L130: empty files are invalid documents).
-func TestS3_1_EmptyFile_Error(t *testing.T) {
+// TestS3_1_EmptyFile_ParsesToEmptyObject asserts that each empty-file fixture
+// parses successfully to an empty config, matching the {} expected sidecars.
+func TestS3_1_EmptyFile_ParsesToEmptyObject(t *testing.T) {
 	fixtureDir := filepath.Join("testdata", "hocon", "empty-file")
 	if _, err := os.Stat(fixtureDir); err != nil {
 		t.Skipf("empty-file fixtures missing at %s; run `make testdata`", fixtureDir)
 	}
 
-	for _, name := range s3_1ErrorFixtures {
+	for _, name := range s3_1EmptyFixtures {
 		name := name
 		t.Run(name, func(t *testing.T) {
 			confPath := filepath.Join(fixtureDir, name+".conf")
-			_, err := hocon.ParseFile(confPath)
-			if err == nil {
-				t.Errorf("ParseFile(%s): expected error for empty/comment-only input, got nil", confPath)
+			cfg, err := hocon.ParseFile(confPath)
+			if err != nil {
+				t.Fatalf("ParseFile(%s): expected empty config per corrected S3.1, got error: %v", confPath, err)
+			}
+			if keys := cfg.Keys(); len(keys) != 0 {
+				t.Errorf("ParseFile(%s): expected empty config, got keys %v", confPath, keys)
 			}
 		})
 	}

@@ -131,6 +131,49 @@ include package("github.com/example/lib", "empty.conf")`
 	}
 }
 
+// TestPackageLookupWhitespaceOnlyContentSucceeds verifies that whitespace-only
+// and comment-only content merge as {} — same S3.1 rule as zero-byte content
+// (an empty document parses to the empty object; corrected 2026-07-23,
+// xx.hocon E10). Regression guard: the package path used to reject
+// non-zero-byte empty documents via the parser-entry guard.
+func TestPackageLookupWhitespaceOnlyContentSucceeds(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"whitespace-only", "   \n\t\n"},
+		{"comment-only", "# nothing here\n"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			pkgs := map[string]string{
+				pkgKey("github.com/example/lib", "empty.conf"): tc.content,
+			}
+
+			src := `app = host
+include package("github.com/example/lib", "empty.conf")`
+			ast, err := parser.Parse(src)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			res, err := resolver.Resolve(ast, resolver.Options{
+				PackageLookup: makeLookup(pkgs),
+			})
+			if err != nil {
+				t.Fatalf("resolve: expected {} contribution per corrected S3.1, got error: %v", err)
+			}
+			app, ok := res.Root.Get("app")
+			if !ok {
+				t.Fatal("app not found")
+			}
+			if sv, ok := app.(*resolver.ScalarVal); !ok || sv.Raw != "host" {
+				t.Errorf("app: want %q, got %v", "host", app)
+			}
+		})
+	}
+}
+
 // TestPackageLookupCaseSensitiveID verifies byte-exact case-sensitive identifier lookup.
 func TestPackageLookupCaseSensitiveID(t *testing.T) {
 	pkgs := map[string]string{
