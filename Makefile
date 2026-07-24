@@ -2,7 +2,7 @@ TESTDATA_REPO  := o3co/xx.hocon
 TESTDATA_REF   := main
 EXPECTED_DIR   := testdata/expected
 
-.PHONY: testdata test
+.PHONY: testdata test test-adapters test-all
 
 # The third clause below must name a FETCHED-ONLY (gitignored) fixture subdir.
 # testdata/hocon/ also holds git-tracked vendored fixtures, so a tracked dir's
@@ -99,3 +99,10 @@ testdata:
 
 test:
 	go test ./... -count=1
+
+# The adapters/ directory is a module of its own, so the root module's ./...
+# stops at its boundary and it needs a target of its own.
+test-adapters:
+	$(MAKE) -C adapters test
+
+test-all: test test-adapters
