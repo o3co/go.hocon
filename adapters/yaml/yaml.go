@@ -13,13 +13,17 @@
 //		hocon.DefaultParseOptions().WithResolveSubstitutions(false))
 //	merged, _ := cfg.WithFallback(base).Resolve(hocon.ResolveOptions{})
 //
-// Backed by goccy/go-yaml, which follows the YAML 1.2 core schema for
-// booleans, so the "Norway problem" does not arise here: no, yes, on and off
-// stay strings and only true/false are booleans.
+// This is a HOCON library, not a YAML implementation, and the API keeps that
+// boundary. What this package owns is the decoded-tree -> HOCON step, exposed
+// directly as FromValue: root must be a mapping, ${...} stays literal, NaN and
+// infinity are refused, a multi-document stream is refused, binary becomes its
+// base64 text. How YAML *text* becomes a tree — whether 010 is 8 or 10,
+// whether no is a boolean — is the YAML library's answer, not a contract here.
 //
-// Two things are refused rather than passed through. A multi-document stream
-// is an error, because decoding one would silently drop the rest. NaN and
-// infinity are errors, because HOCON's number model has no way to hold them.
+// Parse and ParseFile are a convenience front on goccy/go-yaml. A caller who
+// needs a different library, version or schema decodes the text themselves and
+// hands the tree to FromValue; that is the supported way to swap parsers, and
+// it keeps the choice — and its consequences — in the caller's hands.
 //
 // See docs/specs/format-ingestion-mapping.md items F5.x in the hocon scope.
 package yaml
@@ -32,29 +36,107 @@ import (
 	"io"
 	"math"
 	"os"
+	"time"
 
 	goyaml "github.com/goccy/go-yaml"
 	"github.com/o3co/go.hocon"
 	"github.com/o3co/go.hocon/adapters/internal/tree"
 )
 
-// Parse reads YAML data. originDescription names the source in error
-// messages; "" leaves it to hocon's default.
+// Parse reads YAML data with this package's default library (goccy/go-yaml).
+// originDescription names the source in error messages; "" leaves it to
+// hocon's default.
+//
+// Scalar resolution — whether `010` is 8 or 10, whether a timestamp is a
+// string — is the library's answer, not a contract of this package. A caller
+// who wants a different library, version or schema decodes the text themselves
+// and hands the result to FromValue; this function is the convenience path.
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
 	doc, err := decode(data, originDescription)
 	if err != nil {
 		return nil, err
 	}
+	return FromValue(doc, originDescription)
+}
+
+// FromValue builds a Config from an already-decoded YAML value tree, produced
+// by whatever YAML library and settings the caller chose. This is the
+// tree-level boundary this package actually owns (spec F5): Parse is just a
+// default decoder in front of it.
+//
+// Leaf normalization accepts the shapes common across Go YAML libraries, not
+// only the default one: map[any]any (yaml.v2 style) has its scalar keys
+// stringified per F5.3, time.Time (go.yaml.in timestamps) becomes its RFC 3339
+// string like a TOML date (F4.2's reasoning), and []byte becomes base64 (F5.5).
+func FromValue(doc any, originDescription string) (*hocon.Config, error) {
 	// An empty document is the empty object, as an empty HOCON document is
 	// (S3.1), rather than a root-type failure (spec F5.9).
 	if doc == nil {
 		return hocon.FromMap(map[string]any{}, originDescription)
 	}
-	nested, err := tree.Object(doc, scalar)
+	normalized, err := normalizeKeys(doc)
+	if err != nil {
+		return nil, fmt.Errorf("yaml: %s: %w", describe(originDescription), err)
+	}
+	nested, err := tree.Object(normalized, scalar)
 	if err != nil {
 		return nil, fmt.Errorf("yaml: %s: %w", describe(originDescription), err)
 	}
 	return hocon.FromMap(nested, originDescription)
+}
+
+// normalizeKeys rewrites map[any]any (the yaml.v2-era shape) into
+// map[string]any, stringifying scalar keys (F5.3). A collection key is an
+// error. Maps that are already string-keyed pass through with their values
+// normalized recursively.
+func normalizeKeys(v any) (any, error) {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			ev, err := normalizeKeys(e)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = ev
+		}
+		return out, nil
+	case map[any]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			ks, err := keyString(k)
+			if err != nil {
+				return nil, err
+			}
+			ev, err := normalizeKeys(e)
+			if err != nil {
+				return nil, err
+			}
+			out[ks] = ev
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			ev, err := normalizeKeys(e)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = ev
+		}
+		return out, nil
+	}
+	return v, nil
+}
+
+func keyString(k any) (string, error) {
+	switch x := k.(type) {
+	case string:
+		return x, nil
+	case bool, int, int64, uint64, float64:
+		return fmt.Sprintf("%v", x), nil
+	}
+	return "", fmt.Errorf("mapping key of type %T is not usable as an object key (spec F5.3)", k)
 }
 
 // ParseFile reads path and parses it, using path as the origin description.
@@ -125,6 +207,13 @@ func scalar(v any) (any, error) {
 		// !!binary — HOCON has no binary type, so keep the base64 text the
 		// source itself carried (spec F5.5).
 		return base64.StdEncoding.EncodeToString(x), nil
+	case time.Time:
+		// Some libraries resolve timestamps to time.Time. HOCON has no
+		// datetime, so its RFC 3339 text is the honest form — the same
+		// reasoning as F4.2 for TOML dates.
+		return x.Format(time.RFC3339Nano), nil
+	case int:
+		return int64(x), nil
 	}
 	return nil, fmt.Errorf("unsupported value of type %T", v)
 }

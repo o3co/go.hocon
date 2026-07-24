@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/o3co/go.hocon"
 	"github.com/o3co/go.hocon/adapters/yaml"
@@ -202,8 +203,10 @@ func TestIntegerOverflowRejected(t *testing.T) {
 	}
 }
 
-// F5.10 — quirks inherited from the decoder, pinned so a library change that
-// alters them is visible rather than silent.
+// Measured behaviour of the default library, pinned so a change in it is
+// visible rather than silent. Not a portability contract: scalar resolution
+// belongs to the library (spec F5 "Scope"), and a config that depends on
+// these forms should quote them instead.
 func TestInheritedDecoderQuirks(t *testing.T) {
 	cfg := parse(t, "octal: 010\nunderscored: 1_000\nhuge: 99999999999999999999999\n")
 	if got := cfg.GetInt64("octal"); got != 8 {
@@ -246,4 +249,58 @@ func TestUseAsSubstitutionSourceUnderHOCON(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	wantString(t, merged, "image", "postgres:16")
+}
+
+// FromValue is the boundary this package owns: the caller decodes with
+// whatever library and settings they chose, and hands the tree over. These
+// trees imitate the shapes other Go YAML libraries produce.
+func TestFromValueAcceptsOtherLibrariesShapes(t *testing.T) {
+	// yaml.v2-era shape: map[any]any with non-string scalar keys, int leaves.
+	doc := map[any]any{
+		"db": map[any]any{"port": int(5432)},
+		1:    "one",
+		true: "yes-key",
+	}
+	cfg, err := yaml.FromValue(doc, "injected")
+	if err != nil {
+		t.Fatalf("FromValue: %v", err)
+	}
+	if got := cfg.GetInt64("db.port"); got != 5432 {
+		t.Errorf("db.port = %d, want 5432", got)
+	}
+	wantString(t, cfg, `"1"`, "one")
+	wantString(t, cfg, `"true"`, "yes-key")
+}
+
+// go.yaml.in resolves timestamps to time.Time; the tree rule maps it to its
+// RFC 3339 text, as a TOML date is (F4.2's reasoning).
+func TestFromValueTimeBecomesRFC3339String(t *testing.T) {
+	at := time.Date(2002, 12, 14, 21, 59, 43, 0, time.UTC)
+	cfg, err := yaml.FromValue(map[string]any{"at": at}, "injected")
+	if err != nil {
+		t.Fatalf("FromValue: %v", err)
+	}
+	wantString(t, cfg, "at", "2002-12-14T21:59:43Z")
+}
+
+// A collection key has no string form and is refused (F5.3).
+func TestFromValueCollectionKeyRejected(t *testing.T) {
+	_, err := yaml.FromValue(map[any]any{[2]any{1, 2}: "pair"}, "injected")
+	if err == nil {
+		t.Fatal("collection key accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "F5.3") {
+		t.Errorf("error %q does not cite the spec item F5.3", err)
+	}
+}
+
+// nil is the empty document, whatever produced it (F5.9).
+func TestFromValueNilIsEmpty(t *testing.T) {
+	cfg, err := yaml.FromValue(nil, "injected")
+	if err != nil {
+		t.Fatalf("FromValue: %v", err)
+	}
+	if n := len(cfg.Keys()); n != 0 {
+		t.Errorf("got %d keys, want 0", n)
+	}
 }
