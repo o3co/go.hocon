@@ -930,14 +930,12 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅ — Fixed in cluster 3h (Phase 6). `propsToObjectVal` rewritten: non-leaf scalar conflicts now replace the scalar with a new object (object wins); leaf with existing object skips the scalar write. Sort-based key processing makes resolution deterministic regardless of input line order.
 
 - **S23.5** Multi-line values (backslash continuation) — §Note on Java properties similarity (L1587)
-  out-of-scope: declared in each implementation's README — the `.properties` reader supports only basic `key=value` syntax to avoid pulling a full Java properties parser into a non-JVM library.
-  tests: —
-  status: ➖
+  tests: internal/properties/properties_test.go (TestLineContinuation, TestEscapedTrailingBackslashIsNotContinuation); include_properties_syntax_test.go (TestIncludePropertiesFullSyntax, TestIncludePropertiesContinuationIntoHash); s23_5_6_ps_test.go (TestS23_5_6_PropertiesSyntax)
+  status: ✅ — In scope since 2026-07-24 (was ➖). `internal/properties` rewritten as a full java.util.Properties reader in ~180 lines of stdlib, no dependency, which is what the out-of-scope rationale had assumed was expensive.
 
 - **S23.6** Unicode escapes in `.properties` — §Note on Java properties similarity (L1587)
-  out-of-scope: same rationale as S23.5.
-  tests: —
-  status: ➖
+  tests: internal/properties/properties_test.go (TestEscapes, TestSurrogatePair, TestErrors); include_properties_syntax_test.go (TestIncludePropertiesFullSyntax); s23_5_6_ps_test.go (TestS23_5_6_PropertiesSyntax)
+  status: ✅ — In scope since 2026-07-24 (was ➖). Surrogate pairs are combined; an unpaired surrogate is an error rather than a silent U+FFFD, since a Go string cannot hold one (per-impl divergence from Java, consistent with S1.2.6).
 
 ## S24. Conventional config files (JVM)
 
