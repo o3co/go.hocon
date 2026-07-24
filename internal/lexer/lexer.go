@@ -873,7 +873,12 @@ func isHoconNewline(r rune) bool { return r == '\n' }
 // (`file(...)` / `required(...)` / `classpath(...)` / `url(...)`), which
 // `parseInclude` recognises via string-match on the unquoted token value.
 // See xx.hocon#34, xx.hocon#35.
-const unquotedForbidden = `$"{}[]:=,+#\^?!@*&`
+//
+// Written as an interpreted string literal (not a raw one) because the set
+// includes the backtick itself — S8.1, xx.hocon#68; `isUnquotedSubstChar`
+// already rejected '`' inside ${...} path segments, this closes the same gap
+// for ordinary unquoted strings.
+const unquotedForbidden = "$\"{}[]:=,+#\\^?!@*&`"
 
 func isUnquotedForbidden(ch rune) bool {
 	return isHoconWhitespace(ch) || strings.ContainsRune(unquotedForbidden, ch)

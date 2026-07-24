@@ -655,6 +655,7 @@ func (p *parser) parseKey() ([]string, error) {
 		isQuoted := p.current.IsQuoted
 		prevTokenType := p.current.Type
 		ws := p.current.PrecedingWhitespace
+		tokLine, tokCol := p.current.Line, p.current.Col
 		p.advance()
 
 		if isQuoted {
@@ -676,13 +677,9 @@ func (p *parser) parseKey() ([]string, error) {
 			// dot (e.g., "arrays.") means the next token continues the path. For
 			// TokenFloat (e.g., "3.14") this produces nested segments ["3","14"]
 			// per HOCON.md key-as-path convention.
-			segments := strings.Split(raw, ".")
-			var newParts []string
-			for _, s := range segments {
-				if s == "" {
-					continue // skip empty segments from leading/trailing dots
-				}
-				newParts = append(newParts, s)
+			newParts, err := splitKeySegments(raw, len(parts) > 0)
+			if err != nil {
+				return nil, newError(tokLine, tokCol, "%s", err.Error())
 			}
 			if spaceConcat && len(parts) > 0 {
 				// E13 path-WS preservation: the literal preceding WS becomes
@@ -794,17 +791,18 @@ func (p *parser) parseKey() ([]string, error) {
 				break
 			}
 			tail := p.current.Value
+			tailLine, tailCol := p.current.Line, p.current.Col
 			p.advance()
 			merged := parts[len(parts)-1] + tail
 			parts = parts[:len(parts)-1]
-			segments := strings.Split(merged, ".")
-			for _, s := range segments {
-				if s == "" {
-					continue
-				}
-				// E13: S8.6 not enforced on key path segments (was: validateKeySegment).
-				parts = append(parts, s)
+			// E13: S8.6 not enforced on key path segments (was: validateKeySegment).
+			// S11.7 empty-element rejection does apply here — `123..abc` must
+			// fail just like `a..b`.
+			mergedParts, err := splitKeySegments(merged, len(parts) > 0)
+			if err != nil {
+				return nil, newError(tailLine, tailCol, "%s", err.Error())
 			}
+			parts = append(parts, mergedParts...)
 			if strings.HasSuffix(tail, ".") {
 				// Trailing dot: the next token is a new path segment.
 				// Signal the outer loop to `continue` so the next iteration
@@ -855,10 +853,54 @@ func (p *parser) parseKey() ([]string, error) {
 			"path has a trailing period '.' — empty key segment not allowed (HOCON.md path rules)")
 	}
 
+	// Defensive backstop. Since S11.7 is enforced in splitKeySegments, every
+	// all-dots key token (`.`, `..`) is rejected before reaching here, and the
+	// lexer never emits an empty unquoted TokenString — so no known input lands
+	// on this branch. Kept so a future token-shape change fails loudly rather
+	// than producing a zero-segment key.
 	if len(parts) == 0 {
 		return nil, newError(line, col, "empty key")
 	}
 	return parts, nil
+}
+
+// errEmptyKeySegment is the S11.7 (HOCON.md L515-519) BadPath condition for
+// key paths. The wording deliberately echoes the lexer's "empty segment in
+// path" error for ${...} paths — parseSubstBody's state machine already
+// enforced this rule, so the two positions now reject the same shapes.
+var errEmptyKeySegment = errors.New(
+	"path has an empty element — `a..b` and paths starting with '.' are invalid; " +
+		"an empty path element must be quoted as \"\" (HOCON.md L515-519)")
+
+// splitKeySegments splits an unquoted key token on '.' (the S11.1 path
+// separator) and rejects empty path elements per S11.7. `havePrev` says
+// whether the key path already has at least one segment, which decides
+// whether a leading '.' is a separator or an illegal empty first element.
+//
+// Two empty pieces are structural rather than genuine empty elements and are
+// dropped:
+//   - a leading empty piece when havePrev is true — the token's leading '.'
+//     separates this token from the segments already collected (`"a".b`,
+//     `a. .b`, `a .b`);
+//   - a trailing empty piece — the token's trailing '.' marks a continuation
+//     to be read as the next token (`a. b`). parseKey's post-loop trailingDot
+//     guard rejects it when no continuation actually follows (pw06).
+//
+// Every other empty piece is an S11.7 error: `a..b`, `.a` (havePrev false),
+// `a...c`, `"a"..b`.
+func splitKeySegments(raw string, havePrev bool) ([]string, error) {
+	segments := strings.Split(raw, ".")
+	var out []string
+	for i, s := range segments {
+		if s == "" {
+			if (i == 0 && havePrev) || i == len(segments)-1 {
+				continue
+			}
+			return nil, errEmptyKeySegment
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 func (p *parser) parseValue() (Node, error) {

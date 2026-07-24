@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — empty path elements and backticks rejected in key/value position (S11.7 + S8.1, [xx.hocon#68](https://github.com/o3co/xx.hocon/issues/68))
+
+- **`a..b: 3`, `.a: 3`, `a...c: 4` and `a...c."": 4` now error instead of silently
+  collapsing to `{"a":{"b":3}}` / `{"a":3}` / `{"a":{"c":4}}`.** HOCON.md L515-519 is
+  explicit that an empty path element must always be quoted: `a."".b` is a valid
+  three-element path, but `a..b` — and any path starting or ending with `.` — is
+  invalid. `parseKey` split each unquoted key token on `.` and dropped every empty
+  piece as "leading/trailing dot noise", so genuine empty elements vanished. It now
+  routes through `splitKeySegments`, which drops only the two structural pieces (a
+  leading empty when the path already has segments — the token's `.` is the separator
+  after `"a"` / `a. ` — and a trailing empty, the continuation marker the post-loop
+  `trailingDot` guard still polices) and rejects the rest. The substitution-path
+  position was already correct (the lexer's `parseSubstBody` state machine rejects
+  `${?a..b}` / `${?.a}` / `${?a.}`); only the key position diverged. Quoted empty
+  elements (`a."".b`, `"".b`) and E13 path-whitespace forms (`a . b`, `a. .b`,
+  `a b. c`) are unaffected. Pinned by `path-empty-segment/pe01–pe08`.
+- **Backtick is now forbidden in unquoted strings**, so ``a = `t` ``, ``` `k` = 1 ```
+  and ``a = x`y`` error. HOCON.md L245-247 lists `` ` `` in the forbidden set; every
+  other member was already rejected, and `isUnquotedSubstChar` already excluded it
+  inside `${...}` — only the `unquotedForbidden` set for ordinary unquoted strings
+  leaked. A backtick inside a quoted (or triple-quoted) string remains ordinary
+  content, and `(` / `)` stay out of the forbidden set per
+  [xx.hocon#34](https://github.com/o3co/xx.hocon/issues/34). Pinned by
+  `unquoted-forbidden/uf01–uf04`.
+- Both groups are driven by `issue68_path_empty_segment_test.go`; `make testdata` now
+  fetches the two new fixture directories.
+
 ### Fixed — whitespace-separated undefined optionals materialize the separator ([#158](https://github.com/o3co/go.hocon/issues/158))
 
 - **`cf = ${?vv} ${?vv}` (all operands undefined, whitespace between) now yields
