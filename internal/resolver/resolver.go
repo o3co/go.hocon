@@ -1176,7 +1176,7 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line,
 	//     field-drop example) — return nil so the parent drops this key.
 	//   - `${?a} ${?b}` → each undefined operand becomes an empty string in the
 	//     concatenation and the separator whitespace survives, yielding " "
-	//     (reference behaviour) — fall through to concatStrings, which skips
+	//     (reference behaviour) — return the concatStrings result, which skips
 	//     nils and keeps separator tokens.
 	if !hasConcreteValue {
 		hasSeparator := false
