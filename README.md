@@ -80,6 +80,7 @@ On top of that, HOCON combines the readability of YAML with the structure of JSO
 - Struct unmarshalling with `hocon` struct tags
 - Deferred resolution: separate `Parse` / `WithFallback` / `Resolve` lifecycle for runtime-supplied substitution values (v1.4.0+)
 - `FromMap` / `Empty` value factories for in-memory fallback layers (v1.4.0+)
+- Format adapters for config owned by other programs — Properties, env, JSONC, TOML, YAML (see below)
 - No external runtime dependencies — `gopkg.in/yaml.v3` used only in test code (fixture scenario runner)
 
 ## API
@@ -316,6 +317,58 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 ### Stricter than Lightbend
 
 - **S8.6 leading-hyphen rejection** (Unreleased): `a = -foo`, `a = -bar`, `a = -` etc. now raise a lex error per HOCON.md L270–276, where Lightbend silently falls back to unquoted strings. The same rule applies to dotted key segments (`a.-foo = 1`). Mitigation: quote the value (`a = "-foo"`). See [CHANGELOG](CHANGELOG.md#unreleased) and [`docs/spec-compliance.md`](docs/spec-compliance.md) §S8.6.
+
+## Format adapters
+
+Config files that belong to *other* programs can be mounted as HOCON, so a
+`${...}` in your document can reach into them:
+
+```go
+import (
+    "github.com/o3co/go.hocon"
+    "github.com/o3co/go.hocon/adapters/env"
+)
+
+// APP_DB__HOST=db.internal  ->  db.host
+base, _ := env.Load(env.Options{Prefix: "APP_"})
+
+// Substitutions must stay unresolved until the fallback is attached.
+cfg, _ := hocon.ParseFileWithOptions("app.conf",
+    hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+
+merged, _ := cfg.WithFallback(base).Resolve(hocon.ResolveOptions{})
+```
+
+```hocon
+# app.conf — ${db.host} resolves against the mounted environment
+url = "postgres://"${db.host}":"${db.port}
+```
+
+`adapters/` is a **separate Go module**
+(`github.com/o3co/go.hocon/adapters`), so importing the parser still pulls in
+nothing. Only the adapter you import brings a dependency.
+
+| Package | Notes |
+| --- | --- |
+| `adapters/properties` | `java.util.Properties`, sharing this parser's `include` syntax layer |
+| `adapters/env` | Bulk-mounts a prefixed namespace; also reads `.env` files |
+| `adapters/jsonc` | JSON with comments and trailing commas; no dependency |
+| `adapters/toml` | via `pelletier/go-toml/v2` |
+| `adapters/yaml` | via `goccy/go-yaml` |
+
+Plain JSON needs no adapter — HOCON is a JSON superset, so `hocon.ParseFile`
+accepts a `.json` file as it stands. Reading a single environment variable needs
+none either; that is what `${?VAR}` is for.
+
+Foreign data stays data: a `${a.b}` in a mounted value is literal text, never a
+reference, because the file belongs to a program that never agreed to HOCON's
+syntax.
+
+For YAML, scalar resolution belongs to the library rather than to this module —
+whether `010` is 8 or 10 is `goccy`'s answer, not a guarantee here.
+`yaml.FromValue` takes an already-decoded tree, so a caller who needs a different
+library or schema decodes it themselves and hands the result over. See
+[`adapters/README.md`](adapters/README.md).
 
 ## Related Projects
 
