@@ -326,33 +326,38 @@ func TestParseSingleValue_UnexpectedToken_RBracket(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Empty key (parseKey, parser.go:750).
+// Lone "." in key position (parseKey / splitKeySegments).
+//
+// Before xx.hocon#68 these landed on parseKey's terminal "empty key" guard:
+// the "." token's unquoted branch silently dropped both empty split pieces,
+// the trailing-dot continuation fired, the next token stopped it, and `parts`
+// was left empty. With S11.7 enforced, `.` is now caught one step earlier as
+// what it actually is — a path starting with '.' (HOCON.md L515-519). Both
+// inputs are still rejected; only the message is more precise. The "empty key"
+// guard is retained as a defensive backstop.
 // ---------------------------------------------------------------------------
 
-// TestParseKey_EmptyKey_DotAtNewline pins the "empty key" error (line 750)
-// when the key position contains a lone "." followed by a newline. The "."
-// token's unquoted branch produces no path segments (split on "." yields only
-// empties), the trailing-dot continuation fires (HasSuffix "."), but the next
-// token is a TokenNewline which stops the continuation — leaving parts empty.
-func TestParseKey_EmptyKey_DotAtNewline(t *testing.T) {
+// TestParseKey_LoneDot_AtNewline pins rejection when the key position contains
+// a lone "." followed by a newline.
+func TestParseKey_LoneDot_AtNewline(t *testing.T) {
 	_, err := parser.Parse(".\n= x")
 	if err == nil {
 		t.Fatal("expected error for dot-then-newline key, got nil")
 	}
-	if !strings.Contains(err.Error(), "empty key") {
-		t.Errorf("expected 'empty key' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "empty element") {
+		t.Errorf("expected an S11.7 empty-path-element error, got: %v", err)
 	}
 }
 
-// TestParseKey_EmptyKey_DotAtEOF pins the same error when "." is the only
+// TestParseKey_LoneDot_AtEOF pins the same rejection when "." is the only
 // token before EOF.
-func TestParseKey_EmptyKey_DotAtEOF(t *testing.T) {
+func TestParseKey_LoneDot_AtEOF(t *testing.T) {
 	_, err := parser.Parse(".")
 	if err == nil {
 		t.Fatal("expected error for bare dot at EOF, got nil")
 	}
-	if !strings.Contains(err.Error(), "empty key") {
-		t.Errorf("expected 'empty key' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "empty element") {
+		t.Errorf("expected an S11.7 empty-path-element error, got: %v", err)
 	}
 }
 

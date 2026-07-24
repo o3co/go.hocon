@@ -4,6 +4,12 @@ EXPECTED_DIR   := testdata/expected
 
 .PHONY: testdata test
 
+# The third clause below must name a FETCHED-ONLY (gitignored) fixture subdir.
+# testdata/hocon/ also holds git-tracked vendored fixtures, so a tracked dir's
+# mere existence is NOT evidence the fetched-only fixtures were downloaded —
+# after a fresh checkout it is present regardless. array-root is currently the
+# only fetched-only subdir; keep the sentinel on it (or another fetched-only
+# dir) so a restored expected/ cache can never skip the fixture download.
 testdata:
 	@if [ -f .xx-hocon-version ] && [ -d "$(EXPECTED_DIR)" ] && [ -d testdata/hocon/array-root ]; then \
 	  remote_sha=$$(curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4) && \
@@ -79,6 +85,14 @@ testdata:
 	if [ -d "$$tmpdir/testdata/hocon/array-root" ]; then \
 	  mkdir -p testdata/hocon/array-root && \
 	  cp "$$tmpdir/testdata/hocon/array-root/"*.conf testdata/hocon/array-root/ 2>/dev/null || true; \
+	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/path-empty-segment" ]; then \
+	  mkdir -p testdata/hocon/path-empty-segment && \
+	  cp "$$tmpdir/testdata/hocon/path-empty-segment/"*.conf testdata/hocon/path-empty-segment/ 2>/dev/null || true; \
+	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/unquoted-forbidden" ]; then \
+	  mkdir -p testdata/hocon/unquoted-forbidden && \
+	  cp "$$tmpdir/testdata/hocon/unquoted-forbidden/"*.conf testdata/hocon/unquoted-forbidden/ 2>/dev/null || true; \
 	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
