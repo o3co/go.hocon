@@ -156,6 +156,15 @@ func TestIssue68_KeyPathEmptySegmentRejected(t *testing.T) {
 		{"adjacent-dots-around-whitespace", "a .. b = 1\n"},
 		{"numeric-lead-adjacent-dots", "123..abc = 1\n"},
 		{"leading-dot-nested", "o { .a: 3 }\n"},
+		// The number-then-unquoted concat chain merges the tail into the
+		// previous segment before splitting, so the empty element only appears
+		// after the merge (`123` + `abc..d`). This is the one shape that reaches
+		// splitKeySegments via the concat-tail call site rather than the plain
+		// unquoted-key one; `10.0foo..bar` and `1e5x..y` are the float and
+		// exponent variants of the same path.
+		{"numeric-concat-tail-adjacent-dots", "123abc..d = 1\n"},
+		{"float-concat-tail-adjacent-dots", "10.0foo..bar = 1\n"},
+		{"exp-concat-tail-adjacent-dots", "1e5x..y = 1\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
