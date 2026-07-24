@@ -61,6 +61,10 @@ testdata:
 	  mkdir -p testdata/hocon/properties-syntax && \
 	  cp "$$tmpdir/testdata/hocon/properties-syntax/"* testdata/hocon/properties-syntax/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/format-ingestion" ]; then \
+	  rm -rf adapters/testdata-format-ingestion && \
+	  cp -R "$$tmpdir/testdata/format-ingestion" adapters/testdata-format-ingestion; \
+	fi && \
 	if [ -d "$$tmpdir/testdata/hocon/unquoted-starts" ]; then \
 	  mkdir -p testdata/hocon/unquoted-starts && \
 	  cp "$$tmpdir/testdata/hocon/unquoted-starts/"*.conf testdata/hocon/unquoted-starts/ 2>/dev/null || true; \
