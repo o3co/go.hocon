@@ -1168,14 +1168,28 @@ func (r *resolver) resolveConcat(vals []Val, root *ObjectVal, path string, line,
 		}
 	}
 
-	// Per HOCON spec § "Optional substitution materialisation in concat contexts":
-	// when the entire concat consists only of undefined optional substitutions
-	// (all operands resolved to nil, no real scalar/array/object content),
-	// the field is omitted — return nil so the parent drops this key.
-	// This differs from a mixed concat like `${?x} "tail"` where the separator
-	// and the literal "tail" count as concrete values.
+	// When the entire concat consists only of undefined optional substitutions
+	// (all operands resolved to nil, no real scalar/array/object content), the
+	// outcome depends on whether separator whitespace sits between them
+	// (issue #158, HOCON.md §Substitutions):
+	//   - `${?a}${?b}`  → no separators → the field is omitted (the spec's own
+	//     field-drop example) — return nil so the parent drops this key.
+	//   - `${?a} ${?b}` → each undefined operand becomes an empty string in the
+	//     concatenation and the separator whitespace survives, yielding " "
+	//     (reference behaviour) — fall through to concatStrings, which skips
+	//     nils and keeps separator tokens.
 	if !hasConcreteValue {
-		return nil, nil
+		hasSeparator := false
+		for _, rv := range resolved {
+			if rv != nil && isSeparator(rv) {
+				hasSeparator = true
+				break
+			}
+		}
+		if !hasSeparator {
+			return nil, nil
+		}
+		return r.concatStrings(resolved), nil
 	}
 
 	// Pure-scalar concat: pass the full resolved slice (including whitespace-separator
