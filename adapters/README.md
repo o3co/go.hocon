@@ -1,7 +1,7 @@
 # go.hocon/adapters
 
 Read config files that belong to *other* programs — Properties, environment
-variables, JSONC, TOML — as part of a HOCON configuration.
+variables, JSONC, TOML, YAML — as part of a HOCON configuration.
 
 ```go
 import (
@@ -71,8 +71,8 @@ are cited from code and error messages as F0.1, F2.5 and so on.
 | `env` | available | Bulk-mounts a prefixed namespace; also reads `.env` files |
 | `jsonc` | available | JSON with comments and trailing commas |
 | `toml` | available | TOML 1.0 via `pelletier/go-toml/v2` |
+| `yaml` | available | via `goccy/go-yaml` (YAML 1.2 core schema) |
 | `json5` | planned | |
-| `yaml` | planned | Last, by design: the most dialect-sensitive format |
 
 Plain JSON needs no adapter — HOCON is a JSON superset, so `hocon.ParseFile`
 already accepts it. `json_conformance_test.go` keeps that claim honest.
@@ -96,6 +96,10 @@ config subtree.
   containing ` #` is an error rather than a guess. No `${...}` expansion.
 - **Dates become strings.** HOCON has no datetime, so TOML's four date-time
   types serialise to RFC 3339 text.
+- **No Norway problem.** YAML is read under the 1.2 core schema, so `no`, `yes`,
+  `on` and `off` stay strings and only `true`/`false` are booleans.
+- **A YAML stream must hold one document.** Decoding a multi-document stream
+  would return the first and drop the rest silently, so it is an error instead.
 
 ## Development
 

@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — `adapters/`, a nested module for reading foreign config formats
 
 - **`include`-adjacent formats owned by other programs can now be mounted as
-  config**: `adapters/properties`, `adapters/env`, `adapters/jsonc` and
-  `adapters/toml` each return a fully resolved `*Config` you place under your own
+  config**: `adapters/properties`, `adapters/env`, `adapters/jsonc`,
+  `adapters/toml` and `adapters/yaml` each return a fully resolved `*Config` you place under your own
   document with `WithFallback`, so a `${...}` can reach into it. Ingestion is
   AST-level — a document is decoded and built into a value tree, never rendered
   to HOCON text — so there is no emitter and no escaping to get wrong.
@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zero dependencies: importing the parser pulls in nothing. Only
   `adapters/toml` brings a dependency (`pelletier/go-toml/v2`), and only for
   those who import it.
+- `adapters/yaml` uses `goccy/go-yaml` rather than `gopkg.in/yaml.v3`, whose
+  last release is 2022 and whose upstream is archived. It follows the YAML 1.2
+  core schema, so the "Norway problem" does not arise: `no`, `yes`, `on` and
+  `off` stay strings. A multi-document stream is refused rather than decoded,
+  because decoding one returns the first document and drops the rest silently.
 - Plain JSON needs no adapter, since HOCON is a JSON superset; a conformance
   test now proves that rather than leaving it asserted. Reading a single
   environment variable needs none either — that is what `${?VAR}` is for. The
