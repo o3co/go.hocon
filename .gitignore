@@ -33,3 +33,4 @@ testdata/expected/
 
 # Superpowers (development process artifacts)
 docs/superpowers/
+testdata/hocon/array-root/

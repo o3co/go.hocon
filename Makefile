@@ -2,7 +2,7 @@ TESTDATA_REPO  := o3co/xx.hocon
 TESTDATA_REF   := main
 EXPECTED_DIR   := testdata/expected
 
-.PHONY: testdata test
+.PHONY: testdata test test-adapters test-all
 
 # The third clause below must name a FETCHED-ONLY (gitignored) fixture subdir.
 # testdata/hocon/ also holds git-tracked vendored fixtures, so a tracked dir's
@@ -57,6 +57,14 @@ testdata:
 	  mkdir -p testdata/hocon/properties-conflict && \
 	  cp "$$tmpdir/testdata/hocon/properties-conflict/"* testdata/hocon/properties-conflict/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/properties-syntax" ]; then \
+	  mkdir -p testdata/hocon/properties-syntax && \
+	  cp "$$tmpdir/testdata/hocon/properties-syntax/"* testdata/hocon/properties-syntax/ 2>/dev/null || true; \
+	fi && \
+	if [ -d "$$tmpdir/testdata/format-ingestion" ]; then \
+	  rm -rf adapters/testdata-format-ingestion && \
+	  cp -R "$$tmpdir/testdata/format-ingestion" adapters/testdata-format-ingestion; \
+	fi && \
 	if [ -d "$$tmpdir/testdata/hocon/unquoted-starts" ]; then \
 	  mkdir -p testdata/hocon/unquoted-starts && \
 	  cp "$$tmpdir/testdata/hocon/unquoted-starts/"*.conf testdata/hocon/unquoted-starts/ 2>/dev/null || true; \
@@ -99,3 +107,10 @@ testdata:
 
 test:
 	go test ./... -count=1
+
+# The adapters/ directory is a module of its own, so the root module's ./...
+# stops at its boundary and it needs a target of its own.
+test-adapters:
+	$(MAKE) -C adapters test
+
+test-all: test test-adapters
