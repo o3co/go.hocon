@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `adapters/`, a nested module for reading foreign config formats
+
+- **`include`-adjacent formats owned by other programs can now be mounted as
+  config**: `adapters/properties`, `adapters/env`, `adapters/jsonc` and
+  `adapters/toml` each return a fully resolved `*Config` you place under your own
+  document with `WithFallback`, so a `${...}` can reach into it. Ingestion is
+  AST-level — a document is decoded and built into a value tree, never rendered
+  to HOCON text — so there is no emitter and no escaping to get wrong.
+- `adapters/` is a **module of its own**, so `github.com/o3co/go.hocon` still has
+  zero dependencies: importing the parser pulls in nothing. Only
+  `adapters/toml` brings a dependency (`pelletier/go-toml/v2`), and only for
+  those who import it.
+- Plain JSON needs no adapter, since HOCON is a JSON superset; a conformance
+  test now proves that rather than leaving it asserted. Reading a single
+  environment variable needs none either — that is what `${?VAR}` is for. The
+  `env` package is for mounting a whole prefixed namespace as a subtree.
+- Note for callers: parse the host document with
+  `WithResolveSubstitutions(false)` before attaching the fallback. `ParseFile`
+  resolves as it parses, so a `${...}` aimed at the foreign layer would fail
+  before the fallback is ever attached.
+
+### Fixed — `include "x.properties"` now accepts the whole of java.util.Properties syntax
+
+- **Backslash continuations, escapes, and whitespace separators in an included
+  `.properties` file were mishandled**, and a continued line was silently
+  dropped. Lightbend hands an included properties file to
+  `java.util.Properties`; this parser implemented roughly the "key=value with #
+  comments" subset. Concretely, with `a = one\` continued by `two`, `b\:c = 2`,
+  `d = x\ty`, `e = é` and `f value = 3`, every one of the five produced a
+  wrong key or a wrong value — `{"a":"one\\","b\\":"c = 2","d":"x\\ty",
+  "e":"\\u00e9","f value":"3"}` instead of `{"a":"onetwo","b:c":"2","d":"x\ty",
+  "e":"é","f":"value = 3"}`.
+- Now handled: `\` line continuation, the `\t \n \r \f \uXXXX` escapes
+  (including surrogate pairs), escaped separators (`\:` `\=` `\ `) belonging to
+  the key, whitespace alone as a separator, `\r\n` and bare `\r` line endings,
+  and UTF-8 validation.
+- **Behaviour change**: trailing whitespace in a value is now **preserved**.
+  Java skips whitespace before a value but never after it, so `key = value  `
+  yields `"value  "`. The previous parser trimmed both ends.
+- A malformed escape (an unpaired `\uXXXX` surrogate, a truncated one) is now a
+  `ResolveError` naming the file, rather than silently mangled text. Go strings
+  cannot hold an unpaired surrogate, which would otherwise become U+FFFD.
+- The syntax layer is shared with `adapters/properties`, so the include path and
+  the adapter cannot drift apart.
+
 ### Fixed — empty path elements and backticks rejected in key/value position (S11.7 + S8.1, [xx.hocon#68](https://github.com/o3co/xx.hocon/issues/68))
 
 - **`a..b: 3`, `.a: 3`, `a...c: 4` and `a...c."": 4` now error instead of silently

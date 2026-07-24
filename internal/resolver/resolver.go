@@ -1651,7 +1651,14 @@ func (r *resolver) loadIncludeFile(path string, required bool) (*ObjectVal, erro
 	// .properties files: use dedicated parser instead of HOCON lexer.
 	// Standard .properties syntax (e.g. ! comments, URL values) is not valid HOCON.
 	if filepath.Ext(path) == ".properties" {
-		return propsToObjectVal(properties.Parse(string(data))), nil
+		props, err := properties.Parse(string(data))
+		if err != nil {
+			return nil, &ResolveError{
+				Message:  "cannot parse include file: " + err.Error(),
+				FilePath: path,
+			}
+		}
+		return propsToObjectVal(props), nil
 	}
 
 	// S3.1 (corrected, xx.hocon E10): an empty / whitespace-only / comment-only
