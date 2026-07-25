@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-25
+
 ### Added — `adapters/`, a nested module for reading foreign config formats
 
 - **`include`-adjacent formats owned by other programs can now be mounted as
@@ -48,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (including surrogate pairs), escaped separators (`\:` `\=` `\ `) belonging to
   the key, whitespace alone as a separator, `\r\n` and bare `\r` line endings,
   and UTF-8 validation.
-- **Behaviour change**: trailing whitespace in a value is now **preserved**.
+- **Behavior change**: trailing whitespace in a value is now **preserved**.
   Java skips whitespace before a value but never after it, so `key = value  `
   yields `"value  "`. The previous parser trimmed both ends.
 - A malformed escape (an unpaired `\uXXXX` surrogate, a truncated one) is now a
