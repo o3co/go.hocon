@@ -43,7 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `True:`, `8:` and `0o10:` — each pair becomes one object key, and the loser
   vanished without an error. (goccy's own duplicate detection compares key
   text, so it catches `1:` against `"1":` and no further.) Per spec F5.3 this
-  is now an error naming both spellings, their line numbers and the path.
+  is now an error naming both spellings, their line numbers and the path. Keys
+  a tag resolves to something other than a scalar are covered too: `!!timestamp
+  2002-12-14` and the string `"2002-12-14 00:00:00 +0000 UTC"` are one key in
+  the decoded map.
   The check runs on the document, since a decoded map has already discarded
   the evidence; merge keys are exempt, as `<<:` legitimately supplies a key the
   mapping then overrides.

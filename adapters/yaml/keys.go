@@ -117,12 +117,22 @@ func (c *collisions) report(path []string, key string, a, b *ast.MappingValueNod
 		forms[0], forms[1], where))
 }
 
-// objectKey gives a key node the string a decoder would use for it.
+// objectKey gives a key node the string the decoder will use for it.
 //
-// The rule mirrors goccy's own mapKeyNodeToString: resolve the node, then null
-// is "null", a string is itself, and anything else takes fmt.Sprint. Mirroring
-// rather than inventing is the point — a form this function disagreed with
-// would either invent a collision or miss one.
+// The rule mirrors goccy's own mapKeyNodeToString exactly: resolve the node,
+// then null is "null", a string is itself, and everything else takes
+// fmt.Sprint — including the kinds a scalar switch would not think to list.
+// A tagged key resolves to time.Time (!!timestamp) or []byte (!!binary), and
+// the decoder still makes a key of it, so an enumeration here would skip the
+// node and miss the collision it causes: !!timestamp 2002-12-14 and the string
+// "2002-12-14 00:00:00 +0000 UTC" are one key in the decoded map.
+//
+// Mirroring rather than enumerating is the whole point — a form this function
+// disagreed with would either invent a collision or miss one.
+//
+// The false return is for a node that cannot be resolved at all (an alias with
+// no anchor). Such a key is skipped rather than guessed at, and the decoder,
+// which runs first, reports it with its own message.
 func objectKey(k ast.MapKeyNode) (string, bool) {
 	var v any
 	if err := goyaml.NodeToValue(k, &v); err != nil {
@@ -133,8 +143,7 @@ func objectKey(k ast.MapKeyNode) (string, bool) {
 		return "null", true
 	case string:
 		return x, true
-	case bool, int, int64, uint64, float64:
+	default:
 		return fmt.Sprint(x), true
 	}
-	return "", false
 }

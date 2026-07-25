@@ -332,6 +332,44 @@ func TestParseCollidingKeyFormsRejected(t *testing.T) {
 	}
 }
 
+// A tagged key resolves to a Go value that is neither a string nor a number,
+// and the decoder still turns it into a map key with fmt.Sprint. The check has
+// to agree with that, or a document like this loses "a" in silence: both keys
+// become "2002-12-14 00:00:00 +0000 UTC".
+func TestTaggedKeyFormsCollide(t *testing.T) {
+	for name, src := range map[string]string{
+		"timestamp against its text": "!!timestamp 2002-12-14: a\n" +
+			"\"2002-12-14 00:00:00 +0000 UTC\": b\n",
+		"binary against its text": "!!binary aGk=: a\n\"[104 105]\": b\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := yaml.Parse([]byte(src), "test.yaml")
+			if err == nil {
+				t.Fatalf("Parse(%q) succeeded, want error — a value is being dropped", src)
+			}
+			if !strings.Contains(err.Error(), "F5.3") {
+				t.Errorf("error %q does not cite the spec item F5.3", err)
+			}
+		})
+	}
+}
+
+// Keys of every scalar kind the decoder can produce keep working when they do
+// not collide, including the ones that only fmt.Sprint can render.
+func TestExoticKeyKindsStillParse(t *testing.T) {
+	cfg := parse(t, "!!timestamp 2002-12-14: ts\n!!binary aGk=: bin\n.inf: inf\n"+
+		"18446744073709551615: big\n-5: neg\n")
+	for path, want := range map[string]string{
+		`"2002-12-14 00:00:00 +0000 UTC"`: "ts",
+		`"[104 105]"`:                     "bin",
+		`"+Inf"`:                          "inf",
+		`"18446744073709551615"`:          "big",
+		`"-5"`:                            "neg",
+	} {
+		wantString(t, cfg, path, want)
+	}
+}
+
 // A collision below the root names the path to it, so it does not read like a
 // top-level one.
 func TestParseCollisionErrorNamesThePath(t *testing.T) {
