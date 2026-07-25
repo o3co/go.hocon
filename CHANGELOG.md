@@ -33,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module uses, so `go get github.com/o3co/go.hocon/adapters@v1.10.0` failed to
   compile. The dev-only `replace => ../` hid the mismatch inside this repo —
   consumers ignore a dependency's `replace`. The requirement now names
-  `v1.10.0`.
+  `v1.10.0`, and CI now tests, lints and — with the `replace` dropped —
+  builds the adapters module against the published core, so a stale require
+  fails a PR instead of shipping.
 - **`adapters/jsonc` accepted trailing garbage after the top-level value**:
   `{"a":1} }`, `{"a":1} ]` and even `{"a":1} } {"b":2}` all parsed, silently
   dropping everything past the first value. The check used `Decoder.More`,

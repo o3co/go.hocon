@@ -3,7 +3,11 @@ name: Release
 on:
   push:
     tags:
+      # Core releases. A nested-module tag (adapters/v*) does not match:
+      # the * in a tag filter never matches /.
       - "v*"
+      # Releases of the nested adapters module.
+      - "adapters/v*"
 
 permissions:
   contents: write
@@ -11,6 +15,7 @@ permissions:
 jobs:
   proxy-fetch:
     name: Trigger Go module proxy indexing
+    if: ${{ !startsWith(github.ref_name, 'adapters/') }}
     runs-on: ubuntu-latest
 
     steps:
@@ -62,3 +67,27 @@ jobs:
           # manually before the workflow ran).
           fail_on_unmatched_files: false
           make_latest: true
+
+  # The adapters/ nested module is versioned by its own adapters/v* tags
+  # (Go's convention for a module in a subdirectory). Same proxy fetch and
+  # sum-database verification as the core job; no GitHub Release is created —
+  # adapters changes are documented in the repository CHANGELOG and covered
+  # by the core release notes.
+  proxy-fetch-adapters:
+    name: Trigger Go module proxy indexing (adapters)
+    if: ${{ startsWith(github.ref_name, 'adapters/') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch via GOPROXY
+        run: |
+          VERSION="${GITHUB_REF_NAME#adapters/}"
+          MODULE="github.com/o3co/go.hocon/adapters"
+          echo "Triggering proxy fetch for ${MODULE}@${VERSION}"
+          curl -sSf "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info" | jq .
+
+      - name: Fetch via sum database
+        run: |
+          VERSION="${GITHUB_REF_NAME#adapters/}"
+          MODULE="github.com/o3co/go.hocon/adapters"
+          curl -sSf "https://sum.golang.org/lookup/${MODULE}@${VERSION}" || true

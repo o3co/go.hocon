@@ -24,3 +24,10 @@ jobs:
 
       - name: golangci-lint
         run: golangci-lint run --timeout=5m
+
+      # adapters/ is a nested module, invisible to the root run above.
+      # The config is still the repository root's .golangci.yml, which
+      # golangci-lint finds by searching parent directories.
+      - name: golangci-lint (adapters)
+        run: golangci-lint run --timeout=5m
+        working-directory: adapters
