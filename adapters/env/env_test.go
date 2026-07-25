@@ -294,3 +294,15 @@ func TestUseAsSubstitutionSourceUnderHOCON(t *testing.T) {
 	}
 	wantString(t, merged, "url", "postgres://db.internal:5432")
 }
+
+// F0.9: a leading BOM in a .env file is stripped rather than glued onto the
+// first variable name.
+func TestLeadingBOMStrippedFromDotEnv(t *testing.T) {
+	cfg, err := env.Parse([]byte("\ufeffAPP_A=1\n"), env.Options{Prefix: "APP_"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.GetString("a"); got != "1" {
+		t.Errorf("a = %q, want \"1\" — the BOM ended up in the name", got)
+	}
+}

@@ -53,6 +53,7 @@ import (
 
 	goyaml "github.com/goccy/go-yaml"
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
 	"github.com/o3co/go.hocon/adapters/internal/keypath"
 	"github.com/o3co/go.hocon/adapters/internal/tree"
 )
@@ -66,7 +67,7 @@ import (
 // who wants a different library, version or schema decodes the text themselves
 // and hands the result to FromValue; this function is the convenience path.
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
-	data = stripBOM(data)
+	data = bom.Strip(data) // spec F0.9
 	doc, err := decode(data, originDescription)
 	if err != nil {
 		return nil, err
@@ -78,14 +79,6 @@ func Parse(data []byte, originDescription string) (*hocon.Config, error) {
 		return nil, err
 	}
 	return FromValue(doc, originDescription)
-}
-
-// stripBOM drops a leading UTF-8 byte-order mark (spec F0.9). Windows editors
-// write one, and left in place it becomes part of the first key: `a: 1` would
-// yield a key with U+FEFF glued to the front, so a lookup of "a" misses and
-// the value is unreachable — plausible-but-wrong output.
-func stripBOM(data []byte) []byte {
-	return bytes.TrimPrefix(data, []byte("\ufeff"))
 }
 
 // FromValue builds a Config from an already-decoded YAML value tree, produced

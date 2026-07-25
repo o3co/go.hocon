@@ -64,10 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`adapters/env` folded case beyond ASCII** (spec F1.3): `strings.ToLower`
   turns `İ` (U+0130) into `i`, so `APP_İ` and `APP_I` collided here while
   Python, JS and Rust kept them apart. Only `A`–`Z` is folded now.
-- **A leading UTF-8 BOM is stripped** in `adapters/jsonc` and `adapters/yaml`
-  (spec F0.9). A BOM used to become part of the first key in YAML — `a: 1`
-  yielded a key that `GetString("a")` could not find — and made JSONC fail with
-  a message about a stray character.
+- **A leading UTF-8 BOM is stripped** by every adapter (spec F0.9). A BOM used
+  to become part of the first key in YAML and Properties — `a: 1` yielded a key
+  that `GetString("a")` could not find, the plausible-but-wrong outcome this
+  project treats as worse than an error — and made JSONC and TOML fail with a
+  message about a stray character. The core parser already ignored it.
 
 ### Changed
 

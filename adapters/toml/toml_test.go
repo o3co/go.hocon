@@ -157,3 +157,14 @@ func TestUseAsSubstitutionSourceUnderHOCON(t *testing.T) {
 		t.Errorf("image = %q, want registry.example.com/svc:1.4.0", got)
 	}
 }
+
+// F0.9: a leading BOM is stripped rather than failing the decode.
+func TestLeadingBOMStripped(t *testing.T) {
+	cfg, err := toml.Parse([]byte("\ufeffa = 1\n"), "test.toml")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.GetInt64("a"); got != 1 {
+		t.Errorf("a = %d, want 1", got)
+	}
+}

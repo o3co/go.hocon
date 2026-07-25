@@ -48,6 +48,7 @@ import (
 	"strings"
 
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
 	"github.com/o3co/go.hocon/adapters/internal/tree"
 )
 
@@ -56,7 +57,7 @@ import (
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
 	// F0.9: a leading BOM is not data. Left in place, encoding/json rejects
 	// the document with a message about a stray character.
-	data = bytes.TrimPrefix(data, []byte("\ufeff"))
+	data = bom.Strip(data)
 	doc, err := decode(data, originDescription)
 	if err != nil {
 		return nil, err

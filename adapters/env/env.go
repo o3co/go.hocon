@@ -36,6 +36,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
 	"github.com/o3co/go.hocon/adapters/internal/keypath"
 	"github.com/o3co/go.hocon/adapters/internal/pathmap"
 )
@@ -100,6 +101,7 @@ func Parse(data []byte, opts Options) (*hocon.Config, error) {
 	if origin == "" {
 		origin = ".env"
 	}
+	data = bom.Strip(data) // spec F0.9
 	if !utf8.Valid(data) {
 		return nil, fmt.Errorf("env: %s: input is not valid UTF-8", origin)
 	}

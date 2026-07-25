@@ -135,8 +135,8 @@ config subtree.
 - **JSONC comments separate tokens.** A comment is replaced by whitespace, not
   by nothing, so `1/*x*/2` is a syntax error rather than the number `12`. A
   `//` comment ends at CR as well as LF.
-- **A leading BOM is stripped**, in every format, rather than becoming part of
-  the first key.
+- **A leading BOM is stripped**, in every format and at every entry point,
+  rather than becoming part of the first key (spec F0.9).
 
 ## Development
 

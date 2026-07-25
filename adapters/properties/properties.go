@@ -36,6 +36,7 @@ import (
 	"strings"
 
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
 	"github.com/o3co/go.hocon/adapters/internal/pathmap"
 	syntax "github.com/o3co/go.hocon/internal/properties"
 )
@@ -46,7 +47,7 @@ import (
 // Encoding is UTF-8 with \uXXXX escapes honoured, matching java.util.Properties
 // load(Reader) rather than the ISO-8859-1 byte-stream form (spec F2.3).
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
-	pairs, err := syntax.Parse(string(data))
+	pairs, err := syntax.Parse(string(bom.Strip(data)))
 	if err != nil {
 		return nil, fmt.Errorf("properties: %s: %w", describe(originDescription), err)
 	}
