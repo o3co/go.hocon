@@ -54,6 +54,9 @@ import (
 // Parse reads JSONC data. originDescription names the source in error
 // messages; "" leaves it to hocon's default.
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
+	// F0.9: a leading BOM is not data. Left in place, encoding/json rejects
+	// the document with a message about a stray character.
+	data = bytes.TrimPrefix(data, []byte("\ufeff"))
 	doc, err := decode(data, originDescription)
 	if err != nil {
 		return nil, err
@@ -91,10 +94,15 @@ func decode(data []byte, origin string) (any, error) {
 
 	// F3.2: trailing content after the top-level value is an error via a
 	// strict EOF check. Decoder.More is only a one-token peek and reports
-	// false on a closing bracket, so stray closers ({"a":1} }) would pass;
-	// a second Decode must hit io.EOF instead.
-	var extra any
-	switch err := dec.Decode(&extra); {
+	// false on a closing bracket, so stray closers ({"a":1} }) would pass.
+	//
+	// Token rather than a second Decode: this package reads files owned by
+	// other programs, so trailing bytes are untrusted input, and decoding
+	// them into a value that is thrown away turns a rejection into an
+	// allocation several times the size of the garbage. A token is enough to
+	// tell EOF from not-EOF, and costs the same for one byte or ninety
+	// megabytes.
+	switch _, err := dec.Token(); {
 	case errors.Is(err, io.EOF):
 		return doc, nil
 	case err == nil:
@@ -161,7 +169,11 @@ func StripComments(data []byte) ([]byte, error) {
 			i = end
 		case c == '/' && i+1 < len(data) && data[i+1] == '/':
 			out = append(out, ' ')
-			for i < len(data) && data[i] != '\n' {
+			// Ends at any line break, CR included: a lone CR is a line
+			// ending in files written on old Macs and by some generators,
+			// and treating it as ordinary text swallows the rest of the
+			// document (spec F3.2).
+			for i < len(data) && data[i] != '\n' && data[i] != '\r' {
 				i++
 			}
 		case c == '/' && i+1 < len(data) && data[i+1] == '*':
