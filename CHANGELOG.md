@@ -61,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identically. Segments are now length-prefixed, and the path is rendered as a
   HOCON path expression (`a.b`, `"foo.bar"`) — the format py.hocon and
   rs.hocon use.
+- **`adapters/env` admitted undecodable environment entries** (spec F1.9(b)):
+  a bulk mount asks for a whole namespace, but a variable in it whose name or
+  value was not valid UTF-8 was mounted anyway, its raw bytes becoming a key no
+  lookup could reach. Such an entry is now an error naming the variable — the
+  value is never echoed, since that is where credentials live. The check runs
+  **after** the prefix filter, so an undecodable variable the caller never
+  asked for still cannot break an unrelated mount.
 - **`adapters/env` folded case beyond ASCII** (spec F1.3): `strings.ToLower`
   turns `İ` (U+0130) into `i`, so `APP_İ` and `APP_I` collided here while
   Python, JS and Rust kept them apart. Only `A`–`Z` is folded now.

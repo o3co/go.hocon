@@ -110,6 +110,11 @@ config subtree.
   depend on input order.
 - **Environment collisions are errors.** `APP_A__B` and `APP_a__b` both map to
   `a.b`; since the environment has no meaningful order, neither silently wins.
+- **An undecodable variable inside a mount is an error.** A bulk mount asks for
+  a whole namespace, so a variable matching the prefix whose name or value is
+  not valid UTF-8 fails the mount rather than vanishing from it. Variables
+  outside the prefix are never inspected, so an odd entry elsewhere in the
+  environment cannot break an unrelated mount.
 - **Integers stay integers.** A JSON or TOML integer becomes an int64; one too
   large to fit is an error rather than a silent widening to float64.
 - **`.env` is a small dialect.** `NAME=value`, optional `export `, whole-line

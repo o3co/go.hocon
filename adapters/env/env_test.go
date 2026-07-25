@@ -32,6 +32,83 @@ func wantString(t *testing.T, cfg *hocon.Config, path, want string) {
 // F1.6 message format, shared with py.hocon and rs.hocon: the mapped path is
 // rendered as a HOCON path expression, so a segment holding a literal dot is
 // quoted and cannot be mistaken for two segments.
+// F1.9(b): a bulk mount is an explicit request for a whole namespace, so an
+// entry in it that cannot be decoded is an error. Omitting it silently would
+// leave a subtree that looks complete while the operator's setting is missing,
+// and a stale default would then win invisibly; admitting the raw bytes is
+// worse still, since the key becomes unreachable text.
+func TestUndecodableNameInMountIsError(t *testing.T) {
+	_, err := env.Load(env.Options{Prefix: "APP_", Environ: []string{"APP_\xffZ=1"}})
+	if err == nil {
+		t.Fatal("undecodable variable name accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "F1.9") {
+		t.Errorf("error %q does not cite the spec item F1.9", err)
+	}
+	if !strings.Contains(err.Error(), `\xff`) {
+		t.Errorf("error %q does not show the offending name in escaped form", err)
+	}
+}
+
+func TestUndecodableValueInMountIsError(t *testing.T) {
+	_, err := env.Load(env.Options{Prefix: "APP_", Environ: []string{"APP_X=\xff\xfe"}})
+	if err == nil {
+		t.Fatal("undecodable value accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "APP_X") {
+		t.Errorf("error %q does not name the variable", err)
+	}
+	if !strings.Contains(err.Error(), "F1.9") {
+		t.Errorf("error %q does not cite the spec item F1.9", err)
+	}
+	// Environment values are where credentials live: the message must not
+	// echo one, decodable or not.
+	if strings.Contains(err.Error(), "\xff") || strings.Contains(err.Error(), `\xff`) {
+		t.Errorf("error %q echoes the value", err)
+	}
+}
+
+// The prefix filter bounds the rule. An undecodable variable the caller never
+// asked for must not break an unrelated mount — that is what keeps this from
+// becoming the abort-on-anything bug F1.9 exists to avoid.
+func TestUndecodableEntryOutsideThePrefixIsIgnored(t *testing.T) {
+	cfg, err := env.Load(env.Options{
+		Prefix:  "APP_",
+		Environ: []string{"OTHER_\xffZ=junk", "SOMETHING=\xfe", "APP_A=1"},
+	})
+	if err != nil {
+		t.Fatalf("Load: %v — an entry outside the prefix is none of the mount's business", err)
+	}
+	wantString(t, cfg, "a", "1")
+}
+
+// F1.9(c): an entry whose value does not decode still occupies its mapped
+// path, so a second name mapping to the same path is still a conflict. Both
+// problems are errors here, so the mount fails either way — what must not
+// happen is the undecodable entry being dropped and the other value quietly
+// mounting as if it were unopposed.
+func TestUndecodableValueStillOccupiesItsPath(t *testing.T) {
+	_, err := env.Load(env.Options{
+		Prefix:  "APP_",
+		Environ: []string{"APP_A__B=\xff", "APP_a__b=ok"},
+	})
+	if err == nil {
+		t.Fatal("mount succeeded, want error — one value would have won silently")
+	}
+	if !strings.Contains(err.Error(), "APP_A__B") {
+		t.Errorf("error %q does not name the undecodable entry", err)
+	}
+}
+
+// A .env file is validated as a whole (its bytes are one document), so this
+// path was already covered; pinned so the two stay consistent.
+func TestUndecodableDotEnvIsError(t *testing.T) {
+	_, err := env.Parse([]byte("A=\xff\n"), env.Options{})
+	if err == nil {
+		t.Fatal("undecodable .env accepted, want error")
+	}
+}
+
 func TestCollisionMessageRendersPathAsExpression(t *testing.T) {
 	for name, tc := range map[string]struct {
 		environ []string

@@ -128,11 +128,16 @@ type pair struct{ name, value string }
 
 // build maps names to paths and hands the nesting to pathmap.
 //
-// detectCollisions is on for the process environment, where two names can map
-// to one path (APP_A__B and APP_a__b both reach a.b) and there is no meaningful
-// order to break the tie with, so it is an error (spec F1.6).  A .env file has
-// a definite order, so the last entry simply wins (spec F0.7).
-func build(pairs []pair, opts Options, defaultOrigin string, detectCollisions bool) (*hocon.Config, error) {
+// fromProcessEnv marks the bulk-mount path, where two rules apply that a .env
+// file does not need:
+//
+//   - F1.6: two names can map to one path (APP_A__B and APP_a__b both reach
+//     a.b) and the environment has no meaningful order to break the tie with,
+//     so it is an error.  A .env file has a definite line order, so the last
+//     entry simply wins (spec F0.7).
+//   - F1.9(b): an entry that is not valid UTF-8 is an error.  A .env file is
+//     validated as a whole in Parse, since its bytes are one document.
+func build(pairs []pair, opts Options, defaultOrigin string, fromProcessEnv bool) (*hocon.Config, error) {
 	origin := opts.Origin
 	if origin == "" {
 		origin = defaultOrigin
@@ -144,8 +149,27 @@ func build(pairs []pair, opts Options, defaultOrigin string, detectCollisions bo
 		if !strings.HasPrefix(p.name, opts.Prefix) {
 			continue
 		}
+		// F1.9(b): a bulk mount is an explicit request for a whole namespace,
+		// so an entry inside it that cannot be decoded is an error.  Dropping
+		// it would leave a subtree that looks complete while the operator's
+		// setting is missing, and a stale default would win invisibly;
+		// admitting the raw bytes is worse, since the key becomes unreachable
+		// text.  Deliberately after the prefix filter: an undecodable variable
+		// the caller never asked for must not break an unrelated mount.
+		if fromProcessEnv {
+			if !utf8.ValidString(p.name) {
+				return nil, fmt.Errorf("env: %s: variable name %q is not valid UTF-8 (spec F1.9)",
+					origin, p.name)
+			}
+			// The value is named but never echoed — environment values are
+			// where credentials live.
+			if !utf8.ValidString(p.value) {
+				return nil, fmt.Errorf("env: %s: the value of %s is not valid UTF-8 (spec F1.9)",
+					origin, p.name)
+			}
+		}
 		path := toPath(strings.TrimPrefix(p.name, opts.Prefix))
-		if detectCollisions {
+		if fromProcessEnv {
 			k := pathKey(path)
 			if prev, dup := seen[k]; dup {
 				// The path is rendered as a HOCON path expression, so a
