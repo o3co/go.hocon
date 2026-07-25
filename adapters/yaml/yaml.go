@@ -25,6 +25,17 @@
 // hands the tree to FromValue; that is the supported way to swap parsers, and
 // it keeps the choice — and its consequences — in the caller's hands.
 //
+// An injected tree gets the same key rules as a parsed one. A non-string
+// scalar key takes its string form and a collection key is refused, so two
+// siblings whose string forms coincide — the int 1 and the string "1" in one
+// map[any]any — are an error naming both (spec F5.3). Go randomizes map
+// iteration, so letting the last one win would mean a different config on a
+// different run.
+//
+// This package is part of the github.com/o3co/go.hocon/adapters module, which
+// is versioned separately from the parser: see the module README for the
+// go get line and the core-version requirement.
+//
 // See docs/specs/format-ingestion-mapping.md items F5.x in the hocon scope.
 package yaml
 
@@ -68,6 +79,10 @@ func Parse(data []byte, originDescription string) (*hocon.Config, error) {
 // only the default one: map[any]any (yaml.v2 style) has its scalar keys
 // stringified per F5.3, time.Time (go.yaml.in timestamps) becomes its RFC 3339
 // string like a TOML date (F4.2's reasoning), and []byte becomes base64 (F5.5).
+//
+// Stringifying can make two sibling keys collide (the int 1 and the string
+// "1"); that is an error naming both, not a race decided by map iteration
+// order (F5.3).
 func FromValue(doc any, originDescription string) (*hocon.Config, error) {
 	// An empty document is the empty object, as an empty HOCON document is
 	// (S3.1), rather than a root-type failure (spec F5.9).

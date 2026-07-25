@@ -22,6 +22,19 @@
 // Comments and trailing commas are removed, then encoding/json does the
 // parsing, so the accepted grammar is otherwise exactly Go's JSON.
 //
+// Two consequences of that removal are worth stating, because both are strict
+// where a JSONC reader could be sloppy (spec F3.2):
+//
+//   - A comment is replaced by whitespace, never by nothing, so it still
+//     separates the tokens around it: 1/*x*/2 is a syntax error, not 12.
+//   - A document holds exactly one value. Whitespace and comments may follow
+//     it, but anything else — including a stray closer such as {"a":1} } —
+//     is an error rather than silently ignored text.
+//
+// This package is part of the github.com/o3co/go.hocon/adapters module, which
+// is versioned separately from the parser: see the module README for the
+// go get line and the core-version requirement.
+//
 // See docs/specs/format-ingestion-mapping.md items F3.x in the hocon scope.
 package jsonc
 

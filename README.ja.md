@@ -74,6 +74,7 @@ HOCON は単なるシリアライズ形式ではなく、**プログラムに注
 - バイトサイズパース（`1KB`、`1KiB`、`1MB`、...）
 - 安全な省略値アクセスのためのジェネリック `Option[T]`
 - `hocon` 構造体タグによる Unmarshal
+- 他プログラムが所有する設定ファイルを読むフォーマットアダプタ — Properties、env、JSONC、TOML、YAML（下記参照）
 - 外部依存ゼロ — 標準ライブラリのみ
 
 ## API
@@ -213,6 +214,65 @@ max-size  = "512MiB"
 | In-scope のみ | **80.2%** |
 | Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 合格 |
 | [hocon2](https://github.com/o3co/hocon2) 準拠テスト（JSON/YAML/TOML/Properties 出力） | 77/77 合格 |
+
+## フォーマットアダプタ
+
+*他の*プログラムが所有する設定ファイルを HOCON としてマウントできます。自分のドキュメント内の `${...}` からその値を参照できます。
+
+`adapters/` は **独立した Go モジュール** です（パーサー本体の依存ゼロを保つための構成）。そのため、インストールも独立しています:
+
+```bash
+go get github.com/o3co/go.hocon/adapters
+```
+
+```go
+import (
+    "github.com/o3co/go.hocon"
+    "github.com/o3co/go.hocon/adapters/env"
+)
+
+// APP_DB__HOST=db.internal  ->  db.host
+base, _ := env.Load(env.Options{Prefix: "APP_"})
+
+// フォールバックを繋ぐまで、代入は未解決のままにしておく必要があります。
+cfg, _ := hocon.ParseFileWithOptions("app.conf",
+    hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+
+merged, _ := cfg.WithFallback(base).Resolve(hocon.ResolveOptions{})
+```
+
+```hocon
+# app.conf — ${db.host} はマウントされた環境変数から解決される
+url = "postgres://"${db.host}":"${db.port}
+```
+
+パーサーを import しても依存は一切増えません。依存が増えるのは、import したアダプタの分だけです。
+
+| パッケージ | 備考 |
+| --- | --- |
+| `adapters/properties` | `java.util.Properties`。パーサー本体の `include` と構文層を共有 |
+| `adapters/env` | prefix 付き名前空間の一括マウント。`.env` ファイルの読み込みにも対応 |
+| `adapters/jsonc` | コメントと末尾カンマ付き JSON。依存なし |
+| `adapters/toml` | `pelletier/go-toml/v2` を使用 |
+| `adapters/yaml` | `goccy/go-yaml` を使用 |
+
+### バージョニング
+
+adapters モジュールは `adapters/vX.Y.Z` という独自のタグを持ち、その `go.mod` が使用する API に対応するコアのバージョンを require しています。両者は同時にリリースされるため、対応するペアで取得してください — `go get github.com/o3co/go.hocon/adapters@latest` を実行すれば、必要なコアも一緒に入ります。
+
+プレーンな JSON にアダプタは不要です — HOCON は JSON のスーパーセットなので、`hocon.ParseFile` がそのまま `.json` を受け付けます。環境変数を 1 つ読むだけの場合も不要で、それは `${?VAR}` の役目です。
+
+外部データはあくまでデータです。マウントされた値の中の `${a.b}` は参照ではなくリテラルのテキストとして扱われます。そのファイルは、HOCON の構文に同意していない別のプログラムのものだからです。
+
+### アダプタが厳格に拒否するもの
+
+呼び出し側からは見えないもの — Go の map がたまたま辿った順序や、デコーダがたまたま読み止めた位置 — に意味が左右される入力は、取り込み時に拒否されます:
+
+- **JSONC のドキュメントは値をちょうど 1 つだけ持つ。** その後ろに置けるのは空白とコメントだけで、それ以外は — `{"a":1} }` のような余分な閉じ括弧を含め — 黙って無視されずエラーになります。
+- **JSONC のコメントはトークンを分割する。** コメントは空文字ではなく空白に置き換えられるため、`1/*x*/2` は数値 `12` ではなく構文エラーになります。
+- **文字列形が一致する YAML のキーは衝突として扱う。** 文字列以外のスカラーキーはその文字列形になるため、兄弟キーとしての int `1` と string `"1"` は両方を示すエラーになります。`yaml.FromValue` に渡したツリーでも同様です — Go の map の走査順はランダム化されており、後勝ちにすると実行のたびに結果が変わってしまうためです。
+
+YAML のスカラー解決はこのモジュールではなくライブラリの責務です — `010` が 8 なのか 10 なのかは `goccy` の答えであって、ここでの保証ではありません。`yaml.FromValue` はデコード済みのツリーを受け取るので、別のライブラリやスキーマが必要な呼び出し側は自分でデコードして、その結果を渡してください。詳細は [`adapters/README.md`](adapters/README.md) を参照。
 
 ## 関連プロジェクト
 
