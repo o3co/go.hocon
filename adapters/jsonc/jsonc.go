@@ -153,9 +153,13 @@ func number(n json.Number) (any, error) {
 // StripComments replaces // line comments and /* block comments */ with
 // whitespace, leaving string literals untouched.  A comment always becomes at
 // least one space, never the empty string, so it stays token-separating:
-// 1/*x*/2 remains two tokens and fails the JSON decode (spec F3.2).  Newlines
-// inside removed spans are preserved so that encoding/json still reports
-// useful offsets.
+// 1/*x*/2 remains two tokens and fails the JSON decode (spec F3.2).
+//
+// Newlines inside a removed span are kept, so a syntax error still lands on
+// the line it is on in the original file.  Byte offsets do not survive — a
+// stripped comment shortens the line it was on — so the offset in an
+// encoding/json error refers to the stripped text, not to what the author
+// wrote.
 func StripComments(data []byte) ([]byte, error) {
 	out := make([]byte, 0, len(data))
 	for i := 0; i < len(data); {
