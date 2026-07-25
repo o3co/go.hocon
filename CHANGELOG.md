@@ -34,6 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compile. The dev-only `replace => ../` hid the mismatch inside this repo —
   consumers ignore a dependency's `replace`. The requirement now names
   `v1.10.0`.
+- **`adapters/jsonc` accepted trailing garbage after the top-level value**:
+  `{"a":1} }`, `{"a":1} ]` and even `{"a":1} } {"b":2}` all parsed, silently
+  dropping everything past the first value. The check used `Decoder.More`,
+  a one-token peek that reports false on a closing bracket; per spec F3.2 the
+  decoder now requires a second decode to hit `io.EOF`, as the yaml adapter
+  already did. Trailing whitespace and comments after the value still parse.
+- **`adapters/jsonc` comment stripping could merge tokens**: a block comment
+  was removed outright, so `1/*x*/2` became the single number `12` instead of
+  a syntax error. A comment is now replaced by at least one space (spec F3.2),
+  keeping the tokens it separated apart.
 
 ## [1.10.0] - 2026-07-25
 

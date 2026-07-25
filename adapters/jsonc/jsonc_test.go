@@ -129,6 +129,63 @@ func TestSyntaxErrors(t *testing.T) {
 	}
 }
 
+// F3.2: trailing content after the top-level value is an error via a strict
+// EOF check. A one-token peek (Decoder.More) reports false on a closing
+// bracket, so stray closers used to slip through.
+func TestTrailingGarbageRejected(t *testing.T) {
+	for name, src := range map[string]string{
+		"stray closing brace":    `{"a":1} }`,
+		"stray closing bracket":  `{"a":1} ]`,
+		"pile of closers":        `{"a":1} }}]]`,
+		"closer then second doc": `{"a":1} } {"b":2}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := jsonc.Parse([]byte(src), "test.jsonc")
+			if err == nil {
+				t.Fatalf("Parse(%q) succeeded, want error", src)
+			}
+			if !strings.Contains(err.Error(), "after the top-level value") {
+				t.Errorf("error %q does not name the trailing data", err)
+			}
+		})
+	}
+}
+
+// The strict EOF check runs on the stripped text: whitespace and comments
+// after the top-level value are exactly what JSONC allows there.
+func TestTrailingWhitespaceAndCommentsAccepted(t *testing.T) {
+	for name, src := range map[string]string{
+		"trailing newlines":      "{\"a\": 1}\n\n",
+		"trailing spaces":        `{"a": 1}   `,
+		"trailing line comment":  "{\"a\": 1} // done",
+		"trailing block comment": "{\"a\": 1}\n/* the end */\n",
+		"comment then newline":   "{\"a\": 1} /* fin */ // bye\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := parse(t, src)
+			if got := cfg.GetInt64("a"); got != 1 {
+				t.Errorf("a = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// F3.2: a comment is replaced by whitespace, never the empty string, so it
+// always separates tokens. 1/*x*/2 must stay two tokens and fail the decode
+// rather than silently merging into 12.
+func TestCommentSeparatesTokens(t *testing.T) {
+	for name, src := range map[string]string{
+		"block comment between digits":         `{"a": 1/*x*/2}`,
+		"block comment between array elements": `{"a": [1/*x*/2]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := jsonc.Parse([]byte(src), "test.jsonc"); err == nil {
+				t.Fatalf("Parse(%q) succeeded, want error", src)
+			}
+		})
+	}
+}
+
 // F0.2: a ${...} in foreign data is text, not a reference.
 func TestSubstitutionSyntaxStaysLiteral(t *testing.T) {
 	cfg := parse(t, `{"a": "${foo.bar}"}`)

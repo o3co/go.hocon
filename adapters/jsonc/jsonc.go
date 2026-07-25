@@ -28,7 +28,9 @@ package jsonc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -73,10 +75,20 @@ func decode(data []byte, origin string) (any, error) {
 	if err := dec.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("jsonc: %s: %w", describe(origin), err)
 	}
-	if dec.More() {
+
+	// F3.2: trailing content after the top-level value is an error via a
+	// strict EOF check. Decoder.More is only a one-token peek and reports
+	// false on a closing bracket, so stray closers ({"a":1} }) would pass;
+	// a second Decode must hit io.EOF instead.
+	var extra any
+	switch err := dec.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+		return doc, nil
+	case err == nil:
 		return nil, fmt.Errorf("jsonc: %s: unexpected data after the top-level value", describe(origin))
+	default:
+		return nil, fmt.Errorf("jsonc: %s: unexpected data after the top-level value: %w", describe(origin), err)
 	}
-	return doc, nil
 }
 
 func describe(origin string) string {
@@ -116,9 +128,12 @@ func number(n json.Number) (any, error) {
 	return f, nil
 }
 
-// StripComments removes // line comments and /* block comments */, leaving
-// string literals untouched.  Newlines inside removed spans are preserved so
-// that encoding/json still reports useful offsets.
+// StripComments replaces // line comments and /* block comments */ with
+// whitespace, leaving string literals untouched.  A comment always becomes at
+// least one space, never the empty string, so it stays token-separating:
+// 1/*x*/2 remains two tokens and fails the JSON decode (spec F3.2).  Newlines
+// inside removed spans are preserved so that encoding/json still reports
+// useful offsets.
 func StripComments(data []byte) ([]byte, error) {
 	out := make([]byte, 0, len(data))
 	for i := 0; i < len(data); {
@@ -132,6 +147,7 @@ func StripComments(data []byte) ([]byte, error) {
 			out = append(out, data[i:end]...)
 			i = end
 		case c == '/' && i+1 < len(data) && data[i+1] == '/':
+			out = append(out, ' ')
 			for i < len(data) && data[i] != '\n' {
 				i++
 			}
@@ -140,6 +156,7 @@ func StripComments(data []byte) ([]byte, error) {
 			if end < 0 {
 				return nil, fmt.Errorf("unterminated /* comment")
 			}
+			out = append(out, ' ')
 			for _, b := range data[i : i+2+end+2] {
 				if b == '\n' {
 					out = append(out, '\n')
