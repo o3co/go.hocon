@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `Config.RenderHOCON()`, a HOCON text emitter
+
+- **A resolved config can now be rendered back to HOCON text**, the missing
+  reverse of parsing. `RenderHOCON()` walks the value tree (objects, arrays,
+  string / number / boolean / null scalars — exactly what `FromMap` and the
+  format adapters produce) and returns idiomatic HOCON: root fields without
+  enclosing braces, nested objects as `key { … }`, arrays newline-separated,
+  two-space indent.
+- The contract is **round-trip**, not byte formatting: parsing the output
+  yields the same tree. A scalar is quoted whenever leaving it bare would
+  re-parse as a different type (a string `"8080"` stays a string, `no` stays a
+  string, an empty or space-padded value is quoted); a multi-line value is
+  triple-quoted when that is lossless and escaped in double quotes otherwise.
+  An unresolved placeholder is an error — substitutions have no textual round
+  trip through a value tree.
+- This is the core half of the reverse-conversion work tracked in
+  [xx.hocon#74](https://github.com/o3co/xx.hocon/issues/74); hocon2's
+  `xxx2hocon` commands build on it.
+
 ## [1.10.0] - 2026-07-25
 
 ### Added — `adapters/`, a nested module for reading foreign config formats
