@@ -364,10 +364,11 @@ a dependency.
 
 ### Versioning
 
-The adapters module carries its own tags, `adapters/vX.Y.Z`, and its `go.mod`
-requires the core version whose API it uses. The two are released together, so
-take the matching pair — `go get github.com/o3co/go.hocon/adapters@latest`
-brings the core it needs with it.
+The adapters module will carry its own tags, `adapters/vX.Y.Z`, pairing with
+the core version they are built against — the first will be
+`adapters/v1.10.x`. None is pushed yet, so `go get` currently resolves a
+pseudo-version from the default branch. Either way its `go.mod` names the core
+version whose API it uses, and `go get` brings that core with it.
 
 Plain JSON needs no adapter — HOCON is a JSON superset, so `hocon.ParseFile`
 accepts a `.json` file as it stands. Reading a single environment variable needs
@@ -389,9 +390,10 @@ happens to stop before:
 - **JSONC comments separate tokens.** A comment becomes whitespace, not
   nothing, so `1/*x*/2` is a syntax error rather than the number `12`.
 - **YAML keys that stringify alike collide.** A non-string scalar key takes its
-  string form, so the int `1` and the string `"1"` as siblings are an error
-  naming both — including in a tree handed to `yaml.FromValue`, since Go
-  randomizes map iteration and last-one-wins would vary run to run.
+  string form, so `1.0:` and `"1":`, or `~:` and `"null":`, are an error naming
+  both spellings and their lines rather than one value quietly winning. A `<<:`
+  merge key is exempt — it legitimately supplies a key the mapping overrides.
+  The same applies to a tree handed to `yaml.FromValue`.
 
 For YAML, scalar resolution belongs to the library rather than to this module —
 whether `010` is 8 or 10 is `goccy`'s answer, not a guarantee here.

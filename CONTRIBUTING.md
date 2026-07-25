@@ -65,16 +65,22 @@ requiring a core older than the API it called.
 Reproduce the consumer's view:
 
 ```bash
+rm -rf /tmp/adapters-consumer
 cp -R adapters /tmp/adapters-consumer
 cd /tmp/adapters-consumer
 go mod edit -dropreplace=github.com/o3co/go.hocon
-GOFLAGS=-mod=mod go build ./...
+GOFLAGS=-mod=mod go test -count=1 ./...
 ```
 
-CI runs this on every PR (the `adapters without replace (published core)` job),
-so the rule to remember is the one it enforces: **a core change that the
-adapters use means bumping the core version in `adapters/go.mod` in the same
-PR**, to the version that will be tagged.
+CI runs this on every PR, in the `adapters without replace (published core)`
+job. When the require names a version the proxy does not have yet — which is
+the normal state of a PR that bumps it ahead of the tag — the job warns and
+skips, and the release workflow runs the check for real once the tag exists.
+
+So the rule is: **a core change that the adapters use means bumping the core
+version in `adapters/go.mod` in the same PR**, to the version that will be
+tagged. See [Releasing](#releasing) for the tag order that makes that
+resolvable.
 
 ## Code Style
 
@@ -106,13 +112,26 @@ The nested `adapters/` module is versioned by its own tags, in Go's
 subdirectory form — the tag name is the module path below the repository root:
 
 ```bash
-git tag adapters/v0.4.0
-git push origin adapters/v0.4.0
+git tag adapters/v1.10.1
+git push origin adapters/v1.10.1
 ```
 
-Release the two together: tag the core first, point `adapters/go.mod` at that
-version, then tag the adapters. `release.yml` handles both tag shapes and
-triggers proxy indexing for whichever module was tagged.
+The two modules are released together, in this order:
+
+1. The PR that changes both already bumped `adapters/go.mod`'s core `require`
+   to the version about to be tagged (see [above](#before-releasing-build-the-adapters-without-the-replace)).
+2. Tag and push the **core** (`vX.Y.Z`) first, so the version the adapters
+   require exists on the proxy.
+3. Tag and push the **adapters** (`adapters/vX.Y.Z`).
+
+`release.yml` handles both tag shapes: it triggers proxy indexing for whichever
+module was tagged, and for an adapters tag it also builds the published module
+the way `go get` delivers it — no checkout, no `replace` — so a tag whose core
+requirement cannot be satisfied fails there rather than at a user's build.
+
+The adapters version tracks the core version it pairs with (the first tag will
+be `adapters/v1.10.x`), so a reader can tell at a glance which parser a given
+adapters release was built against.
 
 ## License
 

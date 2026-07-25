@@ -12,10 +12,12 @@ subpackage after `go get github.com/o3co/go.hocon` alone will not resolve:
 go get github.com/o3co/go.hocon/adapters
 ```
 
-Its versions are tagged `adapters/vX.Y.Z`, separately from the parser's
-`vX.Y.Z`, and `adapters/go.mod` requires the core version whose API it uses.
-The two are released together, so take the matching pair rather than pinning
-one and letting the other float backwards.
+Versions will be tagged `adapters/vX.Y.Z` — Go's form for a module in a
+subdirectory — separately from the parser's `vX.Y.Z`, and pairing with the core
+version they were built against, so the first tag is `adapters/v1.10.x`. No
+such tag exists yet: until one is pushed, `go get` resolves a pseudo-version
+from the default branch. Either way `adapters/go.mod` names the core version
+whose API it uses, and `go get` brings that core with it.
 
 ```go
 import (
@@ -52,10 +54,12 @@ For local development `adapters/go.mod` carries `replace ... => ../`, so the
 adapters build against the parser in this checkout. Consumers ignore a
 dependency's replace directive and get the required version instead, which
 means **the adapters must be verified against the published core**, not
-against the working tree. CI does that on every PR: the
-`adapters without replace (published core)` job drops the replace and builds,
-so a `require` left behind by a core change fails review instead of shipping.
-Version skew is exactly how v1.10.0 shipped an adapters module that no
+against the working tree. CI does that in two places: the
+`adapters without replace (published core)` job drops the replace on every PR
+(warning and skipping when the require names a version not yet on the proxy —
+the normal state of a PR that bumps it ahead of the tag), and the release
+workflow builds the published module as `go get` delivers it once the tag
+exists. Version skew is exactly how v1.10.0 shipped an adapters module that no
 consumer could compile.
 
 ## Deferring resolution
@@ -119,15 +123,20 @@ config subtree.
 - **A YAML stream must hold one document.** Decoding a multi-document stream
   would return the first and drop the rest silently, so it is an error instead.
 - **YAML keys that stringify to the same text collide.** A non-string scalar
-  key takes its string form, so the int `1` and the string `"1"` in one mapping
-  are an error naming both — Go randomizes map iteration, and a last-one-wins
-  rule would give a different config on a different run. This applies to a tree
-  handed to `yaml.FromValue` as much as to a parsed document.
+  key takes its string form, so `1.0:` and `"1":` — or `~:` and `"null":`, or
+  `true:` and `True:` — are an error naming both spellings and their lines,
+  rather than one value quietly winning. A `<<:` merge key is exempt: it
+  legitimately supplies a key the mapping then overrides. The same rule applies
+  to a tree handed to `yaml.FromValue`.
 - **A JSONC document holds exactly one value.** Whitespace and comments may
   follow it; anything else — including a stray closer such as `{"a":1} }` — is
-  an error rather than ignored text.
+  an error rather than ignored text. Rejecting trailing bytes costs a token,
+  not a decode of them.
 - **JSONC comments separate tokens.** A comment is replaced by whitespace, not
-  by nothing, so `1/*x*/2` is a syntax error rather than the number `12`.
+  by nothing, so `1/*x*/2` is a syntax error rather than the number `12`. A
+  `//` comment ends at CR as well as LF.
+- **A leading BOM is stripped**, in every format, rather than becoming part of
+  the first key.
 
 ## Development
 
@@ -139,12 +148,15 @@ Before releasing, reproduce the consumer's view — the build without the
 `replace`, against the published core:
 
 ```bash
+rm -rf /tmp/adapters-consumer
 cp -R adapters /tmp/adapters-consumer
 cd /tmp/adapters-consumer
 go mod edit -dropreplace=github.com/o3co/go.hocon
-GOFLAGS=-mod=mod go build ./...
+GOFLAGS=-mod=mod go test -count=1 ./...
 ```
 
 ## Status
 
-Pre-1.0. The API may still change while the remaining formats land.
+The API may still change while the remaining formats land (`json5` is the one
+outstanding). Versions pair with the core release they are built against, so
+the module's first tag is `adapters/v1.10.x` rather than a 0.x series.

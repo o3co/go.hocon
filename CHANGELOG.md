@@ -30,28 +30,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`adapters/` did not build for consumers**: `adapters/go.mod` still required
   core `v1.9.0`, which predates the `internal/properties` syntax-layer API the
-  module uses, so `go get github.com/o3co/go.hocon/adapters@v1.10.0` failed to
-  compile. The dev-only `replace => ../` hid the mismatch inside this repo —
-  consumers ignore a dependency's `replace`. The requirement now names
-  `v1.10.0`, and CI now tests, lints and — with the `replace` dropped —
-  builds the adapters module against the published core, so a stale require
-  fails a PR instead of shipping.
-- **`adapters/jsonc` accepted trailing garbage after the top-level value**:
-  `{"a":1} }`, `{"a":1} ]` and even `{"a":1} } {"b":2}` all parsed, silently
-  dropping everything past the first value. The check used `Decoder.More`,
-  a one-token peek that reports false on a closing bracket; per spec F3.2 the
-  decoder now requires a second decode to hit `io.EOF`, as the yaml adapter
-  already did. Trailing whitespace and comments after the value still parse.
-- **`adapters/jsonc` comment stripping could merge tokens**: a block comment
-  was removed outright, so `1/*x*/2` became the single number `12` instead of
-  a syntax error. A comment is now replaced by at least one space (spec F3.2),
-  keeping the tokens it separated apart.
+  module uses. The dev-only `replace => ../` hid it inside this repo —
+  consumers ignore a dependency's `replace`. To see it as a consumer did:
+  `go get github.com/o3co/go.hocon/adapters` (the module has no tag of its own
+  yet, so this resolves a pseudo-version off the default branch, which carried
+  `require v1.9.0`) then build — `assignment mismatch: 2 variables but
+  syntax.Parse returns 1 value`. The requirement now names `v1.10.0`, and CI
+  builds the adapters module with the `replace` dropped against the published
+  core, on every PR and again at release, so a stale require cannot ship.
+- **`adapters/yaml` silently dropped a value when two keys resolved alike**:
+  `1.0:` and `"1":`, `0x10:` and `"16":`, `~:` and `"null":`, `true:` and
+  `True:`, `8:` and `0o10:` — each pair becomes one object key, and the loser
+  vanished without an error. (goccy's own duplicate detection compares key
+  text, so it catches `1:` against `"1":` and no further.) Per spec F5.3 this
+  is now an error naming both spellings, their line numbers and the path.
+  The check runs on the document, since a decoded map has already discarded
+  the evidence; merge keys are exempt, as `<<:` legitimately supplies a key the
+  mapping then overrides.
 - **`adapters/yaml.FromValue` resolved colliding key forms nondeterministically**:
   in an injected `map[any]any`, the int key `1` and the string key `"1"` both
-  normalize to the object key `"1"`, and whichever the randomized map iteration
-  visited last silently won. Per spec F5.3 this is now an error naming both
-  colliding keys — consistent with the `Parse` path, where goccy already
-  rejects duplicate keys.
+  normalize to `"1"`, and whichever the randomized map iteration visited last
+  won. Now an error naming both — and the message itself no longer depends on
+  iteration order, since all key problems are collected and sorted before one
+  is reported.
+- **`adapters/env` reported a collision that was not there, and missed the
+  distinction between two that were**: the collision index joined path
+  segments with NUL, so `APP_A<NUL>B` (one segment, reachable through
+  `Options.Environ`) collided with `APP_A__B` (two); and the message joined the
+  path on `.` unconditionally, so a literal-dot key and a `__` path read
+  identically. Segments are now length-prefixed, and the path is rendered as a
+  HOCON path expression (`a.b`, `"foo.bar"`) — the format py.hocon and
+  rs.hocon use.
+- **`adapters/env` folded case beyond ASCII** (spec F1.3): `strings.ToLower`
+  turns `İ` (U+0130) into `i`, so `APP_İ` and `APP_I` collided here while
+  Python, JS and Rust kept them apart. Only `A`–`Z` is folded now.
+- **A leading UTF-8 BOM is stripped** in `adapters/jsonc` and `adapters/yaml`
+  (spec F0.9). A BOM used to become part of the first key in YAML — `a: 1`
+  yielded a key that `GetString("a")` could not find — and made JSONC fail with
+  a message about a stray character.
+
+### Changed
+
+- **`adapters/jsonc` is stricter about what follows the top-level value**
+  (spec F3.2). `{"a":1} }`, `{"a":1} ]`, `{"a":1} }}]]` and `{"a":1} } {"b":2}`
+  used to parse, silently dropping everything past the first value: the check
+  was `Decoder.More`, a one-token peek that reports false on a closing bracket.
+  A document now holds exactly one value; whitespace and comments may follow
+  it, nothing else. Rejection costs a token rather than a decode, so a large
+  trailing payload is not materialized just to be discarded.
+- **`adapters/jsonc` comments now separate tokens** (spec F3.2). A block comment
+  was removed outright, so `1/*x*/2` became the single number `12`; it is now
+  replaced by whitespace and the input is a syntax error. A `//` comment also
+  ends at a lone CR, not only at LF — previously a CR-terminated comment
+  swallowed the rest of the file.
 
 ## [1.10.0] - 2026-07-25
 
