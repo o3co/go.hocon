@@ -36,6 +36,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/keypath"
 	"github.com/o3co/go.hocon/adapters/internal/pathmap"
 )
 
@@ -143,10 +144,15 @@ func build(pairs []pair, opts Options, defaultOrigin string, detectCollisions bo
 		}
 		path := toPath(strings.TrimPrefix(p.name, opts.Prefix))
 		if detectCollisions {
-			k := strings.Join(path, "\x00")
+			k := pathKey(path)
 			if prev, dup := seen[k]; dup {
-				return nil, fmt.Errorf("env: %s: %s and %s both map to %q",
-					origin, prev, p.name, strings.Join(path, "."))
+				// The path is rendered as a HOCON path expression, so a
+				// segment holding a literal dot is quoted and cannot be
+				// misread as two segments.  Same format in py.hocon and
+				// rs.hocon; the xx.hocon fi11-collision fixture cites the
+				// phrase "both map to".
+				return nil, fmt.Errorf("env: %s: %s and %s both map to %s",
+					origin, prev, p.name, keypath.Render(path))
 			}
 			seen[k] = p.name
 		}
@@ -160,13 +166,51 @@ func build(pairs []pair, opts Options, defaultOrigin string, detectCollisions bo
 	return hocon.FromMap(nested, origin)
 }
 
+// pathKey indexes a path for collision detection.
+//
+// Joining the segments on a delimiter would need a byte that cannot occur in
+// one, and no such byte exists: Options.Environ lets a caller pass any name,
+// NUL included, so "A\x00B" (one segment) and "A__B" (two) hashed alike and
+// produced a collision that was not there.  Length-prefixing every segment
+// removes the assumption instead of moving it to a rarer byte.
+func pathKey(path []string) string {
+	var b strings.Builder
+	for _, seg := range path {
+		fmt.Fprintf(&b, "%d:%s", len(seg), seg)
+	}
+	return b.String()
+}
+
 // toPath splits a prefix-stripped name on "__" and lowercases each segment.
+//
+// The fold is ASCII-only (spec F1.3).  Go's strings.ToLower applies simple
+// case mapping, so İ (U+0130) becomes "i" and would collide with I under F1.6,
+// while Python, JS and Rust apply the full mapping and keep the two apart.
+// Environment variable names are ASCII in every practical setting, so folding
+// only A-Z costs nothing and makes the implementations agree.
 func toPath(name string) []string {
 	segs := strings.Split(name, separator)
 	for i := range segs {
-		segs[i] = strings.ToLower(segs[i])
+		segs[i] = lowerASCII(segs[i])
 	}
 	return segs
+}
+
+func lowerASCII(s string) string {
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			if b == nil {
+				b = []byte(s)
+			}
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	if b == nil {
+		return s
+	}
+	return string(b)
 }
 
 func parseDotEnv(s string, origin string) ([]pair, error) {
