@@ -294,6 +294,58 @@ func TestFromValueCollectionKeyRejected(t *testing.T) {
 	}
 }
 
+// F5.3: two sibling keys whose string forms coincide are an error, not a
+// last-writer-wins race under Go's randomized map iteration. The Parse path
+// already gets this from goccy rejecting duplicate keys; the injected-tree
+// path has to enforce it itself.
+func TestFromValueCollidingKeyFormsRejected(t *testing.T) {
+	for name, doc := range map[string]any{
+		"int 1 and string 1": map[any]any{1: "from-int", "1": "from-string"},
+		"bool and string true": map[any]any{
+			true: "from-bool", "true": "from-string",
+		},
+		"nested collision": map[string]any{
+			"m": map[any]any{1: "a", "1": "b"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := yaml.FromValue(doc, "injected")
+			if err == nil {
+				t.Fatal("colliding key forms accepted, want error")
+			}
+			if !strings.Contains(err.Error(), "F5.3") {
+				t.Errorf("error %q does not cite the spec item F5.3", err)
+			}
+		})
+	}
+}
+
+// The collision error names both source keys, so the author can tell which
+// two lines of the tree are fighting.
+func TestCollidingKeyErrorNamesBothForms(t *testing.T) {
+	_, err := yaml.FromValue(map[any]any{1: "a", "1": "b"}, "injected")
+	if err == nil {
+		t.Fatal("colliding key forms accepted, want error")
+	}
+	for _, want := range []string{"1 (int)", `"1"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name the colliding key %s", err, want)
+		}
+	}
+}
+
+// Distinct string forms keep working, including the non-string scalars that
+// merely stringify (F5.3's normal case).
+func TestDistinctKeyFormsUnaffected(t *testing.T) {
+	cfg, err := yaml.FromValue(map[any]any{1: "one", 2: "two", "three": "3"}, "injected")
+	if err != nil {
+		t.Fatalf("FromValue: %v", err)
+	}
+	wantString(t, cfg, `"1"`, "one")
+	wantString(t, cfg, `"2"`, "two")
+	wantString(t, cfg, "three", "3")
+}
+
 // nil is the empty document, whatever produced it (F5.9).
 func TestFromValueNilIsEmpty(t *testing.T) {
 	cfg, err := yaml.FromValue(nil, "injected")

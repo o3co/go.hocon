@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was removed outright, so `1/*x*/2` became the single number `12` instead of
   a syntax error. A comment is now replaced by at least one space (spec F3.2),
   keeping the tokens it separated apart.
+- **`adapters/yaml.FromValue` resolved colliding key forms nondeterministically**:
+  in an injected `map[any]any`, the int key `1` and the string key `"1"` both
+  normalize to the object key `"1"`, and whichever the randomized map iteration
+  visited last silently won. Per spec F5.3 this is now an error naming both
+  colliding keys — consistent with the `Parse` path, where goccy already
+  rejects duplicate keys.
 
 ## [1.10.0] - 2026-07-25
 

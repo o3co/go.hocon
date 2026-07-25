@@ -87,8 +87,11 @@ func FromValue(doc any, originDescription string) (*hocon.Config, error) {
 
 // normalizeKeys rewrites map[any]any (the yaml.v2-era shape) into
 // map[string]any, stringifying scalar keys (F5.3). A collection key is an
-// error. Maps that are already string-keyed pass through with their values
-// normalized recursively.
+// error, and so are two sibling keys whose string forms coincide (1 and "1"):
+// letting the last writer win would be nondeterministic under Go's randomized
+// map iteration. Maps that are already string-keyed cannot collide — their
+// keys are distinct strings by construction — and pass through with their
+// values normalized recursively.
 func normalizeKeys(v any) (any, error) {
 	switch x := v.(type) {
 	case map[string]any:
@@ -103,11 +106,23 @@ func normalizeKeys(v any) (any, error) {
 		return out, nil
 	case map[any]any:
 		out := make(map[string]any, len(x))
+		seen := make(map[string]any, len(x))
 		for k, e := range x {
 			ks, err := keyString(k)
 			if err != nil {
 				return nil, err
 			}
+			if prev, dup := seen[ks]; dup {
+				a, b := keyForm(prev), keyForm(k)
+				if b < a {
+					a, b = b, a
+				}
+				return nil, fmt.Errorf(
+					"sibling mapping keys %s and %s share the object key %q; "+
+						"which value wins would depend on map iteration order (spec F5.3)",
+					a, b, ks)
+			}
+			seen[ks] = k
 			ev, err := normalizeKeys(e)
 			if err != nil {
 				return nil, err
@@ -137,6 +152,16 @@ func keyString(k any) (string, error) {
 		return fmt.Sprintf("%v", x), nil
 	}
 	return "", fmt.Errorf("mapping key of type %T is not usable as an object key (spec F5.3)", k)
+}
+
+// keyForm renders a source key for the F5.3 collision error: strings are
+// quoted, other scalars show their Go type, so 1 (int) and "1" stay apart in
+// the message the way they failed to in the mapping.
+func keyForm(k any) string {
+	if s, ok := k.(string); ok {
+		return fmt.Sprintf("%q", s)
+	}
+	return fmt.Sprintf("%v (%T)", k, k)
 }
 
 // ParseFile reads path and parses it, using path as the origin description.
