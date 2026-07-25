@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [xx.hocon#74](https://github.com/o3co/xx.hocon/issues/74); hocon2's
   `xxx2hocon` commands build on it.
 
+### Fixed
+
+- **`adapters/` did not build for consumers**: `adapters/go.mod` still required
+  core `v1.9.0`, which predates the `internal/properties` syntax-layer API the
+  module uses, so `go get github.com/o3co/go.hocon/adapters@v1.10.0` failed to
+  compile. The dev-only `replace => ../` hid the mismatch inside this repo —
+  consumers ignore a dependency's `replace`. The requirement now names
+  `v1.10.0`.
+
 ## [1.10.0] - 2026-07-25
 
 ### Added — `adapters/`, a nested module for reading foreign config formats
