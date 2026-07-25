@@ -181,6 +181,14 @@ func TestEmptyDocumentIsEmptyObject(t *testing.T) {
 	}
 }
 
+// F0.9 — a leading BOM is stripped rather than glued onto the first key.
+func TestLeadingBOMStripped(t *testing.T) {
+	cfg := parse(t, "\ufeffa: 1\n")
+	if got := cfg.GetInt64("a"); got != 1 {
+		t.Errorf("a = %d, want 1 — the BOM ended up in the key", got)
+	}
+}
+
 // F0.3 — a config root has to be a mapping.
 func TestSequenceRootRejected(t *testing.T) {
 	_, err := yaml.Parse([]byte("- 1\n- 2\n"), "test.yaml")
@@ -294,10 +302,107 @@ func TestFromValueCollectionKeyRejected(t *testing.T) {
 	}
 }
 
+// F5.3 on the Parse path. goccy's own duplicate-key detection compares the
+// key *text*, so it catches 1: against "1": but not a key that only resolves
+// to the same string — 1.0, 0x10, 01, +1, ~ all stringify onto another key's
+// text, and the loser used to vanish without a word.
+func TestParseCollidingKeyFormsRejected(t *testing.T) {
+	for name, src := range map[string]string{
+		"float and quoted int": "1.0: a\n\"1\": b\n",
+		"hex and quoted int":   "0x10: a\n\"16\": b\n",
+		"octal and quoted int": "01: a\n\"1\": b\n",
+		"signed and quoted":    "+1: a\n\"1\": b\n",
+		"null and quoted null": "~: a\n\"null\": b\n",
+		"int and float":        "1: a\n1.0: b\n",
+		"case of true":         "true: a\nTrue: b\n",
+		"signed zero":          "0: a\n-0: b\n",
+		"octal and decimal":    "8: a\n0o10: b\n",
+		"hex and decimal":      "1: a\n0x1: b\n",
+		"inside a sequence":    "l:\n  - 1.0: a\n    \"1\": b\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := yaml.Parse([]byte(src), "test.yaml")
+			if err == nil {
+				t.Fatalf("Parse(%q) succeeded, want error — a value is being dropped", src)
+			}
+			if !strings.Contains(err.Error(), "F5.3") {
+				t.Errorf("error %q does not cite the spec item F5.3", err)
+			}
+		})
+	}
+}
+
+// A collision below the root names the path to it, so it does not read like a
+// top-level one.
+func TestParseCollisionErrorNamesThePath(t *testing.T) {
+	_, err := yaml.Parse([]byte("db:\n  ports:\n    1.0: a\n    \"1\": b\n"), "test.yaml")
+	if err == nil {
+		t.Fatal("colliding key forms accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "db.ports.1") {
+		t.Errorf("error %q does not locate the collision at db.ports.1", err)
+	}
+	// Both spellings, with their lines, so the reader can go straight to them.
+	for _, want := range []string{"1.0 (line 3)", `"1" (line 4)`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name the colliding key %s", err, want)
+		}
+	}
+}
+
+// Measured goccy behaviour, pinned so a change in it is visible: identical key
+// *text* is the library's own error, and it fires before the adapter sees the
+// document. If goccy ever stops reporting it, the adapter's check above still
+// covers the case — but the message would change, and this test says so.
+func TestInheritedDuplicateKeyDetection(t *testing.T) {
+	for name, src := range map[string]string{
+		"same text twice":     "a: 1\na: 2\n",
+		"plain versus quoted": "1: a\n\"1\": b\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := yaml.Parse([]byte(src), "test.yaml")
+			if err == nil {
+				t.Fatalf("Parse(%q) succeeded, want error", src)
+			}
+			if !strings.Contains(err.Error(), "already defined") {
+				t.Errorf("error %q is not goccy's duplicate-key report; "+
+					"if the adapter now catches this first, update this pin", err)
+			}
+		})
+	}
+}
+
+// Ordinary documents must still round-trip once the decoder is asked for
+// ordered maps: merge keys stay resolved (F5.2), sequences of mappings keep
+// their shape, and binary still becomes base64 text (F5.5).
+func TestOrderedDecodeKeepsDocumentSemantics(t *testing.T) {
+	cfg := parse(t, `
+base: &b
+  a: 1
+child:
+  <<: *b
+  c: 2
+list:
+  - k: 1
+  - k: 2
+blob: !!binary aGk=
+`)
+	if got := cfg.GetInt64("child.a"); got != 1 {
+		t.Errorf("child.a = %d, want 1 — merge key not resolved (F5.2)", got)
+	}
+	if got := cfg.GetInt64("child.c"); got != 2 {
+		t.Errorf("child.c = %d, want 2", got)
+	}
+	if l := cfg.GetConfigSlice("list"); len(l) != 2 || l[1].GetInt64("k") != 2 {
+		t.Errorf("list did not stay a sequence of mappings: %#v", l)
+	}
+	wantString(t, cfg, "blob", "aGk=")
+}
+
 // F5.3: two sibling keys whose string forms coincide are an error, not a
-// last-writer-wins race under Go's randomized map iteration. The Parse path
-// already gets this from goccy rejecting duplicate keys; the injected-tree
-// path has to enforce it itself.
+// last-writer-wins race under Go's randomized map iteration. Parse gets this
+// from the ordered decode below; the injected-tree path has to enforce it on
+// whatever shape the caller hands over.
 func TestFromValueCollidingKeyFormsRejected(t *testing.T) {
 	for name, doc := range map[string]any{
 		"int 1 and string 1": map[any]any{1: "from-int", "1": "from-string"},
