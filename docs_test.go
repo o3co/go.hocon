@@ -113,14 +113,15 @@ func readReadme(t *testing.T) string {
 }
 
 // findOne returns the single capture group of re in text, failing the test when
-// the pattern no longer matches — a README rewrite that drops the claim must
-// fail loudly rather than silently stop checking it.
-func findOne(t *testing.T, text string, re *regexp.Regexp, what string) string {
+// the pattern no longer matches — a rewrite that drops the claim must fail
+// loudly rather than silently stop checking it. source names the file the text
+// came from, since this reads go.mod as well as the README.
+func findOne(t *testing.T, source, text string, re *regexp.Regexp, what string) string {
 	t.Helper()
 
 	m := re.FindStringSubmatch(text)
 	if m == nil {
-		t.Fatalf("%s not found in README.md (pattern %s); update the pattern if the README was restructured", what, re)
+		t.Fatalf("%s not found in %s (pattern %s); update the pattern if %s was restructured", what, source, re, source)
 	}
 	return m[1]
 }
@@ -155,7 +156,7 @@ func TestDocs_ReadmeComplianceRates(t *testing.T) {
 			want: counts.inScopeRate(),
 		},
 	} {
-		got := findOne(t, readme, tc.re, tc.what)
+		got := findOne(t, "README.md", readme, tc.re, tc.what)
 		if want := fmt.Sprintf("%.1f", tc.want); got != want {
 			t.Errorf("README %s is %s%%, recomputed from docs/spec-compliance.md it is %s%% (✅%d ⚠️%d ❌%d ➖%d)",
 				tc.what, got, want, counts.pass, counts.partial, counts.fail, counts.outOfScope)
@@ -168,9 +169,9 @@ func TestDocs_ReadmeGoVersionMatchesGoMod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go.mod: %v", err)
 	}
-	declared := findOne(t, string(data), regexp.MustCompile(`(?m)^go (\d+\.\d+)`), "go directive")
+	declared := findOne(t, "go.mod", string(data), regexp.MustCompile(`(?m)^go (\d+\.\d+)`), "go directive")
 
-	claimed := findOne(t, readReadme(t), regexp.MustCompile(`Requires Go (\d+\.\d+)\+`), "minimum Go version")
+	claimed := findOne(t, "README.md", readReadme(t), regexp.MustCompile(`Requires Go (\d+\.\d+)\+`), "minimum Go version")
 	if claimed != declared {
 		t.Errorf("README says Go %s+, go.mod requires go %s — a user on %s cannot build this module", claimed, declared, claimed)
 	}
