@@ -28,7 +28,7 @@ A [Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) pars
 go get github.com/o3co/go.hocon
 ```
 
-Requires Go 1.21+.
+Requires Go 1.23+.
 
 ### 2. Use
 
@@ -267,34 +267,38 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 
 ### HOCON Implementation
 
-| Feature | go.hocon | [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) |
+Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.3.0** on 2026-07-26.
+
+| Feature | go.hocon | gurkankaymak/hocon v1.3.0 |
 | --- | :---: | :---: |
 | Substitutions (`${path}`) | ✅ | ✅ |
 | Optional substitutions (`${?path}`) | ✅ | ✅ |
 | Include | ✅ | ✅ |
-| `include required(...)` | ✅ | ❌ |
-| Object/Array concatenation | ✅ | ⚠️ |
-| Type coercion | ✅ | ⚠️ |
+| `include required(...)` / `file(...)` | ✅ | ✅ |
+| Object/Array concatenation | ✅ | ✅ |
+| Type coercion | ✅ | ✅ |
 | Duration parsing (`30s`, `5m`) | ✅ | ✅ |
-| Byte size parsing (`512MB`) | ✅ | ❌ |
+| Byte size parsing (`512MB`) | ✅ | ❌ (parses as a string) |
 | `+=` append | ✅ | ✅ |
 | Struct unmarshal | ✅ | ❌ |
-| `Option[T]` safe access | ✅ | ❌ |
+| Non-panicking access | ✅ (`GetXxxE` + `Option[T]`) | ✅ (`GetXxxE`) |
 | Env variable fallback | ✅ | ✅ |
-| Deferred resolution (parse / withFallback / resolve) | ✅ (v1.4.0) | ❌ |
+| Deferred resolution (parse / withFallback / resolve) | ✅ (v1.4.0) | ✅ (v1.3.0) |
 | `FromMap` / `Empty` value factories | ✅ (v1.4.0) | ❌ |
 
 ### Config Framework
 
-| | go.hocon | [viper](https://github.com/spf13/viper) |
+Compared against [viper](https://github.com/spf13/viper) **v1.21.0** on 2026-07-26.
+
+| | go.hocon | viper v1.21.0 |
 | --- | :---: | :---: |
 | **Formats** | | |
 | HOCON | ✅ | ❌ |
 | JSON | ✅ | ✅ |
-| YAML | ❌ | ✅ |
-| TOML | ❌ | ✅ |
-| Env vars | ✅ (fallback) | ✅ |
-| .properties | ✅ (via include) | ✅ |
+| YAML | ✅ (`adapters/yaml`) | ✅ |
+| TOML | ✅ (`adapters/toml`) | ✅ |
+| Env vars | ✅ (fallback + `adapters/env`) | ✅ |
+| .properties | ✅ (via include + `adapters/properties`) | ✅ |
 | **Features** | | |
 | Substitutions | ✅ | ❌ |
 | File includes | ✅ | ❌ |
@@ -305,18 +309,14 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 
 ## Spec Compliance
 
-Conformance against the [Lightbend HOCON specification](https://github.com/lightbend/config/blob/main/HOCON.md) is tracked at item granularity in [`docs/spec-compliance.md`](docs/spec-compliance.md). The table below is a snapshot as of 2026-05-13; see [`xx.hocon/docs/compliance-matrix.md`](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) for live cross-impl values.
+Conformance against the [Lightbend HOCON specification](https://github.com/lightbend/config/blob/main/HOCON.md) is tracked at item granularity in [`docs/spec-compliance.md`](docs/spec-compliance.md), which is the source these rates are computed from — `TestDocs_ReadmeComplianceRates` recomputes them and fails the build if this table drifts. See [`xx.hocon/docs/compliance-matrix.md`](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) for the cross-implementation roll-up.
 
 | Metric | Status |
 | --- | --- |
-| Spec total (incl. out-of-scope) | **71.8%** |
-| In-scope only | **80.2%** |
-| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 passing |
-| [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | 77/77 passing |
-
-### Stricter than Lightbend
-
-- **S8.6 leading-hyphen rejection** (Unreleased): `a = -foo`, `a = -bar`, `a = -` etc. now raise a lex error per HOCON.md L270–276, where Lightbend silently falls back to unquoted strings. The same rule applies to dotted key segments (`a.-foo = 1`). Mitigation: quote the value (`a = "-foo"`). See [CHANGELOG](CHANGELOG.md#unreleased) and [`docs/spec-compliance.md`](docs/spec-compliance.md) §S8.6.
+| Spec total (incl. out-of-scope) | **89.0%** |
+| In-scope only | **98.4%** |
+| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | passing (`TestLightbendEquiv` / `TestLightbendSuite`; three `*-expected.json` comparisons carry documented environment-dependent exclusions) |
+| [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | passing |
 
 ## Format adapters
 
