@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The README's factual claims had drifted release by release, with nothing
 checking them. All four are corrected, and the ones that can be recomputed from
 a source of truth in this repository are now pinned by `docs_test.go`, which
-runs in the release workflow — a stale README fails the cut.
+runs on every pull request and on `develop`. That is where the gate has to be
+for a Go module: pushing the tag *is* the publish, so nothing at release time
+can hold a stale README back — only refusing to merge it can.
 
 - **The stated minimum Go version was wrong.** The README said "Requires Go
   1.21+" while `go.mod` has declared `go 1.23.0` since v1.8.0, so a user on
