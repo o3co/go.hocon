@@ -116,14 +116,27 @@ func readReadme(t *testing.T) string {
 // the pattern no longer matches — a rewrite that drops the claim must fail
 // loudly rather than silently stop checking it. source names the file the text
 // came from, since this reads go.mod as well as the README.
+//
+// More than one match is also a failure: it would mean the doc states the claim
+// twice and only the first is pinned, so the pair can drift apart while this
+// stays green.
 func findOne(t *testing.T, source, text string, re *regexp.Regexp, what string) string {
 	t.Helper()
 
-	m := re.FindStringSubmatch(text)
-	if m == nil {
+	ms := re.FindAllStringSubmatch(text, -1)
+	switch len(ms) {
+	case 0:
 		t.Fatalf("%s not found in %s (pattern %s); update the pattern if %s was restructured", what, source, re, source)
+	case 1:
+	default:
+		found := make([]string, len(ms))
+		for i, m := range ms {
+			found[i] = m[1]
+		}
+		t.Fatalf("%s matched %d times in %s (pattern %s); the claim must appear once so there is one thing to pin: %v",
+			what, len(ms), source, re, found)
 	}
-	return m[1]
+	return ms[0][1]
 }
 
 func TestDocs_SpecComplianceItemCount(t *testing.T) {
