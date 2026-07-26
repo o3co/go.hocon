@@ -13,8 +13,13 @@
 // string: joining on "." alone makes the single key "foo.bar" (one segment
 // holding a dot) indistinguishable from foo -> bar (two segments), which are
 // different places in the config. Quoting the segments that need it removes
-// the ambiguity and, being HOCON's own convention, doubles as the expression a
+// the ambiguity, and for ordinary keys the result is also the expression a
 // reader can paste into a getter.
+//
+// The exception is a key holding control characters: Segment quotes with %q,
+// which spells them as Go escapes (\n, \x00), and HOCON's path parser does not
+// interpret those. Such a path still reads unambiguously, which is what an
+// error message needs, but it will not round-trip through a getter verbatim.
 package keypath
 
 import (

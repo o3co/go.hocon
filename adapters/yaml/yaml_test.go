@@ -410,10 +410,10 @@ func TestInheritedDuplicateKeyDetection(t *testing.T) {
 	}
 }
 
-// Ordinary documents must still round-trip once the decoder is asked for
-// ordered maps: merge keys stay resolved (F5.2), sequences of mappings keep
-// their shape, and binary still becomes base64 text (F5.5).
-func TestOrderedDecodeKeepsDocumentSemantics(t *testing.T) {
+// Ordinary documents must still round-trip now that a separate AST pass runs
+// alongside the decode: merge keys stay resolved (F5.2), sequences of mappings
+// keep their shape, and binary still becomes base64 text (F5.5).
+func TestKeyCheckKeepsDocumentSemantics(t *testing.T) {
 	cfg := parse(t, `
 base: &b
   a: 1
@@ -439,8 +439,9 @@ blob: !!binary aGk=
 
 // F5.3: two sibling keys whose string forms coincide are an error, not a
 // last-writer-wins race under Go's randomized map iteration. Parse gets this
-// from the ordered decode below; the injected-tree path has to enforce it on
-// whatever shape the caller hands over.
+// from the document AST, which still holds both keys after the decoder has
+// collapsed them; the injected-tree path has to enforce it on whatever shape
+// the caller hands over.
 func TestFromValueCollidingKeyFormsRejected(t *testing.T) {
 	for name, doc := range map[string]any{
 		"int 1 and string 1": map[any]any{1: "from-int", "1": "from-string"},
