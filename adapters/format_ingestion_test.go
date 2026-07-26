@@ -25,6 +25,7 @@ import (
 	"github.com/o3co/go.hocon"
 	"github.com/o3co/go.hocon/adapters/env"
 	"github.com/o3co/go.hocon/adapters/jsonc"
+	"github.com/o3co/go.hocon/adapters/properties"
 	"github.com/o3co/go.hocon/adapters/toml"
 	"github.com/o3co/go.hocon/adapters/yaml"
 )
@@ -112,6 +113,8 @@ func ingest(format, kind string, data []byte, origin string) (*hocon.Config, err
 	switch format {
 	case "jsonc":
 		return jsonc.Parse(data, origin)
+	case "properties":
+		return properties.Parse(data, origin)
 	case "toml":
 		return toml.Parse(data, origin)
 	case "yaml":
