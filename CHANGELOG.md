@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — README stated four things that were no longer true
+
+The README's factual claims had drifted release by release, with nothing
+checking them. All four are corrected, and the ones that can be recomputed from
+a source of truth in this repository are now pinned by `docs_test.go`, which
+runs in the release workflow — a stale README fails the cut.
+
+- **The stated minimum Go version was wrong.** The README said "Requires Go
+  1.21+" while `go.mod` has declared `go 1.23.0` since v1.8.0, so a user on
+  1.21 or 1.22 got a toolchain error on `go get`. Now 1.23+, and pinned against
+  the `go` directive.
+- **"Stricter than Lightbend — S8.6 leading-hyphen rejection" described behavior
+  retracted in v1.3.0.** `a = -foo`, `a = -`, and (since v1.9.0) `a.-foo = 1`
+  all parse; the section told readers to quote values that need no quoting. The
+  E8 amendment and its retraction are already recorded in the [1.3.0] and
+  [1.9.0] sections, so the section is removed rather than rewritten.
+- **The compliance rates were a 2026-05-13 snapshot** (71.8% / 80.2%) against
+  the current 89.0% / 98.4%. They are now recomputed from the status glyphs in
+  `docs/spec-compliance.md` by `TestDocs_ReadmeComplianceRates` and compared
+  against the table, so the two cannot diverge again.
+- **Both comparison tables were stale in the reader's favour and against the
+  other project's.** gurkankaymak/hocon v1.3.0 has deferred resolution
+  (`ParseStringUnresolved` + `WithFallback` + `Resolve`), `include required(...)`,
+  object/array concatenation and type coercion — all four were marked ❌ or ⚠️.
+  Our own row was stale too: YAML and TOML were ❌ although `adapters/` has
+  shipped both since v1.10.0. Both tables now name the version they were
+  verified against and carry the date.
+
 ## [1.11.0] - 2026-07-26
 
 ### Added — `Config.RenderHOCON()`, a HOCON text emitter
