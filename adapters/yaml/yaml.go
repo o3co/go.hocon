@@ -25,6 +25,17 @@
 // hands the tree to FromValue; that is the supported way to swap parsers, and
 // it keeps the choice — and its consequences — in the caller's hands.
 //
+// Keys follow spec F5.3 on both paths. A non-string scalar key takes its
+// string form and a collection key is refused; two siblings whose string forms
+// coincide — 1.0 and "1", or the int 1 and the string "1" in an injected
+// map[any]any — are an error rather than a silent loss of one value. Parse
+// checks that on the document itself (see keys.go), because a decoder hands
+// over a map with the loser already gone.
+//
+// This package is part of the github.com/o3co/go.hocon/adapters module, which
+// is versioned separately from the parser: see the module README for the
+// go get line and the core-version requirement.
+//
 // See docs/specs/format-ingestion-mapping.md items F5.x in the hocon scope.
 package yaml
 
@@ -36,10 +47,14 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
+	"strconv"
 	"time"
 
 	goyaml "github.com/goccy/go-yaml"
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
+	"github.com/o3co/go.hocon/adapters/internal/keypath"
 	"github.com/o3co/go.hocon/adapters/internal/tree"
 )
 
@@ -52,8 +67,15 @@ import (
 // who wants a different library, version or schema decodes the text themselves
 // and hands the result to FromValue; this function is the convenience path.
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
+	data = bom.Strip(data) // spec F0.9
 	doc, err := decode(data, originDescription)
 	if err != nil {
+		return nil, err
+	}
+	// After decode, so that a syntax error still comes from the decoder, which
+	// words it better; before FromValue, because by then the collision has
+	// already been resolved in the map (spec F5.3).
+	if err := checkKeyCollisions(data, originDescription); err != nil {
 		return nil, err
 	}
 	return FromValue(doc, originDescription)
@@ -68,14 +90,19 @@ func Parse(data []byte, originDescription string) (*hocon.Config, error) {
 // only the default one: map[any]any (yaml.v2 style) has its scalar keys
 // stringified per F5.3, time.Time (go.yaml.in timestamps) becomes its RFC 3339
 // string like a TOML date (F4.2's reasoning), and []byte becomes base64 (F5.5).
+//
+// Stringifying can make two sibling keys collide (the int 1 and the string
+// "1"); that is an error naming both, not a race decided by map iteration
+// order (F5.3).
 func FromValue(doc any, originDescription string) (*hocon.Config, error) {
 	// An empty document is the empty object, as an empty HOCON document is
 	// (S3.1), rather than a root-type failure (spec F5.9).
 	if doc == nil {
 		return hocon.FromMap(map[string]any{}, originDescription)
 	}
-	normalized, err := normalizeKeys(doc)
-	if err != nil {
+	var n normalizer
+	normalized := n.walk(doc, nil)
+	if err := n.err(); err != nil {
 		return nil, fmt.Errorf("yaml: %s: %w", describe(originDescription), err)
 	}
 	nested, err := tree.Object(normalized, scalar)
@@ -85,50 +112,152 @@ func FromValue(doc any, originDescription string) (*hocon.Config, error) {
 	return hocon.FromMap(nested, originDescription)
 }
 
-// normalizeKeys rewrites map[any]any (the yaml.v2-era shape) into
-// map[string]any, stringifying scalar keys (F5.3). A collection key is an
-// error. Maps that are already string-keyed pass through with their values
-// normalized recursively.
-func normalizeKeys(v any) (any, error) {
+// normalizer rewrites a decoded tree into the string-keyed shape
+// hocon.FromMap accepts, applying F5.3 to the keys: a scalar key takes its
+// string form, a collection key is refused, and two siblings whose string
+// forms coincide are refused rather than one of them silently vanishing.
+//
+// Problems are collected rather than returned at the first sighting, because
+// Go randomizes map iteration: aborting on whichever collision the runtime
+// happened to reach first would make the *message* vary run to run even though
+// the outcome (an error) does not. err sorts what it found and reports the
+// same one every time.
+type normalizer struct{ issues []issue }
+
+type issue struct {
+	path string // rendered location, e.g. db.ports."1"
+	msg  string
+}
+
+func (n *normalizer) add(path []string, seg, msg string) {
+	full := path
+	if seg != "" {
+		full = sub(path, seg)
+	}
+	where := keypath.Render(full)
+	if where == "" {
+		where = "the document root"
+	}
+	n.issues = append(n.issues, issue{path: where, msg: msg})
+}
+
+func (n *normalizer) err() error {
+	if len(n.issues) == 0 {
+		return nil
+	}
+	sort.Slice(n.issues, func(i, j int) bool {
+		if n.issues[i].path != n.issues[j].path {
+			return n.issues[i].path < n.issues[j].path
+		}
+		return n.issues[i].msg < n.issues[j].msg
+	})
+	first := n.issues[0]
+	if len(n.issues) == 1 {
+		return fmt.Errorf("at %s: %s", first.path, first.msg)
+	}
+	return fmt.Errorf("at %s: %s (and %d more key problem(s) in this document)",
+		first.path, first.msg, len(n.issues)-1)
+}
+
+// walk normalizes v, which sits at path, recording any key problems it meets.
+//
+// Three map shapes reach here: the map[any]any of the yaml.v2 era, plain
+// map[string]any (what goccy produces, and what most libraries produce), and
+// sequences holding either. A map has already collapsed any colliding keys, so
+// what this catches is a collision the *caller* built; the document itself is
+// checked before it is decoded, in keys.go.
+func (n *normalizer) walk(v any, path []string) any {
 	switch x := v.(type) {
+	case map[any]any:
+		out := make(map[string]any, len(x))
+		seen := make(map[string]any, len(x))
+		// Sorted so that, among several colliding pairs in one mapping, the
+		// pair reported is not the one Go's map iteration happened to hit
+		// first.
+		for _, k := range sortedKeys(x) {
+			ks, ok := n.key(k, path)
+			if !ok {
+				continue
+			}
+			if prev, dup := seen[ks]; dup {
+				n.collision(path, ks, prev, k)
+				continue
+			}
+			seen[ks] = k
+			out[ks] = n.walk(x[k], sub(path, ks))
+		}
+		return out
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, e := range x {
-			ev, err := normalizeKeys(e)
-			if err != nil {
-				return nil, err
-			}
-			out[k] = ev
+			// Distinct strings by construction, so no collision is possible.
+			out[k] = n.walk(e, sub(path, k))
 		}
-		return out, nil
-	case map[any]any:
-		out := make(map[string]any, len(x))
-		for k, e := range x {
-			ks, err := keyString(k)
-			if err != nil {
-				return nil, err
-			}
-			ev, err := normalizeKeys(e)
-			if err != nil {
-				return nil, err
-			}
-			out[ks] = ev
-		}
-		return out, nil
+		return out
 	case []any:
 		out := make([]any, len(x))
 		for i, e := range x {
-			ev, err := normalizeKeys(e)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = ev
+			out[i] = n.walk(e, sub(path, strconv.Itoa(i)))
 		}
-		return out, nil
+		return out
 	}
-	return v, nil
+	return v
 }
 
+// sub returns path extended by seg, without sharing a backing array with its
+// siblings.
+func sub(path []string, seg string) []string {
+	out := make([]string, len(path)+1)
+	copy(out, path)
+	out[len(path)] = seg
+	return out
+}
+
+// key returns the object key for k, recording a problem and reporting false if
+// k has no string form.
+func (n *normalizer) key(k any, path []string) (string, bool) {
+	ks, err := keyString(k)
+	if err != nil {
+		n.add(path, "", err.Error())
+		return "", false
+	}
+	return ks, true
+}
+
+func (n *normalizer) collision(path []string, ks string, a, b any) {
+	fa, fb := keyForm(a), keyForm(b)
+	if fb < fa {
+		fa, fb = fb, fa
+	}
+	n.add(path, ks, fmt.Sprintf(
+		"sibling mapping keys %s and %s both give this key; which value wins "+
+			"would depend on map iteration order (spec F5.3)", fa, fb))
+}
+
+// sortedKeys orders a map[any]any's keys by their string form, then by their
+// rendered source form, so a traversal of it is reproducible.
+func sortedKeys(m map[any]any) []any {
+	keys := make([]any, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		ki, _ := keyString(keys[i])
+		kj, _ := keyString(keys[j])
+		if ki != kj {
+			return ki < kj
+		}
+		return keyForm(keys[i]) < keyForm(keys[j])
+	})
+	return keys
+}
+
+// keyString gives a key its object-key text (F5.3).
+//
+// goccy hands Parse its keys already stringified, including "null" for ~, so
+// the nil case below is only reachable from an injected tree. Refusing it
+// there loses nothing: an error is visible, whereas a nil key silently
+// becoming "null" could merge with a real "null" key.
 func keyString(k any) (string, error) {
 	switch x := k.(type) {
 	case string:
@@ -137,6 +266,16 @@ func keyString(k any) (string, error) {
 		return fmt.Sprintf("%v", x), nil
 	}
 	return "", fmt.Errorf("mapping key of type %T is not usable as an object key (spec F5.3)", k)
+}
+
+// keyForm renders a source key for the F5.3 collision error: strings are
+// quoted, other scalars show their Go type, so 1 (int) and "1" stay apart in
+// the message the way they failed to in the mapping.
+func keyForm(k any) string {
+	if s, ok := k.(string); ok {
+		return fmt.Sprintf("%q", s)
+	}
+	return fmt.Sprintf("%v (%T)", k, k)
 }
 
 // ParseFile reads path and parses it, using path as the origin description.

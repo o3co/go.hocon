@@ -29,6 +29,152 @@ func wantString(t *testing.T, cfg *hocon.Config, path, want string) {
 
 // F1.2/F1.3: "__" is the path separator, a single "_" stays in the segment,
 // and segments are lowercased.
+// F1.6 message format, shared with py.hocon and rs.hocon: the mapped path is
+// rendered as a HOCON path expression, so a segment holding a literal dot is
+// quoted and cannot be mistaken for two segments.
+// F1.9(b): a bulk mount is an explicit request for a whole namespace, so an
+// entry in it that cannot be decoded is an error. Omitting it silently would
+// leave a subtree that looks complete while the operator's setting is missing,
+// and a stale default would then win invisibly; admitting the raw bytes is
+// worse still, since the key becomes unreachable text.
+func TestUndecodableNameInMountIsError(t *testing.T) {
+	_, err := env.Load(env.Options{Prefix: "APP_", Environ: []string{"APP_\xffZ=1"}})
+	if err == nil {
+		t.Fatal("undecodable variable name accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "F1.9") {
+		t.Errorf("error %q does not cite the spec item F1.9", err)
+	}
+	if !strings.Contains(err.Error(), `\xff`) {
+		t.Errorf("error %q does not show the offending name in escaped form", err)
+	}
+}
+
+func TestUndecodableValueInMountIsError(t *testing.T) {
+	_, err := env.Load(env.Options{Prefix: "APP_", Environ: []string{"APP_X=\xff\xfe"}})
+	if err == nil {
+		t.Fatal("undecodable value accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "APP_X") {
+		t.Errorf("error %q does not name the variable", err)
+	}
+	if !strings.Contains(err.Error(), "F1.9") {
+		t.Errorf("error %q does not cite the spec item F1.9", err)
+	}
+	// Environment values are where credentials live: the message must not
+	// echo one, decodable or not.
+	if strings.Contains(err.Error(), "\xff") || strings.Contains(err.Error(), `\xff`) {
+		t.Errorf("error %q echoes the value", err)
+	}
+}
+
+// The prefix filter bounds the rule. An undecodable variable the caller never
+// asked for must not break an unrelated mount — that is what keeps this from
+// becoming the abort-on-anything bug F1.9 exists to avoid.
+func TestUndecodableEntryOutsideThePrefixIsIgnored(t *testing.T) {
+	cfg, err := env.Load(env.Options{
+		Prefix:  "APP_",
+		Environ: []string{"OTHER_\xffZ=junk", "SOMETHING=\xfe", "APP_A=1"},
+	})
+	if err != nil {
+		t.Fatalf("Load: %v — an entry outside the prefix is none of the mount's business", err)
+	}
+	wantString(t, cfg, "a", "1")
+}
+
+// F1.9(c): an entry whose value does not decode still occupies its mapped
+// path, so a second name mapping to the same path is still a conflict. Both
+// problems are errors here, so the mount fails either way — what must not
+// happen is the undecodable entry being dropped and the other value quietly
+// mounting as if it were unopposed.
+func TestUndecodableValueStillOccupiesItsPath(t *testing.T) {
+	_, err := env.Load(env.Options{
+		Prefix:  "APP_",
+		Environ: []string{"APP_A__B=\xff", "APP_a__b=ok"},
+	})
+	if err == nil {
+		t.Fatal("mount succeeded, want error — one value would have won silently")
+	}
+	if !strings.Contains(err.Error(), "APP_A__B") {
+		t.Errorf("error %q does not name the undecodable entry", err)
+	}
+}
+
+// A .env file is validated as a whole (its bytes are one document), so this
+// path was already covered; pinned so the two stay consistent.
+func TestUndecodableDotEnvIsError(t *testing.T) {
+	_, err := env.Parse([]byte("A=\xff\n"), env.Options{})
+	if err == nil {
+		t.Fatal("undecodable .env accepted, want error")
+	}
+}
+
+func TestCollisionMessageRendersPathAsExpression(t *testing.T) {
+	for name, tc := range map[string]struct {
+		environ []string
+		want    string
+	}{
+		"double underscore": {
+			[]string{"APP_A__B=1", "APP_a__b=2"},
+			"APP_A__B and APP_a__b both map to a.b",
+		},
+		"literal dot": {
+			[]string{"APP_FOO.BAR=1", "APP_foo.bar=2"},
+			`APP_FOO.BAR and APP_foo.bar both map to "foo.bar"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := env.Load(env.Options{Prefix: "APP_", Environ: tc.environ})
+			if err == nil {
+				t.Fatal("collision accepted, want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A NUL in a variable name must not fake a path boundary. The collision index
+// used to join segments with NUL, so APP_A<NUL>B (one segment) and APP_A__B
+// (two) hashed alike and reported a collision that does not exist. Reachable
+// through Options.Environ.
+func TestNULInNameIsNotAPathSeparator(t *testing.T) {
+	cfg, err := env.Load(env.Options{
+		Prefix:  "APP_",
+		Environ: []string{"APP_A\x00B=one", "APP_A__B=two"},
+	})
+	if err != nil {
+		t.Fatalf("Load: %v — these are different paths, not a collision", err)
+	}
+	if got := cfg.GetString("a.b"); got != "two" {
+		t.Errorf("a.b = %q, want %q", got, "two")
+	}
+	if got := cfg.GetString("\"a\x00b\""); got != "one" {
+		t.Errorf("a<NUL>b = %q, want %q", got, "one")
+	}
+}
+
+// F1.3: lowercasing is ASCII-only. Go's strings.ToLower applies simple case
+// mapping and turns İ (U+0130) into "i", which would collide with I; Python,
+// JS and Rust produce "i"+U+0307 and keep the two apart. Folding only A-Z
+// makes every implementation agree.
+func TestLowercasingIsASCIIOnly(t *testing.T) {
+	cfg, err := env.Load(env.Options{
+		Prefix:  "APP_",
+		Environ: []string{"APP_\u0130=dotted", "APP_I=plain"},
+	})
+	if err != nil {
+		t.Fatalf("Load: %v — U+0130 and I are different keys under ASCII folding", err)
+	}
+	if got := cfg.GetString("i"); got != "plain" {
+		t.Errorf("i = %q, want %q", got, "plain")
+	}
+	if got := cfg.GetString("\u0130"); got != "dotted" {
+		t.Errorf("U+0130 = %q, want %q", got, "dotted")
+	}
+}
+
 func TestLoadNestsAndLowercases(t *testing.T) {
 	cfg, err := env.Load(env.Options{Prefix: "APP_", Environ: []string{
 		"APP_DB__HOST=db.internal",
@@ -224,4 +370,16 @@ func TestUseAsSubstitutionSourceUnderHOCON(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	wantString(t, merged, "url", "postgres://db.internal:5432")
+}
+
+// F0.9: a leading BOM in a .env file is stripped rather than glued onto the
+// first variable name.
+func TestLeadingBOMStrippedFromDotEnv(t *testing.T) {
+	cfg, err := env.Parse([]byte("\ufeffAPP_A=1\n"), env.Options{Prefix: "APP_"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.GetString("a"); got != "1" {
+		t.Errorf("a = %q, want \"1\" — the BOM ended up in the name", got)
+	}
 }

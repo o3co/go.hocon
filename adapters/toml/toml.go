@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
 	"github.com/o3co/go.hocon/adapters/internal/tree"
 	gotoml "github.com/pelletier/go-toml/v2"
 )
@@ -35,7 +36,7 @@ import (
 // messages; "" leaves it to hocon's default.
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
 	var doc any
-	if err := gotoml.Unmarshal(data, &doc); err != nil {
+	if err := gotoml.Unmarshal(bom.Strip(data), &doc); err != nil {
 		return nil, fmt.Errorf("toml: %s: %w", describe(originDescription), err)
 	}
 	nested, err := tree.Object(doc, scalar)

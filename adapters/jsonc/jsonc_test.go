@@ -10,6 +10,7 @@ package jsonc_test
 
 import (
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -126,6 +127,126 @@ func TestSyntaxErrors(t *testing.T) {
 				t.Fatalf("Parse(%q) succeeded, want error", src)
 			}
 		})
+	}
+}
+
+// F3.2: trailing content after the top-level value is an error via a strict
+// EOF check. A one-token peek (Decoder.More) reports false on a closing
+// bracket, so stray closers used to slip through.
+func TestTrailingGarbageRejected(t *testing.T) {
+	for name, src := range map[string]string{
+		"stray closing brace":    `{"a":1} }`,
+		"stray closing bracket":  `{"a":1} ]`,
+		"pile of closers":        `{"a":1} }}]]`,
+		"closer then second doc": `{"a":1} } {"b":2}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := jsonc.Parse([]byte(src), "test.jsonc")
+			if err == nil {
+				t.Fatalf("Parse(%q) succeeded, want error", src)
+			}
+			if !strings.Contains(err.Error(), "after the top-level value") {
+				t.Errorf("error %q does not name the trailing data", err)
+			}
+		})
+	}
+}
+
+// The strict EOF check runs on the stripped text: whitespace and comments
+// after the top-level value are exactly what JSONC allows there.
+func TestTrailingWhitespaceAndCommentsAccepted(t *testing.T) {
+	for name, src := range map[string]string{
+		"trailing newlines":      "{\"a\": 1}\n\n",
+		"trailing spaces":        `{"a": 1}   `,
+		"trailing line comment":  "{\"a\": 1} // done",
+		"trailing block comment": "{\"a\": 1}\n/* the end */\n",
+		"comment then newline":   "{\"a\": 1} /* fin */ // bye\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := parse(t, src)
+			if got := cfg.GetInt64("a"); got != 1 {
+				t.Errorf("a = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// F3.2: a comment is replaced by whitespace, never the empty string, so it
+// always separates tokens. 1/*x*/2 must stay two tokens and fail the decode
+// rather than silently merging into 12.
+func TestCommentSeparatesTokens(t *testing.T) {
+	for name, src := range map[string]string{
+		"block comment between digits":         `{"a": 1/*x*/2}`,
+		"block comment between array elements": `{"a": [1/*x*/2]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := jsonc.Parse([]byte(src), "test.jsonc"); err == nil {
+				t.Fatalf("Parse(%q) succeeded, want error", src)
+			}
+		})
+	}
+}
+
+// F3.2: a // comment ends at any line break, including a lone CR. Old Mac
+// line endings still turn up in checked-in config, and treating CR as
+// ordinary text swallows the rest of the file.
+func TestLineCommentEndsAtCarriageReturn(t *testing.T) {
+	for name, src := range map[string]string{
+		"lone CR": "{\"a\":1, //c\r\"b\":2}",
+		"CRLF":    "{\"a\":1, //c\r\n\"b\":2}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := parse(t, src)
+			if got := cfg.GetInt64("a"); got != 1 {
+				t.Errorf("a = %d, want 1", got)
+			}
+			if got := cfg.GetInt64("b"); got != 2 {
+				t.Errorf("b = %d, want 2 — the comment swallowed the next line", got)
+			}
+		})
+	}
+}
+
+// F0.9: a leading BOM is stripped rather than failing the decode.
+func TestLeadingBOMStripped(t *testing.T) {
+	cfg := parse(t, "\ufeff{\"a\": 1}")
+	if got := cfg.GetInt64("a"); got != 1 {
+		t.Errorf("a = %d, want 1", got)
+	}
+}
+
+// The strict EOF check must not materialize what it is rejecting: this package
+// reads files owned by other programs, so a large trailing payload is
+// attacker-shaped input, not a curiosity.
+func TestTrailingGarbageRejectedWithoutDecodingIt(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"a":1} `)
+	b.WriteByte('[')
+	for i := 0; i < 200000; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)
+	}
+	b.WriteByte(']')
+	src := b.String()
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	if _, err := jsonc.Parse([]byte(src), "test.jsonc"); err == nil {
+		t.Fatal("trailing array accepted, want error")
+	}
+	runtime.ReadMemStats(&after)
+
+	// Two comment/comma stripping passes copy the input, and the decoder
+	// buffers it, so ~3x the input is the floor for any input of this size.
+	// Decoding the trailing payload as well took ~9x when this was written.
+	// The bound sits between the two.
+	allocated := after.TotalAlloc - before.TotalAlloc
+	if limit := 5 * uint64(len(src)); allocated > limit {
+		t.Errorf("rejecting %d bytes of trailing data allocated %d bytes (limit %d); "+
+			"the check is materializing what it discards", len(src), allocated, limit)
 	}
 }
 

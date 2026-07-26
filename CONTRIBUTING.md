@@ -41,6 +41,47 @@ go test ./internal/resolver/...
 go test -v -run TestLightbend ./...
 ```
 
+### The adapters module
+
+`adapters/` is a **separate Go module**, so `./...` at the repository root
+stops at its boundary and never tests it. It needs its own run:
+
+```bash
+make test-all              # root module + adapters
+make -C adapters check     # adapters only: go test -race + golangci-lint
+```
+
+CI runs both, so a change confined to `adapters/` is still covered.
+
+### Before releasing: build the adapters without the `replace`
+
+`adapters/go.mod` carries `replace github.com/o3co/go.hocon => ../` so that a
+change spanning the parser and an adapter can be made and tested as one commit.
+Consumers **ignore a dependency's replace directive** and build against the
+version in `require` instead — so an in-repo `go build` can pass while every
+consumer's build fails. That is exactly how v1.10.0 shipped an adapters module
+requiring a core older than the API it called.
+
+Reproduce the consumer's view:
+
+```bash
+rm -rf /tmp/adapters-consumer
+cp -R adapters /tmp/adapters-consumer
+cd /tmp/adapters-consumer
+go mod edit -dropreplace=github.com/o3co/go.hocon
+GOFLAGS=-mod=mod go test -count=1 ./...
+```
+
+CI runs this on every PR, in the `adapters without replace (published core)`
+job. When the require names a version the proxy does not have yet — which is
+the normal state of a PR that bumps it ahead of the tag — the job warns and
+skips, and the release workflow runs the check for real once the tag exists.
+
+So the rule is: **a core change that the adapters use means bumping the core
+version in `adapters/go.mod` in the same PR**, to the version that will be
+tagged. See [Releasing](#releasing) for the tag order that makes that
+resolvable.
+
 ## Code Style
 
 - Follow standard Go conventions (`gofmt`, `go vet`)
@@ -66,6 +107,31 @@ git push origin v0.4.0
 ```
 
 That's it. The Go module proxy picks up the new version within minutes.
+
+The nested `adapters/` module is versioned by its own tags, in Go's
+subdirectory form — the tag name is the module path below the repository root:
+
+```bash
+git tag adapters/v1.10.1
+git push origin adapters/v1.10.1
+```
+
+The two modules are released together, in this order:
+
+1. The PR that changes both already bumped `adapters/go.mod`'s core `require`
+   to the version about to be tagged (see [above](#before-releasing-build-the-adapters-without-the-replace)).
+2. Tag and push the **core** (`vX.Y.Z`) first, so the version the adapters
+   require exists on the proxy.
+3. Tag and push the **adapters** (`adapters/vX.Y.Z`).
+
+`release.yml` handles both tag shapes: it triggers proxy indexing for whichever
+module was tagged, and for an adapters tag it also builds the published module
+the way `go get` delivers it — no checkout, no `replace` — so a tag whose core
+requirement cannot be satisfied fails there rather than at a user's build.
+
+The adapters version tracks the core version it pairs with (the first tag will
+be `adapters/v1.10.x`), so a reader can tell at a glance which parser a given
+adapters release was built against.
 
 ## License
 

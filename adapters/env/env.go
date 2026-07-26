@@ -36,6 +36,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
+	"github.com/o3co/go.hocon/adapters/internal/keypath"
 	"github.com/o3co/go.hocon/adapters/internal/pathmap"
 )
 
@@ -99,6 +101,7 @@ func Parse(data []byte, opts Options) (*hocon.Config, error) {
 	if origin == "" {
 		origin = ".env"
 	}
+	data = bom.Strip(data) // spec F0.9
 	if !utf8.Valid(data) {
 		return nil, fmt.Errorf("env: %s: input is not valid UTF-8", origin)
 	}
@@ -125,11 +128,16 @@ type pair struct{ name, value string }
 
 // build maps names to paths and hands the nesting to pathmap.
 //
-// detectCollisions is on for the process environment, where two names can map
-// to one path (APP_A__B and APP_a__b both reach a.b) and there is no meaningful
-// order to break the tie with, so it is an error (spec F1.6).  A .env file has
-// a definite order, so the last entry simply wins (spec F0.7).
-func build(pairs []pair, opts Options, defaultOrigin string, detectCollisions bool) (*hocon.Config, error) {
+// fromProcessEnv marks the bulk-mount path, where two rules apply that a .env
+// file does not need:
+//
+//   - F1.6: two names can map to one path (APP_A__B and APP_a__b both reach
+//     a.b) and the environment has no meaningful order to break the tie with,
+//     so it is an error.  A .env file has a definite line order, so the last
+//     entry simply wins (spec F0.7).
+//   - F1.9(b): an entry that is not valid UTF-8 is an error.  A .env file is
+//     validated as a whole in Parse, since its bytes are one document.
+func build(pairs []pair, opts Options, defaultOrigin string, fromProcessEnv bool) (*hocon.Config, error) {
 	origin := opts.Origin
 	if origin == "" {
 		origin = defaultOrigin
@@ -141,12 +149,36 @@ func build(pairs []pair, opts Options, defaultOrigin string, detectCollisions bo
 		if !strings.HasPrefix(p.name, opts.Prefix) {
 			continue
 		}
+		// F1.9(b): a bulk mount is an explicit request for a whole namespace,
+		// so an entry inside it that cannot be decoded is an error.  Dropping
+		// it would leave a subtree that looks complete while the operator's
+		// setting is missing, and a stale default would win invisibly;
+		// admitting the raw bytes is worse, since the key becomes unreachable
+		// text.  Deliberately after the prefix filter: an undecodable variable
+		// the caller never asked for must not break an unrelated mount.
+		if fromProcessEnv {
+			if !utf8.ValidString(p.name) {
+				return nil, fmt.Errorf("env: %s: variable name %q is not valid UTF-8 (spec F1.9)",
+					origin, p.name)
+			}
+			// The value is named but never echoed — environment values are
+			// where credentials live.
+			if !utf8.ValidString(p.value) {
+				return nil, fmt.Errorf("env: %s: the value of %s is not valid UTF-8 (spec F1.9)",
+					origin, p.name)
+			}
+		}
 		path := toPath(strings.TrimPrefix(p.name, opts.Prefix))
-		if detectCollisions {
-			k := strings.Join(path, "\x00")
+		if fromProcessEnv {
+			k := pathKey(path)
 			if prev, dup := seen[k]; dup {
-				return nil, fmt.Errorf("env: %s: %s and %s both map to %q",
-					origin, prev, p.name, strings.Join(path, "."))
+				// The path is rendered as a HOCON path expression, so a
+				// segment holding a literal dot is quoted and cannot be
+				// misread as two segments.  Same format in py.hocon and
+				// rs.hocon; the xx.hocon fi11-collision fixture cites the
+				// phrase "both map to".
+				return nil, fmt.Errorf("env: %s: %s and %s both map to %s",
+					origin, prev, p.name, keypath.Render(path))
 			}
 			seen[k] = p.name
 		}
@@ -160,13 +192,51 @@ func build(pairs []pair, opts Options, defaultOrigin string, detectCollisions bo
 	return hocon.FromMap(nested, origin)
 }
 
+// pathKey indexes a path for collision detection.
+//
+// Joining the segments on a delimiter would need a byte that cannot occur in
+// one, and no such byte exists: Options.Environ lets a caller pass any name,
+// NUL included, so "A\x00B" (one segment) and "A__B" (two) hashed alike and
+// produced a collision that was not there.  Length-prefixing every segment
+// removes the assumption instead of moving it to a rarer byte.
+func pathKey(path []string) string {
+	var b strings.Builder
+	for _, seg := range path {
+		fmt.Fprintf(&b, "%d:%s", len(seg), seg)
+	}
+	return b.String()
+}
+
 // toPath splits a prefix-stripped name on "__" and lowercases each segment.
+//
+// The fold is ASCII-only (spec F1.3).  Go's strings.ToLower applies simple
+// case mapping, so İ (U+0130) becomes "i" and would collide with I under F1.6,
+// while Python, JS and Rust apply the full mapping and keep the two apart.
+// Environment variable names are ASCII in every practical setting, so folding
+// only A-Z costs nothing and makes the implementations agree.
 func toPath(name string) []string {
 	segs := strings.Split(name, separator)
 	for i := range segs {
-		segs[i] = strings.ToLower(segs[i])
+		segs[i] = lowerASCII(segs[i])
 	}
 	return segs
+}
+
+func lowerASCII(s string) string {
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			if b == nil {
+				b = []byte(s)
+			}
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	if b == nil {
+		return s
+	}
+	return string(b)
 }
 
 func parseDotEnv(s string, origin string) ([]pair, error) {

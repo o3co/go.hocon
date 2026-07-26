@@ -321,7 +321,14 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 ## Format adapters
 
 Config files that belong to *other* programs can be mounted as HOCON, so a
-`${...}` in your document can reach into them:
+`${...}` in your document can reach into them.
+
+`adapters/` is a **separate Go module** — that is how the parser keeps zero
+dependencies — so it has an install of its own:
+
+```bash
+go get github.com/o3co/go.hocon/adapters
+```
 
 ```go
 import (
@@ -344,9 +351,8 @@ merged, _ := cfg.WithFallback(base).Resolve(hocon.ResolveOptions{})
 url = "postgres://"${db.host}":"${db.port}
 ```
 
-`adapters/` is a **separate Go module**
-(`github.com/o3co/go.hocon/adapters`), so importing the parser still pulls in
-nothing. Only the adapter you import brings a dependency.
+Importing the parser still pulls in nothing; only the adapter you import brings
+a dependency.
 
 | Package | Notes |
 | --- | --- |
@@ -356,6 +362,14 @@ nothing. Only the adapter you import brings a dependency.
 | `adapters/toml` | via `pelletier/go-toml/v2` |
 | `adapters/yaml` | via `goccy/go-yaml` |
 
+### Versioning
+
+The adapters module will carry its own tags, `adapters/vX.Y.Z`, pairing with
+the core version they are built against — the first will be
+`adapters/v1.10.x`. None is pushed yet, so `go get` currently resolves a
+pseudo-version from the default branch. Either way its `go.mod` names the core
+version whose API it uses, and `go get` brings that core with it.
+
 Plain JSON needs no adapter — HOCON is a JSON superset, so `hocon.ParseFile`
 accepts a `.json` file as it stands. Reading a single environment variable needs
 none either; that is what `${?VAR}` is for.
@@ -363,6 +377,23 @@ none either; that is what `${?VAR}` is for.
 Foreign data stays data: a `${a.b}` in a mounted value is literal text, never a
 reference, because the file belongs to a program that never agreed to HOCON's
 syntax.
+
+### Where the adapters are strict
+
+Ingestion refuses input whose meaning would otherwise depend on something the
+caller cannot see — the order a Go map happens to iterate in, or text a decoder
+happens to stop before:
+
+- **JSONC holds exactly one value.** Whitespace and comments may follow it;
+  anything else, including a stray closer such as `{"a":1} }`, is an error
+  rather than silently ignored text.
+- **JSONC comments separate tokens.** A comment becomes whitespace, not
+  nothing, so `1/*x*/2` is a syntax error rather than the number `12`.
+- **YAML keys that stringify alike collide.** A non-string scalar key takes its
+  string form, so `1.0:` and `"1":`, or `~:` and `"null":`, are an error naming
+  both spellings and their lines rather than one value quietly winning. A `<<:`
+  merge key is exempt — it legitimately supplies a key the mapping overrides.
+  The same applies to a tree handed to `yaml.FromValue`.
 
 For YAML, scalar resolution belongs to the library rather than to this module —
 whether `010` is 8 or 10 is `goccy`'s answer, not a guarantee here.

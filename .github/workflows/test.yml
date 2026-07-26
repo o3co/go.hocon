@@ -67,3 +67,83 @@ jobs:
           slug: o3co/go.hocon
           files: coverage.out
           fail_ci_if_error: false
+
+  # adapters/ is a nested module, so the root job's ./... stops at its
+  # boundary and never tests it. Its fixtures
+  # (adapters/testdata-format-ingestion/) are committed to git — unlike the
+  # root module's fetched testdata/expected/ — so no fetch or cache step is
+  # needed here. Matrix: oldest supported (per adapters/go.mod) plus current
+  # stable, Linux only; the module is a thin layer over the fully
+  # matrix-tested core.
+  test-adapters:
+    name: adapters go${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.23", "1.25"]
+    defaults:
+      run:
+        working-directory: adapters
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Verify modules
+        run: go mod verify
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Test (with race detector)
+        run: go test -race -count=1 ./...
+
+  # The check the adapters/go.mod comment prescribes: consumers ignore a
+  # dependency's replace directive and build against the published core named
+  # in the require — not against this checkout. Dropping the replace here
+  # reproduces the consumer's view, so a stale require fails CI instead of
+  # shipping (v1.10.0 shipped requiring a core that predates the API the
+  # adapters use; every consumer build broke while the in-repo build stayed
+  # green).
+  #
+  # The required version may legitimately not exist yet: a PR that changes the
+  # core and the adapters together bumps the require to the version that will
+  # be tagged, which the proxy has never heard of. That case warns and skips —
+  # it is the release job that runs this check for real, after the tag exists.
+  # Refusing it here instead would make the prescribed workflow unmergeable.
+  test-adapters-consumer:
+    name: adapters without replace (published core)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Build against the published core
+        working-directory: adapters
+        run: |
+          set -euo pipefail
+          MODULE=github.com/o3co/go.hocon
+          VERSION="$(go list -m -f '{{.Version}}' "$MODULE")"
+          echo "adapters/go.mod requires ${MODULE}@${VERSION}"
+
+          if ! curl -sfI -o /dev/null "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info"; then
+            echo "::warning::${MODULE}@${VERSION} is not on the module proxy yet, so the \
+          consumer build cannot run. This is expected on a PR that bumps the require ahead \
+          of the tag; the release workflow runs this check once the tag exists."
+            exit 0
+          fi
+
+          go mod edit -dropreplace="$MODULE"
+          # go test, not go build: it compiles the test files too, so a core
+          # change that only breaks tests is caught here as well.
+          GOFLAGS=-mod=mod go test -count=1 ./...

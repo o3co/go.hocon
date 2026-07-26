@@ -13,6 +13,15 @@
 // importing the parser never pulls in a TOML or YAML library — while still
 // living in the parser's repository, so a change spanning both is one commit.
 //
+// Being a module of its own also means it is versioned and fetched of its own:
+//
+//	go get github.com/o3co/go.hocon/adapters
+//
+// Its tags will be adapters/vX.Y.Z, separate from the parser's vX.Y.Z and
+// pairing with the core version they are built against; until the first one is
+// pushed, go get resolves a pseudo-version from the default branch. Either way
+// its go.mod names the core version it needs, so go get brings that core too.
+//
 // Each subpackage reads a config format owned by some other program and
 // returns a *hocon.Config you can put underneath your own document with
 // WithFallback, so a ${...} can reach into it:
@@ -21,6 +30,7 @@
 //	env         environment variables, and .env files
 //	jsonc       JSON with comments and trailing commas
 //	toml        TOML documents
+//	yaml        YAML documents, or an already-decoded tree
 //
 // Plain JSON has no subpackage because it needs no adapter: HOCON is a JSON
 // superset, so hocon.ParseFile accepts a .json file as it stands. The tests

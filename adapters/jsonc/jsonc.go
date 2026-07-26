@@ -22,23 +22,42 @@
 // Comments and trailing commas are removed, then encoding/json does the
 // parsing, so the accepted grammar is otherwise exactly Go's JSON.
 //
+// Two consequences of that removal are worth stating, because both are strict
+// where a JSONC reader could be sloppy (spec F3.2):
+//
+//   - A comment is replaced by whitespace, never by nothing, so it still
+//     separates the tokens around it: 1/*x*/2 is a syntax error, not 12.
+//   - A document holds exactly one value. Whitespace and comments may follow
+//     it, but anything else — including a stray closer such as {"a":1} } —
+//     is an error rather than silently ignored text.
+//
+// This package is part of the github.com/o3co/go.hocon/adapters module, which
+// is versioned separately from the parser: see the module README for the
+// go get line and the core-version requirement.
+//
 // See docs/specs/format-ingestion-mapping.md items F3.x in the hocon scope.
 package jsonc
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/o3co/go.hocon"
+	"github.com/o3co/go.hocon/adapters/internal/bom"
 	"github.com/o3co/go.hocon/adapters/internal/tree"
 )
 
 // Parse reads JSONC data. originDescription names the source in error
 // messages; "" leaves it to hocon's default.
 func Parse(data []byte, originDescription string) (*hocon.Config, error) {
+	// F0.9: a leading BOM is not data. Left in place, encoding/json rejects
+	// the document with a message about a stray character.
+	data = bom.Strip(data)
 	doc, err := decode(data, originDescription)
 	if err != nil {
 		return nil, err
@@ -73,10 +92,25 @@ func decode(data []byte, origin string) (any, error) {
 	if err := dec.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("jsonc: %s: %w", describe(origin), err)
 	}
-	if dec.More() {
+
+	// F3.2: trailing content after the top-level value is an error via a
+	// strict EOF check. Decoder.More is only a one-token peek and reports
+	// false on a closing bracket, so stray closers ({"a":1} }) would pass.
+	//
+	// Token rather than a second Decode: this package reads files owned by
+	// other programs, so trailing bytes are untrusted input, and decoding
+	// them into a value that is thrown away turns a rejection into an
+	// allocation several times the size of the garbage. A token is enough to
+	// tell EOF from not-EOF, and costs the same for one byte or ninety
+	// megabytes.
+	switch _, err := dec.Token(); {
+	case errors.Is(err, io.EOF):
+		return doc, nil
+	case err == nil:
 		return nil, fmt.Errorf("jsonc: %s: unexpected data after the top-level value", describe(origin))
+	default:
+		return nil, fmt.Errorf("jsonc: %s: unexpected data after the top-level value: %w", describe(origin), err)
 	}
-	return doc, nil
 }
 
 func describe(origin string) string {
@@ -116,9 +150,16 @@ func number(n json.Number) (any, error) {
 	return f, nil
 }
 
-// StripComments removes // line comments and /* block comments */, leaving
-// string literals untouched.  Newlines inside removed spans are preserved so
-// that encoding/json still reports useful offsets.
+// StripComments replaces // line comments and /* block comments */ with
+// whitespace, leaving string literals untouched.  A comment always becomes at
+// least one space, never the empty string, so it stays token-separating:
+// 1/*x*/2 remains two tokens and fails the JSON decode (spec F3.2).
+//
+// Newlines inside a removed span are kept, so a syntax error still lands on
+// the line it is on in the original file.  Byte offsets do not survive — a
+// stripped comment shortens the line it was on — so the offset in an
+// encoding/json error refers to the stripped text, not to what the author
+// wrote.
 func StripComments(data []byte) ([]byte, error) {
 	out := make([]byte, 0, len(data))
 	for i := 0; i < len(data); {
@@ -132,7 +173,12 @@ func StripComments(data []byte) ([]byte, error) {
 			out = append(out, data[i:end]...)
 			i = end
 		case c == '/' && i+1 < len(data) && data[i+1] == '/':
-			for i < len(data) && data[i] != '\n' {
+			out = append(out, ' ')
+			// Ends at any line break, CR included: a lone CR is a line
+			// ending in files written on old Macs and by some generators,
+			// and treating it as ordinary text swallows the rest of the
+			// document (spec F3.2).
+			for i < len(data) && data[i] != '\n' && data[i] != '\r' {
 				i++
 			}
 		case c == '/' && i+1 < len(data) && data[i+1] == '*':
@@ -140,6 +186,7 @@ func StripComments(data []byte) ([]byte, error) {
 			if end < 0 {
 				return nil, fmt.Errorf("unterminated /* comment")
 			}
+			out = append(out, ' ')
 			for _, b := range data[i : i+2+end+2] {
 				if b == '\n' {
 					out = append(out, '\n')

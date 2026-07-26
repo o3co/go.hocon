@@ -3,7 +3,11 @@ name: Release
 on:
   push:
     tags:
+      # Core releases. A nested-module tag (adapters/v*) does not match:
+      # the * in a tag filter never matches /.
       - "v*"
+      # Releases of the nested adapters module.
+      - "adapters/v*"
 
 permissions:
   contents: write
@@ -11,6 +15,7 @@ permissions:
 jobs:
   proxy-fetch:
     name: Trigger Go module proxy indexing
+    if: ${{ !startsWith(github.ref_name, 'adapters/') }}
     runs-on: ubuntu-latest
 
     steps:
@@ -62,3 +67,57 @@ jobs:
           # manually before the workflow ran).
           fail_on_unmatched_files: false
           make_latest: true
+
+  # The adapters/ nested module is versioned by its own adapters/v* tags
+  # (Go's convention for a module in a subdirectory). Same proxy fetch and
+  # sum-database verification as the core job; no GitHub Release is created —
+  # adapters changes are documented in the repository CHANGELOG and covered
+  # by the core release notes.
+  #
+  # No checkout, no write: this job only talks to the proxy and builds the
+  # published module in a scratch directory.
+  proxy-fetch-adapters:
+    name: Trigger Go module proxy indexing (adapters)
+    if: ${{ startsWith(github.ref_name, 'adapters/') }}
+    runs-on: ubuntu-latest
+    permissions: {}
+
+    steps:
+      - name: Fetch via GOPROXY
+        run: |
+          VERSION="${GITHUB_REF_NAME#adapters/}"
+          MODULE="github.com/o3co/go.hocon/adapters"
+          echo "Triggering proxy fetch for ${MODULE}@${VERSION}"
+          curl -sSf "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info" | jq .
+
+      - name: Fetch via sum database
+        run: |
+          VERSION="${GITHUB_REF_NAME#adapters/}"
+          MODULE="github.com/o3co/go.hocon/adapters"
+          curl -sSf "https://sum.golang.org/lookup/${MODULE}@${VERSION}" || true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      # The real verification. Everything above only asks the proxy to index
+      # the tag; it says nothing about whether the module compiles for a
+      # consumer. This builds the published module exactly as `go get` would
+      # deliver it — no checkout, no replace directive, the core resolved from
+      # the require — so a release cut from a stale branch, or an adapters tag
+      # pushed before the core tag it needs, fails here instead of reaching
+      # users.
+      - name: Build the published module as a consumer would
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#adapters/}"
+          MODULE="github.com/o3co/go.hocon/adapters"
+          mkdir -p /tmp/adapters-consumer && cd /tmp/adapters-consumer
+          go mod init consumer
+          go get "${MODULE}@${VERSION}"
+          for pkg in env jsonc properties toml yaml; do
+            printf 'package main\nimport _ "%s/%s"\n' "$MODULE" "$pkg" > "use_${pkg}.go"
+          done
+          printf 'package main\nfunc main() {}\n' > main.go
+          go build ./...
