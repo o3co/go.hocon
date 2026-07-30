@@ -161,6 +161,88 @@ func TestMultiDocumentRejected(t *testing.T) {
 	}
 }
 
+// F5.7, the shapes the decoder alone cannot see. goccy answers io.EOF for a
+// stream whose first document is empty and drops every later document with it,
+// so "---\n---\na: 1\n" used to parse as {} — worse than the data loss F5.7
+// exists to prevent, and exactly what `---`-prefixed generated YAML looks like.
+// A trailing "---" is a second (empty) document too, which the sibling
+// implementations all refuse.
+func TestMultiDocumentShapesRejected(t *testing.T) {
+	for _, src := range []string{
+		"---\n---\na: 1\n",
+		"---\n# generated\n---\na: 1\n",
+		"---\n---\n---\na: 1\n",
+		"--- null\n---\na: 1\n",
+		"---\n---\n",
+		"a: 1\n---\n",
+		"a: 1\n...\n---\nb: 2\n",
+		"a: 1\n...\nb: 2\n",
+		"%YAML 1.2\n---\n---\na: 1\n",
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, err := yaml.Parse([]byte(src), "test.yaml")
+			if err == nil {
+				t.Fatalf("Parse(%q) succeeded, want a multi-document error", src)
+			}
+			if !strings.Contains(err.Error(), "F5.7") {
+				t.Errorf("error %q does not cite the spec item F5.7", err)
+			}
+		})
+	}
+}
+
+// The other half of the F5.7 count: a single document keeps parsing, however
+// it is spelled. A "---" inside a block scalar or a quoted string is text, and
+// a directive line belongs to the document after it rather than being one.
+func TestSingleDocumentShapesAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want string
+	}{
+		{"a: 1\n", "1"},
+		{"---\na: 1\n", "1"},
+		{"a: 1\n...\n", "1"},
+		{"%YAML 1.2\n---\na: 1\n", "1"},
+		{"a: \"---\"\n", "---"},
+		{"a: |-\n  ---\n  ---\n", "---\n---"},
+	} {
+		t.Run(tc.src, func(t *testing.T) {
+			cfg, err := yaml.Parse([]byte(tc.src), "test.yaml")
+			if err != nil {
+				t.Fatalf("Parse(%q): %v", tc.src, err)
+			}
+			if got := cfg.GetString("a"); got != tc.want {
+				t.Errorf("a = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A stream that is only document markers holds one empty document, not two.
+func TestMarkerOnlyStreamIsEmptyObject(t *testing.T) {
+	for _, src := range []string{"---\n", "...\n", "   \n\n"} {
+		cfg, err := yaml.Parse([]byte(src), "test.yaml")
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", src, err)
+		}
+		if n := len(cfg.Keys()); n != 0 {
+			t.Errorf("Parse(%q) produced %d keys, want 0", src, n)
+		}
+	}
+}
+
+// The document count runs after the decode so that a broken document is still
+// reported as broken, not as a stream.
+func TestSyntaxErrorOutranksDocumentCount(t *testing.T) {
+	_, err := yaml.Parse([]byte("a: [1\n---\nb: 2\n"), "test.yaml")
+	if err == nil {
+		t.Fatal("malformed document accepted, want error")
+	}
+	if strings.Contains(err.Error(), "F5.7") {
+		t.Errorf("error %q reports the stream, not the syntax error the decoder saw", err)
+	}
+}
+
 // F5.8 — a duplicate key in hand-written YAML is a mistake, not an override.
 func TestDuplicateKeyRejected(t *testing.T) {
 	if _, err := yaml.Parse([]byte("a: 1\na: 2\n"), "test.yaml"); err == nil {

@@ -52,6 +52,8 @@ import (
 	"time"
 
 	goyaml "github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/lexer"
+	"github.com/goccy/go-yaml/token"
 	"github.com/o3co/go.hocon"
 	"github.com/o3co/go.hocon/adapters/internal/bom"
 	"github.com/o3co/go.hocon/adapters/internal/keypath"
@@ -290,17 +292,27 @@ func ParseFile(path string) (*hocon.Config, error) {
 // decode reads exactly one document.
 //
 // F5.7: goyaml.Unmarshal returns the first document of a stream and discards
-// the rest without a word, so the second decode below exists to turn that
-// silent data loss into an error.
+// the rest without a word, so the checks below exist to turn that silent data
+// loss into an error. Two of them, because neither sees every stream:
+// countDocuments misses a `...`-separated stream, whose second document the
+// lexer does not announce with a header token, and the trailing decode misses
+// every stream the decoder itself never gets to (see countDocuments).
 func decode(data []byte, origin string) (any, error) {
 	dec := goyaml.NewDecoder(bytes.NewReader(data))
 
 	var doc any
-	if err := dec.Decode(&doc); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, nil // empty input
-		}
+	switch err := dec.Decode(&doc); {
+	case err == nil:
+	case errors.Is(err, io.EOF):
+		doc = nil // no first document to decode
+	default:
 		return nil, fmt.Errorf("yaml: %s: %w", describe(origin), err)
+	}
+
+	// After the decode, so that a syntax error is still reported by the
+	// decoder, which words it better.
+	if countDocuments(data) > 1 {
+		return nil, errMultiDocument(origin)
 	}
 
 	var extra any
@@ -308,13 +320,64 @@ func decode(data []byte, origin string) (any, error) {
 	case errors.Is(err, io.EOF):
 		return doc, nil
 	case err == nil:
-		return nil, fmt.Errorf(
-			"yaml: %s: multi-document streams are not supported (spec F5.7); "+
-				"a config is one document, and decoding only the first would drop the rest silently",
-			describe(origin))
+		return nil, errMultiDocument(origin)
 	default:
 		return nil, fmt.Errorf("yaml: %s: %w", describe(origin), err)
 	}
+}
+
+func errMultiDocument(origin string) error {
+	return fmt.Errorf(
+		"yaml: %s: multi-document streams are not supported (spec F5.7); "+
+			"a config is one document, and decoding only the first would drop the rest silently",
+		describe(origin))
+}
+
+// countDocuments reports how many documents data holds, counted from the
+// library's own token stream.
+//
+// Neither of the higher layers can answer this. goccy v1.19.2 collapses a
+// stream whose *first* document is empty — "---\n---\na: 1\n", which is what
+// `---`-prefixed generated YAML looks like once its header block is stripped —
+// into one empty document: the decoder reports io.EOF and parser.ParseBytes
+// reports a single body-less Doc, so by the time either has spoken, `a: 1` is
+// already gone and the F5.7 guard has nothing left to catch. The lexer still
+// emits both header tokens.
+//
+// It is also the only layer that knows which `---` starts a document: one
+// inside a block scalar or a quoted string is ordinary text, and a `---` line
+// is a header, not a value. Matching the text would have to re-derive all of
+// that.
+//
+// The count is the number of header tokens, plus one for a document written
+// before the first header. Directives are the exception: `%YAML 1.2` sits
+// before the `---` it applies to, so the tokens on that line are not a
+// document of their own.
+func countDocuments(data []byte) int {
+	headers, directive, bare := 0, false, false
+	for _, tk := range lexer.Tokenize(string(data)) {
+		if headers > 0 {
+			// Past the first header, only further headers add to the count.
+			if tk.Type == token.DocumentHeaderType {
+				headers++
+			}
+			continue
+		}
+		switch tk.Type {
+		case token.DocumentHeaderType:
+			headers++
+		case token.DirectiveType:
+			directive = true
+		case token.CommentType, token.DocumentEndType:
+			// Neither is a document on its own.
+		default:
+			bare = true
+		}
+	}
+	if bare && !directive {
+		return headers + 1
+	}
+	return headers
 }
 
 func describe(origin string) string {

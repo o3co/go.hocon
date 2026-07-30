@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `adapters/yaml`: a leading empty document discarded the whole file
+
+**BREAKING** (input previously accepted is now refused; quote or remove the
+extra `---` if the file really is one document).
+
+`yaml.Parse("---\n---\na: 1\n")` returned an empty config with no error, and so
+did every `---`-prefixed stream whose first document holds nothing but comments
+— the shape generated YAML takes once a header block is stripped. The F5.7
+guard against multi-document streams never ran: goccy answers `io.EOF` for
+these, and the adapter read that as "empty input" (F5.9). Every document was
+dropped, which is a worse outcome than the silent loss of document 2..n that
+F5.7 exists to prevent. `parser.ParseBytes` cannot see it either — it reports
+one body-less document — so the count is now taken from the library's token
+stream, which still carries both `---` markers and knows that a `---` inside a
+block scalar or a quoted string is text ([#166](https://github.com/o3co/go.hocon/issues/166)).
+
+A trailing `---` (`a: 1\n---\n`) is a second, empty document and is now refused
+for the same reason; ts.hocon, rs.hocon and py.hocon already refused it, so
+this closes a four-way parity gap rather than opening one. A directive line
+(`%YAML 1.2`) still belongs to the document that follows it, and a malformed
+document is still reported as malformed by the decoder rather than as a stream.
+
 ### Fixed — README stated four things that were no longer true
 
 The README's factual claims had drifted release by release, with nothing
