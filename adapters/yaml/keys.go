@@ -111,9 +111,10 @@ func (c *collisions) report(path []string, key string, a, b *ast.MappingValueNod
 	}
 	sort.Strings(forms)
 	c.found = append(c.found, fmt.Sprintf(
-		"mapping keys %s and %s both resolve to %s; quote the one you mean to "+
-			"keep distinct, because one of the two values would otherwise be "+
-			"lost (spec F5.3)",
+		"mapping keys %s and %s both resolve to %s; rename one of them, because "+
+			"one of the two values would otherwise be lost. Quoting a non-string "+
+			"key helps only where that changes the key text, as 0x10 does and 1 "+
+			"does not (spec F5.3)",
 		forms[0], forms[1], where))
 }
 
