@@ -6,21 +6,29 @@ on:
   push:
     branches: [develop, main]
 
+# The repository default is write, so a workflow that says nothing gets it.
+# Nothing here writes.
+permissions:
+  contents: read
+
 jobs:
   golangci-lint:
     name: golangci-lint
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.25"
 
+      # Pinned for the same reason the actions above are: @latest runs whatever
+      # the newest tag points at today, in a job the repository default grants
+      # write. It also keeps a lint release from turning an unrelated PR red.
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
       - name: golangci-lint
         run: golangci-lint run --timeout=5m
