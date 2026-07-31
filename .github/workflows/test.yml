@@ -77,7 +77,13 @@ jobs:
   # boundary and never tests it. Its fixtures
   # (adapters/testdata-format-ingestion/) are committed to git — unlike the
   # root module's fetched testdata/expected/ — so no fetch or cache step is
-  # needed here. Matrix: oldest supported (per adapters/go.mod) plus current
+  # needed here.
+  #
+  # The flip side, and it bit: committed means this job tests whatever was
+  # last committed, so when xx.hocon gains cases they are silently absent here
+  # until someone runs `make testdata` and commits the result. That is how this
+  # module came to be running 16 of 26 cases. Re-sync deliberately, in its own
+  # commit, whenever xx.hocon's format-ingestion corpus grows. Matrix: oldest supported (per adapters/go.mod) plus current
   # stable, Linux only; the module is a thin layer over the fully
   # matrix-tested core.
   test-adapters:
