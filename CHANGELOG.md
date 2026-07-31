@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `adapters`: a path in an error message is now a JSON string literal
+
+A path segment holding control characters was quoted with `%q`, which spells
+them as **Go** escapes: NUL came out as `\x00`, where py.hocon rendered the same
+segment as `\u0000`. Three implementations rendered the same key three ways, and
+the cross-language fixtures compare that text
+([xx.hocon#76](https://github.com/o3co/xx.hocon/issues/76)).
+
+Quoted segments are JSON string literals now — which is also HOCON's own
+quoted-string syntax — pinned as spec F0.10. Two departures from `%q`, both
+deliberate: NUL is `\u0000`, and **U+2028 / U+2029 are escaped** although JSON
+permits them raw, because they are line separators to enough log viewers that a
+key could otherwise break the message reporting it. Printable non-ASCII stays
+itself (`é`, `İ`), and a byte that is not valid UTF-8 renders as `\ufffd` rather
+than as a bare replacement character.
+
+The package doc's remaining paste-into-a-getter claim is dropped rather than
+narrowed further: measured, **no** implementation's path parser decodes escapes
+inside a quoted segment, so this was never true for such a segment in any of
+them. The guarantee that matters for an error message — two different paths
+never render alike — is now pinned by a test.
+
 ### Fixed — `adapters`: a mapped path had no depth limit, where the siblings cap it at 64
 
 **BREAKING** (a name mapping to more than 64 path segments is now refused).
