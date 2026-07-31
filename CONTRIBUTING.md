@@ -77,12 +77,12 @@ job. When the require names a version the proxy does not have yet — which is
 the normal state of a PR that bumps it ahead of the tag — the job warns and
 skips, and the release workflow runs the check for real once the tag exists.
 
-Run `go mod tidy` before the build if you reproduce it by hand. `go get
-MODULE@VERSION` records that module and nothing else, so the go.sum entries for
-what it imports — the core module, go-toml, go-yaml — are missing and the build
-fails on every one of them. The snippet above avoids this by copying a checkout
-that already has a complete `go.sum`; a scratch consumer built from `go mod
-init` does not.
+Run `go mod tidy` before the build if you reproduce it by hand.
+`go get MODULE@VERSION` records that module and nothing else, so the go.sum
+entries for what it imports — the core module, go-toml, go-yaml — are missing
+and the build fails on every one of them. The snippet above avoids this by
+copying a checkout that already has a complete `go.sum`; a scratch consumer
+built from `go mod init` does not.
 
 So the rule is: **a core change that the adapters use means bumping the core
 version in `adapters/go.mod` in the same PR**, to the version that will be
@@ -138,11 +138,17 @@ requirement cannot be satisfied fails there rather than at a user's build.
 
 That job **retries** the `go get`, because the workflow races the tag that
 triggered it. Until the proxy has indexed the nested module, `go get` does not
-report it as missing — it falls back to the parent module and says
-`github.com/o3co/go.hocon@vX.Y.Z found, but does not contain package
-github.com/o3co/go.hocon/adapters`. That reads like a packaging mistake and is
-not one; it means "not indexed yet". For `adapters/v1.12.0` it cleared about six
-minutes after the tag.
+report it as missing — it falls back to the parent module and says:
+
+```text
+go: module github.com/o3co/go.hocon@vX.Y.Z found,
+    but does not contain package github.com/o3co/go.hocon/adapters
+```
+
+That reads like a packaging mistake and is not one; it means "not indexed yet",
+and the parent genuinely does not contain that package because `adapters/` is a
+nested module. For `adapters/v1.12.0` it cleared about six minutes after the
+tag.
 
 The adapters version tracks the core version it pairs with (the first tag will
 be `adapters/v1.10.x`), so a reader can tell at a glance which parser a given
