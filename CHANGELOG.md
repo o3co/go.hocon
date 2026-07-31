@@ -156,7 +156,7 @@ can hold a stale README back — only refusing to merge it can.
 
 ### Fixed — the F-item spec citations pointed at a document readers cannot open
 
-Seven doc comments, the `adapters/` README and the fixture manifest cited
+Six doc comments, the `adapters/` README and the fixture manifest cited
 `docs/specs/format-ingestion-mapping.md`, which is not in this repository — it
 lived in a private working scope. Adapter errors name items from it (`(spec
 F0.5)`, `(spec F1.6)`), so anyone following a citation reached nothing. The
