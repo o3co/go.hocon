@@ -425,3 +425,74 @@ func repeatSeg(s string, n int) []string {
 	}
 	return out
 }
+
+// F1.7 — the prefix filter runs first, and only what survives it is validated.
+//
+// A .env shared with tools that support trailing comments has to stay loadable
+// when the caller wants one namespace out of it. Load already worked that way
+// ("entries outside the prefix are never inspected", F1.1); Parse disagreeing
+// with its sibling in the same package was the actual inconsistency, and all
+// four implementations had the same accidental split.
+func TestDotEnvFiltersBeforeItValidates(t *testing.T) {
+	for _, src := range []string{
+		"BAD=x # y\n",  // an ambiguous value, discarded by the prefix
+		"BAD NAME=x\n", // a name the rule below refuses, likewise discarded
+		"OTHER__=x\n",  // an empty path segment, likewise
+	} {
+		cfg, err := env.Parse([]byte(src), env.Options{Prefix: "APP_"})
+		if err != nil {
+			t.Errorf("Parse(%q) with a prefix that discards it: %v", src, err)
+			continue
+		}
+		if n := len(cfg.Keys()); n != 0 {
+			t.Errorf("Parse(%q) mounted %d keys, want 0", src, n)
+		}
+	}
+	// Kept by the prefix, so validated as strictly as ever.
+	if _, err := env.Parse([]byte("APP_BAD=x # y\n"), env.Options{Prefix: "APP_"}); err == nil {
+		t.Error("an ambiguous value under the prefix was accepted")
+	}
+	if _, err := env.Parse([]byte("APP___=x\n"), env.Options{Prefix: "APP_"}); err == nil {
+		t.Error("an empty path segment under the prefix was accepted")
+	}
+}
+
+// "export " matched a single space only, so export<TAB>FOO=bar became the
+// variable export<TAB>foo — a key nothing would look up, produced silently.
+func TestDotEnvExportTakesAnyWhitespace(t *testing.T) {
+	for _, src := range []string{"export FOO=bar\n", "export\tFOO=bar\n", "export  FOO=bar\n"} {
+		cfg, err := env.Parse([]byte(src), env.Options{})
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", src, err)
+		}
+		wantString(t, cfg, "foo", "bar")
+	}
+	// …and a name that merely begins with "export" is still a name.
+	cfg, err := env.Parse([]byte("exportFOO=bar\n"), env.Options{})
+	if err != nil {
+		t.Fatalf("exportFOO: %v", err)
+	}
+	wantString(t, cfg, "exportfoo", "bar")
+}
+
+// F1.7's rule for values — an error naming the fix rather than a guess about
+// the author's intent — applies to names too. These used to become the keys
+// "foo bar" and "foo#x".
+func TestDotEnvRefusesANameThatCannotHaveBeenMeant(t *testing.T) {
+	for _, src := range []string{"FOO BAR=baz\n", "FOO#x=1\n"} {
+		_, err := env.Parse([]byte(src), env.Options{})
+		if err == nil {
+			t.Fatalf("Parse(%q) succeeded, want an F1.7 error", src)
+		}
+		if !strings.Contains(err.Error(), "F1.7") {
+			t.Errorf("error %q does not cite the spec item F1.7", err)
+		}
+	}
+	// Deliberately narrower than a POSIX name grammar, which would reject this
+	// — a name F1.2 documents as valid.
+	cfg, err := env.Parse([]byte("FOO.BAR=v\n"), env.Options{})
+	if err != nil {
+		t.Fatalf("a dotted name must still parse: %v", err)
+	}
+	wantString(t, cfg, `"foo.bar"`, "v")
+}

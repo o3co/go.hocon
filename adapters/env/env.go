@@ -33,6 +33,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/o3co/go.hocon"
@@ -106,7 +107,7 @@ func Parse(data []byte, opts Options) (*hocon.Config, error) {
 	if !utf8.Valid(data) {
 		return nil, fmt.Errorf("env: %s: input is not valid UTF-8", origin)
 	}
-	pairs, err := parseDotEnv(string(data), origin)
+	pairs, err := parseDotEnv(string(data), origin, opts.Prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +262,14 @@ func lowerASCII(s string) string {
 	return string(b)
 }
 
-func parseDotEnv(s string, origin string) ([]pair, error) {
+// parseDotEnv reads .env text, keeping only the entries under prefix.
+//
+// The filter is applied here rather than in build, so that everything past it
+// — the value dialect, the name rule — is only asked of entries the caller
+// actually mounted (spec F1.7). A .env shared with tools that support trailing
+// comments stays loadable when you want one namespace out of it, which is the
+// rule Load already followed and this function did not.
+func parseDotEnv(s string, origin, prefix string) ([]pair, error) {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
 
@@ -272,15 +280,24 @@ func parseDotEnv(s string, origin string) ([]pair, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		line = strings.TrimPrefix(line, "export ")
+		line = stripExport(line)
 
 		name, rest, ok := strings.Cut(line, "=")
 		if !ok {
 			return nil, fmt.Errorf("env: %s:%d: expected NAME=value", origin, lineno)
 		}
 		name = strings.TrimSpace(name)
+		// The two checks before the filter are about the *line* rather than the
+		// entry: a line with no "=" is not a NAME=value pair at all, and an
+		// empty name gives nothing to compare the prefix against.
 		if name == "" {
 			return nil, fmt.Errorf("env: %s:%d: empty variable name", origin, lineno)
+		}
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		if err := checkName(name); err != nil {
+			return nil, fmt.Errorf("env: %s:%d: %w", origin, lineno, err)
 		}
 		value, err := dotEnvValue(strings.TrimLeft(rest, " \t"))
 		if err != nil {
@@ -289,6 +306,48 @@ func parseDotEnv(s string, origin string) ([]pair, error) {
 		pairs = append(pairs, pair{name: name, value: value})
 	}
 	return pairs, nil
+}
+
+// stripExport drops a leading "export" and the whitespace after it (spec F1.7).
+//
+// Trimming the literal "export " missed a tab, so "export\tFOO=bar" became the
+// variable "export\tfoo" — a key nothing would ever look up, produced silently.
+func stripExport(line string) string {
+	rest, ok := strings.CutPrefix(line, "export")
+	if !ok {
+		return line
+	}
+	trimmed := strings.TrimLeft(rest, " \t")
+	if trimmed == rest {
+		// No whitespace after it, so this is a variable whose name merely
+		// begins with "export" (exportFOO=1), not the keyword.
+		return line
+	}
+	return trimmed
+}
+
+// checkName refuses a name that cannot have been meant (spec F1.7).
+//
+// F1.7's rule for values is an error naming the fix rather than a guess about
+// the author's intent; names get the same treatment. Whitespace or "#" inside
+// one means the line was mis-parsed — FOO BAR=baz and FOO#x=1 used to become
+// the keys "foo bar" and "foo#x".
+//
+// Deliberately narrower than a POSIX name grammar, which would reject
+// APP_FOO.BAR — a name F1.2 documents as valid and the fixtures exercise.
+func checkName(name string) error {
+	for _, r := range name {
+		if unicode.IsSpace(r) || r == '#' {
+			what := "whitespace"
+			if r == '#' {
+				what = `'#'`
+			}
+			return fmt.Errorf(
+				"variable name %q contains %s; the line is not NAME=value (spec F1.7)",
+				name, what)
+		}
+	}
+	return nil
 }
 
 func dotEnvValue(v string) (string, error) {
