@@ -17,7 +17,8 @@
 // so all four TOML date-time types become their RFC 3339 string forms, which
 // is the honest representation rather than a lossy number (spec F4.2).
 //
-// See docs/specs/format-ingestion-mapping.md items F4.x in the hocon scope.
+// See the F4.x items in the format-ingestion mapping spec:
+// https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md
 package toml
 
 import (

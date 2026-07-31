@@ -82,8 +82,8 @@ text, because the file belongs to a program that never agreed to HOCON's
 syntax.
 
 The mapping rules, including how each format's edge cases are pinned, live in
-`docs/specs/format-ingestion-mapping.md` in the `hocon` ecosystem scope. Items
-are cited from code and error messages as F0.1, F2.5 and so on.
+[`xx.hocon/docs/format-ingestion-mapping.md`](https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md).
+Items are cited from code and error messages as F0.1, F2.5 and so on.
 
 ## Packages
 

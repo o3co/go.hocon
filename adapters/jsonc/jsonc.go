@@ -35,7 +35,8 @@
 // is versioned separately from the parser: see the module README for the
 // go get line and the core-version requirement.
 //
-// See docs/specs/format-ingestion-mapping.md items F3.x in the hocon scope.
+// See the F3.x items in the format-ingestion mapping spec:
+// https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md
 package jsonc
 
 import (

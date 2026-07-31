@@ -26,7 +26,8 @@
 // The syntax layer is shared with the parser's own `include "x.properties"`
 // handling, so the two cannot drift apart.
 //
-// See docs/specs/format-ingestion-mapping.md items F2.x in the hocon scope.
+// See the F2.x items in the format-ingestion mapping spec:
+// https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md
 package properties
 
 import (
