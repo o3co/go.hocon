@@ -340,3 +340,26 @@ func TestSurrogateCheckLeavesValidDocumentsAlone(t *testing.T) {
 		})
 	}
 }
+
+// A high surrogate followed by a \u escape whose digits are malformed is the
+// decoder's error to report, not ours: it says "invalid character in \u
+// hexadecimal escape" and points at the digits, where an unpaired-surrogate
+// error would blame the wrong half. Deferring is what the rest of the scan
+// already does for a bad escape.
+func TestMalformedLowHalfIsTheDecodersError(t *testing.T) {
+	for name, src := range map[string]string{
+		"short hex": `{"a":"\ud800\u12"}`,
+		"bad digit": `{"a":"\ud800\uZZZZ"}`,
+		"truncated": `{"a":"\ud800\u"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := jsonc.Parse([]byte(src), "test.jsonc")
+			if err == nil {
+				t.Fatalf("Parse(%s) succeeded, want a decode error", src)
+			}
+			if strings.Contains(err.Error(), "F3.5") {
+				t.Errorf("error %q blames the surrogate, not the malformed escape", err)
+			}
+		})
+	}
+}
