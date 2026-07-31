@@ -305,8 +305,16 @@ func checkStringSurrogates(lit []byte) error {
 		switch {
 		case hi >= 0xD800 && hi <= 0xDBFF:
 			lo, ok := 0, false
-			if i+11 < len(lit) && lit[i+6] == '\\' && lit[i+7] == 'u' {
+			if i+7 < len(lit) && lit[i+6] == '\\' && lit[i+7] == 'u' {
 				lo, ok = hex4(lit[i+8:])
+				if !ok {
+					// A \\u whose digits are malformed or truncated. Calling
+					// this an unpaired surrogate would blame the wrong half:
+					// the decoder says "invalid character in \\u escape" and
+					// points at the digits, which is the accurate error, and
+					// deferring to it is what the rest of this scan does.
+					return nil
+				}
 			}
 			if !ok || lo < 0xDC00 || lo > 0xDFFF {
 				return fmt.Errorf(
