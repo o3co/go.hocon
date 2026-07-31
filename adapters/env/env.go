@@ -169,7 +169,7 @@ func build(pairs []pair, opts Options, defaultOrigin string, fromProcessEnv bool
 					origin, p.name)
 			}
 		}
-		path, err := toPath(strings.TrimPrefix(p.name, opts.Prefix))
+		path, err := toPath(strings.TrimPrefix(p.name, opts.Prefix), p.name)
 		if err != nil {
 			return nil, fmt.Errorf("env: %s: %w", origin, err)
 		}
@@ -218,17 +218,26 @@ func pathKey(path []string) string {
 // while Python, JS and Rust apply the full mapping and keep the two apart.
 // Environment variable names are ASCII in every practical setting, so folding
 // only A-Z costs nothing and makes the implementations agree.
-func toPath(name string) ([]string, error) {
-	segs := strings.Split(name, separator)
-	if depth.TooDeep(len(segs)) {
+// toPath maps the prefix-stripped rest of a variable name onto path segments.
+//
+// name is the whole variable as the operator wrote it, carried separately so
+// the error can name what they would find in their environment rather than the
+// stripped remainder, which appears nowhere.  py.hocon's _to_path takes the
+// same pair for the same reason.
+func toPath(rest, name string) ([]string, error) {
+	// Counted before splitting: the cap exists to refuse an absurdly long name
+	// cheaply, and splitting first would allocate the slice and every string
+	// header in it before deciding to throw them away.
+	if segments := strings.Count(rest, separator) + 1; depth.TooDeep(segments) {
 		// One name produces one arbitrarily deep chain, so the input needed is
 		// a single long variable name.  Go grows its stacks and so survives
 		// what crashed the siblings, but a name that mounts here and errors in
 		// ts.hocon, py.hocon or rs.hocon is a divergence either way.
 		return nil, fmt.Errorf(
 			"%q maps to a path %d segments deep, over the limit of %d",
-			name, len(segs), depth.MaxPathSegments)
+			name, segments, depth.MaxPathSegments)
 	}
+	segs := strings.Split(rest, separator)
 	for i := range segs {
 		segs[i] = lowerASCII(segs[i])
 	}
