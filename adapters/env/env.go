@@ -37,6 +37,7 @@ import (
 
 	"github.com/o3co/go.hocon"
 	"github.com/o3co/go.hocon/adapters/internal/bom"
+	"github.com/o3co/go.hocon/adapters/internal/depth"
 	"github.com/o3co/go.hocon/adapters/internal/keypath"
 	"github.com/o3co/go.hocon/adapters/internal/pathmap"
 )
@@ -168,7 +169,10 @@ func build(pairs []pair, opts Options, defaultOrigin string, fromProcessEnv bool
 					origin, p.name)
 			}
 		}
-		path := toPath(strings.TrimPrefix(p.name, opts.Prefix))
+		path, err := toPath(strings.TrimPrefix(p.name, opts.Prefix))
+		if err != nil {
+			return nil, fmt.Errorf("env: %s: %w", origin, err)
+		}
 		if fromProcessEnv {
 			k := pathKey(path)
 			if prev, dup := seen[k]; dup {
@@ -214,12 +218,21 @@ func pathKey(path []string) string {
 // while Python, JS and Rust apply the full mapping and keep the two apart.
 // Environment variable names are ASCII in every practical setting, so folding
 // only A-Z costs nothing and makes the implementations agree.
-func toPath(name string) []string {
+func toPath(name string) ([]string, error) {
 	segs := strings.Split(name, separator)
+	if depth.TooDeep(len(segs)) {
+		// One name produces one arbitrarily deep chain, so the input needed is
+		// a single long variable name.  Go grows its stacks and so survives
+		// what crashed the siblings, but a name that mounts here and errors in
+		// ts.hocon, py.hocon or rs.hocon is a divergence either way.
+		return nil, fmt.Errorf(
+			"%q maps to a path %d segments deep, over the limit of %d",
+			name, len(segs), depth.MaxPathSegments)
+	}
 	for i := range segs {
 		segs[i] = lowerASCII(segs[i])
 	}
-	return segs
+	return segs, nil
 }
 
 func lowerASCII(s string) string {

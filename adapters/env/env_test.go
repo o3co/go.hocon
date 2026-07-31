@@ -383,3 +383,45 @@ func TestLeadingBOMStrippedFromDotEnv(t *testing.T) {
 		t.Errorf("a = %q, want \"1\" — the BOM ended up in the name", got)
 	}
 }
+
+// A name that maps to a path deeper than the limit is refused (spec F1.2).
+//
+// Go grows its goroutine stacks, so a deep chain here costs memory rather than
+// crashing — py.hocon raised RecursionError at 497 segments and rs.hocon
+// aborted the process outright. The limit is still here, at the same 64 the
+// three siblings use, because otherwise the same environment mounts in one
+// implementation and errors in another.
+func TestDeepPathRefused(t *testing.T) {
+	name := func(n int) string {
+		return "APP_" + strings.Join(repeatSeg("s", n), "__")
+	}
+	if _, err := env.Load(env.Options{Prefix: "APP_", Environ: []string{name(64) + "=v"}}); err != nil {
+		t.Fatalf("64 segments must mount: %v", err)
+	}
+	for _, n := range []int{65, 10000} {
+		_, err := env.Load(env.Options{Prefix: "APP_", Environ: []string{name(n) + "=v"}})
+		if err == nil {
+			t.Fatalf("%d segments accepted, want an error", n)
+		}
+		if !strings.Contains(err.Error(), "over the limit of 64") {
+			t.Errorf("error %q does not name the limit", err)
+		}
+	}
+}
+
+// The same limit protects Parse, which reads arbitrary .env text.
+func TestDeepPathRefusedInDotEnv(t *testing.T) {
+	src := strings.Join(repeatSeg("S", 65), "__") + "=v\n"
+	_, err := env.Parse([]byte(src), env.Options{})
+	if err == nil || !strings.Contains(err.Error(), "over the limit of 64") {
+		t.Fatalf("got %v, want a limit error", err)
+	}
+}
+
+func repeatSeg(s string, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = s
+	}
+	return out
+}
