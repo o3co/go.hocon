@@ -459,7 +459,11 @@ func TestDotEnvFiltersBeforeItValidates(t *testing.T) {
 
 // "export " matched a single space only, so export<TAB>FOO=bar became the
 // variable export<TAB>foo — a key nothing would look up, produced silently.
-func TestDotEnvExportTakesAnyWhitespace(t *testing.T) {
+//
+// Spaces and tabs, matching what the dialect trims on the value side. Anything
+// else after "export" leaves it part of the name, where the F1.7 name rule
+// refuses it — an error rather than a silently odd key.
+func TestDotEnvExportTakesSpacesAndTabs(t *testing.T) {
 	for _, src := range []string{"export FOO=bar\n", "export\tFOO=bar\n", "export  FOO=bar\n"} {
 		cfg, err := env.Parse([]byte(src), env.Options{})
 		if err != nil {
@@ -473,6 +477,12 @@ func TestDotEnvExportTakesAnyWhitespace(t *testing.T) {
 		t.Fatalf("exportFOO: %v", err)
 	}
 	wantString(t, cfg, "exportfoo", "bar")
+
+	// A form feed is not one of the two, so "export" stays part of the name and
+	// the name rule rejects it. That is the intended outcome, not a gap.
+	if _, err := env.Parse([]byte("export\fFOO=bar\n"), env.Options{}); err == nil {
+		t.Error("export<FF>FOO was accepted; want the F1.7 name rule to refuse it")
+	}
 }
 
 // F1.7's rule for values — an error naming the fix rather than a guess about

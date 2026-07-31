@@ -264,9 +264,10 @@ func lowerASCII(s string) string {
 
 // parseDotEnv reads .env text, keeping only the entries under prefix.
 //
-// The filter is applied here rather than in build, so that everything past it
+// The filter is applied here as well as in build, so that everything past it
 // — the value dialect, the name rule — is only asked of entries the caller
-// actually mounted (spec F1.7). A .env shared with tools that support trailing
+// actually mounted (spec F1.7). build keeps its own filter because Load feeds
+// it the process environment, which never comes through this function. A .env shared with tools that support trailing
 // comments stays loadable when you want one namespace out of it, which is the
 // rule Load already followed and this function did not.
 func parseDotEnv(s string, origin, prefix string) ([]pair, error) {
@@ -308,10 +309,15 @@ func parseDotEnv(s string, origin, prefix string) ([]pair, error) {
 	return pairs, nil
 }
 
-// stripExport drops a leading "export" and the whitespace after it (spec F1.7).
+// stripExport drops a leading "export" and the spaces or tabs after it (F1.7).
 //
 // Trimming the literal "export " missed a tab, so "export\tFOO=bar" became the
 // variable "export\tfoo" — a key nothing would ever look up, produced silently.
+//
+// Space and tab specifically, not every Unicode space: that is what this
+// dialect already trims on the value side. Leaving the rest out is also the
+// better outcome — "export\fFOO=bar" is then a *name* of "export\fFOO", which
+// checkName refuses, rather than a keyword line producing a silently odd key.
 func stripExport(line string) string {
 	rest, ok := strings.CutPrefix(line, "export")
 	if !ok {
