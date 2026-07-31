@@ -88,12 +88,22 @@ func TestSegmentEscapesLineSeparators(t *testing.T) {
 	}
 }
 
-// A byte that is not valid UTF-8 decodes to U+FFFD. Spelling it out beats
-// emitting a replacement character the reader cannot tell from one the key
-// really contained.
-func TestSegmentSpellsOutInvalidUTF8(t *testing.T) {
-	if got, want := keypath.Segment("\xff"), `"\ufffd"`; got != want {
-		t.Errorf("invalid UTF-8: got %s, want %s", got, want)
+// A byte that is not valid UTF-8 must not render as U+FFFD, which is what
+// decoding it yields: a key that really holds U+FFFD would then render the same
+// way, and two different paths would be indistinguishable. JSON cannot express
+// such a byte at all, so \xNN is the rendering's one departure from JSON — and
+// a Go-only one, since a Python str and a Rust &str cannot hold the case.
+func TestSegmentDistinguishesInvalidUTF8FromReplacementChar(t *testing.T) {
+	invalid := keypath.Segment("\xff")
+	replacement := keypath.Segment("\ufffd")
+	if invalid != `"\xff"` {
+		t.Errorf("invalid UTF-8 byte: got %s, want %s", invalid, `"\xff"`)
+	}
+	if replacement != "\"\ufffd\"" {
+		t.Errorf("real U+FFFD: got %q, want the character itself", replacement)
+	}
+	if invalid == replacement {
+		t.Errorf("an invalid byte and a real U+FFFD both render %s", invalid)
 	}
 }
 
@@ -108,6 +118,9 @@ func TestDistinctPathsRenderDistinctly(t *testing.T) {
 		{"a\nb"}, {"a", "b"}, {`a\nb`},
 		{"a\x00b"}, {`a\u0000b`},
 		{""}, {"", ""},
+		// A byte that is not valid UTF-8 decodes to U+FFFD, so these two
+		// rendered alike until Segment stopped going through `range`.
+		{"a\xffb"}, {"a\ufffdb"},
 	}
 	for _, p := range paths {
 		r := keypath.Render(p)
