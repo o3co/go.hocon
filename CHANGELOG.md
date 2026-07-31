@@ -154,6 +154,18 @@ can hold a stale README back — only refusing to merge it can.
   shipped both since v1.10.0. Both tables now name the version they were
   verified against and carry the date.
 
+### Fixed — the F-item spec citations pointed at a document readers cannot open
+
+Seven doc comments, the `adapters/` README and the fixture manifest cited
+`docs/specs/format-ingestion-mapping.md`, which is not in this repository — it
+lived in a private working scope. Adapter errors name items from it (`(spec
+F0.5)`, `(spec F1.6)`), so anyone following a citation reached nothing. The
+spec is now published at
+[`xx.hocon/docs/format-ingestion-mapping.md`](https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md)
+and every citation points there
+([xx.hocon#81](https://github.com/o3co/xx.hocon/issues/81)). Error text is
+unchanged; only the pointers move.
+
 ## [1.11.0] - 2026-07-26
 
 ### Added — `Config.RenderHOCON()`, a HOCON text emitter

@@ -33,7 +33,8 @@ type Entry struct {
 
 // Build nests entries into the map[string]any accepted by hocon.FromMap.
 //
-// Two rules from docs/specs/format-ingestion-mapping.md apply:
+// Two rules from the format-ingestion mapping spec apply
+// (https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md):
 //
 //   - F2.5 (objects win): a path that is both a value and a parent of another
 //     path loses its scalar, so `a=1` plus `a.b=2` yields {"a":{"b":"2"}}.

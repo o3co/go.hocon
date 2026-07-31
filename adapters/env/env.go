@@ -24,7 +24,8 @@
 // Values are always strings and ${...} inside them stays literal, since the
 // environment belongs to whoever launched the process (spec F0.2, F1.4).
 //
-// See docs/specs/format-ingestion-mapping.md items F1.x in the hocon scope.
+// See the F1.x items in the format-ingestion mapping spec:
+// https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md
 package env
 
 import (
