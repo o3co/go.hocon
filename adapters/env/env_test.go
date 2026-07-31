@@ -485,6 +485,35 @@ func TestDotEnvExportTakesSpacesAndTabs(t *testing.T) {
 	}
 }
 
+// F1.7 pins "whitespace" in a name to the Unicode White_Space property rather
+// than to whichever predicate a stdlib offers, because the four do not agree.
+// Enumerated over the whole codepoint space on 2026-07-31:
+//
+//	Go unicode.IsSpace   == White_Space
+//	Rust is_whitespace   == White_Space
+//	Python str.isspace   == White_Space + U+001C..U+001F
+//	JS regex \\s          == White_Space - U+0085 + U+FEFF
+//
+// Go is already exactly right, so this test exists to keep it that way — the
+// two codepoints below are the ones that separate the four, and swapping
+// unicode.IsSpace for a hand-rolled ASCII check or a wider set would move one.
+func TestDotEnvNameWhitespaceIsUnicodeWhiteSpace(t *testing.T) {
+	// U+0085 NEL is White_Space, so it is a mis-parse and refused. ts.hocon
+	// accepted it until the same spec item was pinned.
+	if _, err := env.Parse([]byte("FOO\u0085BAR=baz\n"), env.Options{}); err == nil {
+		t.Error("a name containing U+0085 was accepted; White_Space includes it")
+	}
+
+	// U+001F UNIT SEPARATOR is not White_Space, so it is an ordinary name
+	// character. Python's str.isspace disagrees, which is why the set is
+	// pinned here rather than inherited.
+	cfg, err := env.Parse([]byte("FOO\u001fBAR=baz\n"), env.Options{})
+	if err != nil {
+		t.Fatalf("a name containing U+001F must parse: %v", err)
+	}
+	wantString(t, cfg, "foo\u001fbar", "baz")
+}
+
 // F1.7's rule for values — an error naming the fix rather than a guess about
 // the author's intent — applies to names too. These used to become the keys
 // "foo bar" and "foo#x".

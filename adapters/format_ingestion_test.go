@@ -38,6 +38,7 @@ type manifest struct {
 		Format   string `json:"format"`
 		Input    string `json:"input"`
 		Kind     string `json:"kind"`
+		Prefix   string `json:"prefix"`
 		Expect   string `json:"expect"`
 		Expected string `json:"expected"`
 		Cites    string `json:"cites"`
@@ -72,7 +73,7 @@ func TestFormatIngestionFixtures(t *testing.T) {
 				t.Fatalf("read input: %v", err)
 			}
 
-			cfg, err := ingest(c.Format, c.Kind, data, c.ID)
+			cfg, err := ingest(c.Format, c.Kind, c.Prefix, data, c.ID)
 
 			if c.Expect == "error" {
 				if err == nil {
@@ -109,7 +110,10 @@ func TestFormatIngestionFixtures(t *testing.T) {
 	}
 }
 
-func ingest(format, kind string, data []byte, origin string) (*hocon.Config, error) {
+// ingest dispatches a case to its adapter. prefix is the manifest's optional
+// `prefix`, which only `dotenv` cases carry — an `env-vars` input names its own
+// prefix inside the JSON document.
+func ingest(format, kind, prefix string, data []byte, origin string) (*hocon.Config, error) {
 	switch format {
 	case "jsonc":
 		return jsonc.Parse(data, origin)
@@ -121,7 +125,7 @@ func ingest(format, kind string, data []byte, origin string) (*hocon.Config, err
 		return yaml.Parse(data, origin)
 	case "env":
 		if kind == "dotenv" {
-			return env.Parse(data, env.Options{Origin: origin})
+			return env.Parse(data, env.Options{Prefix: prefix, Origin: origin})
 		}
 		var f envFixture
 		if err := json.Unmarshal(data, &f); err != nil {
