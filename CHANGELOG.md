@@ -20,8 +20,10 @@ quoted-string syntax — pinned as spec F0.10. Two departures from `%q`, both
 deliberate: NUL is `\u0000`, and **U+2028 / U+2029 are escaped** although JSON
 permits them raw, because they are line separators to enough log viewers that a
 key could otherwise break the message reporting it. Printable non-ASCII stays
-itself (`é`, `İ`), and a byte that is not valid UTF-8 renders as `\ufffd` rather
-than as a bare replacement character.
+itself (`é`, `İ`), U+FFFD included. A byte that is not valid UTF-8 renders as
+`\xNN` — the one departure from JSON, because JSON cannot express such a byte,
+and deliberately *not* `\ufffd`, which a key really holding U+FFFD would also
+produce.
 
 The package doc's remaining paste-into-a-getter claim is dropped rather than
 narrowed further: measured, **no** implementation's path parser decodes escapes

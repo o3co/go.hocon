@@ -27,7 +27,14 @@
 //
 // Printable non-ASCII is left as itself (é, İ), rather than escaped: F1.3
 // leaves non-ASCII segments unfolded, so they reach here in normal use and
-// escaping them would make the common case unreadable.
+// escaping them would make the common case unreadable. U+FFFD is ordinary
+// printable non-ASCII and prints as itself for the same reason.
+//
+// One case departs from JSON because JSON cannot express it: a byte that is
+// not valid UTF-8, which a Go string can hold and which renders \xNN. It must
+// not render \ufffd — that is what decoding it yields, and it would then be
+// indistinguishable from a key that really holds U+FFFD. The case is Go-only:
+// a Python str and a Rust &str cannot hold such a byte.
 //
 // A rendered path is NOT guaranteed to paste into a getter. For ordinary keys
 // it does; for a segment needing escapes it does not, because HOCON's path
@@ -67,7 +74,22 @@ func Segment(seg string) string {
 	var b strings.Builder
 	b.Grow(len(seg) + 2)
 	b.WriteByte('"')
-	for _, r := range seg {
+	// Indexed rather than `for _, r := range seg`, which decodes an invalid
+	// byte to U+FFFD and so renders it identically to a key that really holds
+	// U+FFFD — two different paths, one spelling, which is the single property
+	// this function has to keep.
+	for i := 0; i < len(seg); {
+		r, size := utf8.DecodeRuneInString(seg[i:])
+		if r == utf8.RuneError && size == 1 {
+			// A byte that is not valid UTF-8. JSON strings cannot express one
+			// at all, so this is the rendering's only departure from JSON, and
+			// it is Go-only: a Python str and a Rust &str cannot hold such a
+			// byte, so no sibling has the case to diverge on.
+			fmt.Fprintf(&b, `\x%02x`, seg[i])
+			i++
+			continue
+		}
+		i += size
 		switch r {
 		case '"':
 			b.WriteString(`\"`)
@@ -87,11 +109,6 @@ func Segment(seg string) string {
 			// Valid raw in JSON, but a line separator to enough readers that
 			// letting it through would let a key break its own error message.
 			fmt.Fprintf(&b, `\u%04x`, r)
-		case utf8.RuneError:
-			// What a byte that is not valid UTF-8 decodes to. Spelling it out
-			// beats emitting a replacement character the reader cannot tell
-			// from one the key really contained.
-			b.WriteString(`\ufffd`)
 		default:
 			if r < 0x20 {
 				fmt.Fprintf(&b, `\u%04x`, r)
