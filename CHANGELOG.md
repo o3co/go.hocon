@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-31
+
+Cross-impl release, coordinated to land at v1.12.0 across go.hocon / ts.hocon /
+rs.hocon / py.hocon so the ecosystem stays on one version line.
+
+**Minor, not patch, and one change is BREAKING in both directions**: the `.env`
+adapter now runs the prefix filter before validation (a file that used to fail
+may now load) and refuses a variable name containing whitespace or `#` (a file
+that used to load may now fail). Both follow from a spec amendment made after a
+cross-check found all four implementations behaving identically *by accident*
+— see [xx.hocon#78](https://github.com/o3co/xx.hocon/issues/78).
+
+The rest is adapter hardening: a silent U+FFFD substitution stopped, a
+depth limit that the siblings had and this one did not, a YAML stream whose
+first document was empty discarding the whole file, and error-message paths
+pinned to one rendering across the four implementations.
+
+The F-item spec these errors cite is now public at
+[`xx.hocon/docs/format-ingestion-mapping.md`](https://github.com/o3co/xx.hocon/blob/main/docs/format-ingestion-mapping.md);
+it previously lived in a private working scope, so every `(spec F0.5)`-style
+citation pointed at a document the reader could not open.
+
+Go modules take the version from the tag; there is no version file to bump.
+
 ### Changed — `.env`: the prefix filter runs first, and names are validated (F1.7)
 
 **BREAKING both ways**: a line the prefix discards is no longer validated (so a
