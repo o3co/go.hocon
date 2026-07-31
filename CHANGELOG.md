@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `adapters/jsonc`: an unpaired surrogate became U+FFFD, silently
+
+**BREAKING** (input previously accepted is now refused).
+
+`jsonc.Parse` on `{"a":"\\ud800"}` returned a config whose value was U+FFFD, with
+no error: `encoding/json` substitutes the replacement character for an escape a
+Go string cannot hold. The config held a character the document never contained
+and nothing failed — the plausible-but-wrong output this spec ranks as the worst
+failure mode ([xx.hocon#75](https://github.com/o3co/xx.hocon/issues/75)).
+
+Now an error citing spec F3.5, which mirrors F2.8 for `.properties` — the
+reasoning transfers verbatim, and neither stdlib decoder does this for us. The
+check runs before the decode, because afterwards the evidence is gone. Valid
+surrogate **pairs** still combine into the astral codepoint, and keys are checked
+as well as values.
+
+For the record on the other three: rs.hocon already refused (serde_json does),
+py.hocon refuses as of its sibling change, and **ts.hocon deliberately accepts** —
+a JavaScript string is UTF-16 like Java's and holds one natively, the same
+S1.2.6-class divergence F2.8 already records.
+
 ### Fixed — `adapters`: a path in an error message is now a JSON string literal
 
 A path segment holding control characters was quoted with `%q`, which spells

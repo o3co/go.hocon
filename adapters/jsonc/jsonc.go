@@ -85,6 +85,14 @@ func decode(data []byte, origin string) (any, error) {
 	}
 	cleaned = stripTrailingCommas(cleaned)
 
+	// F3.5, and it has to happen before the decode: encoding/json substitutes
+	// U+FFFD for an unpaired surrogate without a word, so by the time the
+	// decoder has spoken the evidence is gone and the config holds a character
+	// the document never contained.
+	if err := checkSurrogates(cleaned); err != nil {
+		return nil, fmt.Errorf("jsonc: %s: %w", describe(origin), err)
+	}
+
 	dec := json.NewDecoder(bytes.NewReader(cleaned))
 	dec.UseNumber() // keep the source's integer/float distinction (spec F0.5)
 
@@ -250,4 +258,92 @@ func stripTrailingCommas(data []byte) []byte {
 
 func isJSONSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+// checkSurrogates rejects an unpaired \uXXXX surrogate escape (spec F3.5,
+// mirroring F2.8 for .properties).
+//
+// A Go string cannot hold a lone surrogate, so encoding/json substitutes
+// U+FFFD — silently, which makes it the plausible-but-wrong output this spec
+// ranks worst: the config holds a character the document never contained and
+// nothing failed. Refusing costs one pass over the string literals, which the
+// strip passes have already located.
+//
+// Only escapes are examined. A lone surrogate cannot appear as raw bytes in a
+// well-formed UTF-8 document, and one that does is caught by the decoder.
+func checkSurrogates(data []byte) error {
+	for i := 0; i < len(data); i++ {
+		if data[i] != '"' {
+			continue
+		}
+		end, err := endOfString(data, i)
+		if err != nil {
+			// Malformed input; the decoder reports it with better context.
+			return nil
+		}
+		if err := checkStringSurrogates(data[i:end]); err != nil {
+			return err
+		}
+		i = end - 1
+	}
+	return nil
+}
+
+func checkStringSurrogates(lit []byte) error {
+	for i := 0; i+5 < len(lit); i++ {
+		if lit[i] != '\\' {
+			continue
+		}
+		if lit[i+1] != 'u' {
+			i++ // an escaped byte, including \\ itself
+			continue
+		}
+		hi, ok := hex4(lit[i+2:])
+		if !ok {
+			return nil // the decoder words a bad escape better
+		}
+		switch {
+		case hi >= 0xD800 && hi <= 0xDBFF:
+			lo, ok := 0, false
+			if i+11 < len(lit) && lit[i+6] == '\\' && lit[i+7] == 'u' {
+				lo, ok = hex4(lit[i+8:])
+			}
+			if !ok || lo < 0xDC00 || lo > 0xDFFF {
+				return fmt.Errorf(
+					"\\u%04X is an unpaired high surrogate; a Go string cannot hold "+
+						"one, and admitting it would substitute U+FFFD for the character "+
+						"the document meant (spec F3.5)", hi)
+			}
+			i += 11
+		case hi >= 0xDC00 && hi <= 0xDFFF:
+			return fmt.Errorf(
+				"\\u%04X is an unpaired low surrogate; a Go string cannot hold one, "+
+					"and admitting it would substitute U+FFFD for the character the "+
+					"document meant (spec F3.5)", hi)
+		default:
+			i += 5
+		}
+	}
+	return nil
+}
+
+// hex4 reads exactly four hex digits.
+func hex4(b []byte) (int, bool) {
+	if len(b) < 4 {
+		return 0, false
+	}
+	v := 0
+	for _, c := range b[:4] {
+		switch {
+		case c >= '0' && c <= '9':
+			v = v<<4 | int(c-'0')
+		case c >= 'a' && c <= 'f':
+			v = v<<4 | int(c-'a'+10)
+		case c >= 'A' && c <= 'F':
+			v = v<<4 | int(c-'A'+10)
+		default:
+			return 0, false
+		}
+	}
+	return v, true
 }
