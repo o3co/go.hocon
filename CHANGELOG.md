@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `adapters`: a mapped path had no depth limit, where the siblings cap it at 64
+
+**BREAKING** (a name mapping to more than 64 path segments is now refused).
+
+`env.Load` and `properties.Parse` accepted a name that mapped to a path of any
+depth, so the same environment mounted here and errored in ts.hocon, py.hocon
+and rs.hocon, which all cap at 64
+([#175](https://github.com/o3co/go.hocon/issues/175)).
+
+Go is the implementation least troubled by the underlying problem, which is why
+it was the one left without a limit: the other three added the cap while fixing
+a crash — rs.hocon aborted the process, py.hocon raised `RecursionError` from a
+1493-byte variable name — and there was no crash here, goroutine stacks growing
+on demand. The limit is added anyway, at the same number, because the input that
+produces the divergence is one long variable name and that is reachable for
+anything bulk-mounting a container environment.
+
+Document nesting is deliberately not capped: ts.hocon and py.hocon catch their
+runtime's own recursion error, rs.hocon has to cap because a Rust stack overflow
+aborts, and this parser needs neither — 50 000 levels parse without incident.
+
 ### Fixed — `adapters/yaml`: a leading empty document discarded the whole file
 
 **BREAKING** (input previously accepted is now refused; quote or remove the

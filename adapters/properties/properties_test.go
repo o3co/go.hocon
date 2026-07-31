@@ -191,3 +191,22 @@ func TestLeadingBOMStripped(t *testing.T) {
 		t.Errorf("a = %q, want \"1\" — the BOM ended up in the key", got)
 	}
 }
+
+// A dotted key deeper than the limit is refused, same rule and same number as
+// the env adapter (see adapters/internal/depth).
+func TestDeepDottedKeyRefused(t *testing.T) {
+	key := func(n int) string {
+		parts := make([]string, n)
+		for i := range parts {
+			parts[i] = "k"
+		}
+		return strings.Join(parts, ".")
+	}
+	if _, err := properties.Parse([]byte(key(64)+" = 1"), "t.properties"); err != nil {
+		t.Fatalf("64 segments must parse: %v", err)
+	}
+	_, err := properties.Parse([]byte(key(65)+" = 1"), "t.properties")
+	if err == nil || !strings.Contains(err.Error(), "over the limit of 64") {
+		t.Fatalf("got %v, want a limit error", err)
+	}
+}

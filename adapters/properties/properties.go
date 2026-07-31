@@ -37,6 +37,7 @@ import (
 
 	"github.com/o3co/go.hocon"
 	"github.com/o3co/go.hocon/adapters/internal/bom"
+	"github.com/o3co/go.hocon/adapters/internal/depth"
 	"github.com/o3co/go.hocon/adapters/internal/pathmap"
 	syntax "github.com/o3co/go.hocon/internal/properties"
 )
@@ -101,5 +102,12 @@ func splitPath(key string) ([]string, error) {
 	if strings.Contains(key, `"`) {
 		return nil, fmt.Errorf("key %q: quoted path segments are not supported yet (spec F2.7)", key)
 	}
-	return strings.Split(key, "."), nil
+	segs := strings.Split(key, ".")
+	if depth.TooDeep(len(segs)) {
+		// One dotted key produces one arbitrarily deep chain — see the depth
+		// package for why the limit is here even though Go survives it.
+		return nil, fmt.Errorf("key %q maps to a path %d segments deep, over the limit of %d",
+			key, len(segs), depth.MaxPathSegments)
+	}
+	return segs, nil
 }
