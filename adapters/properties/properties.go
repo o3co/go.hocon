@@ -102,12 +102,13 @@ func splitPath(key string) ([]string, error) {
 	if strings.Contains(key, `"`) {
 		return nil, fmt.Errorf("key %q: quoted path segments are not supported yet (spec F2.7)", key)
 	}
-	segs := strings.Split(key, ".")
-	if depth.TooDeep(len(segs)) {
+	// Counted before splitting, so an absurdly dotted key is refused without
+	// first allocating the slice it would have produced.
+	if segments := strings.Count(key, ".") + 1; depth.TooDeep(segments) {
 		// One dotted key produces one arbitrarily deep chain — see the depth
 		// package for why the limit is here even though Go survives it.
 		return nil, fmt.Errorf("key %q maps to a path %d segments deep, over the limit of %d",
-			key, len(segs), depth.MaxPathSegments)
+			key, segments, depth.MaxPathSegments)
 	}
-	return segs, nil
+	return strings.Split(key, "."), nil
 }
