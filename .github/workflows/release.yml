@@ -115,9 +115,36 @@ jobs:
           MODULE="github.com/o3co/go.hocon/adapters"
           mkdir -p /tmp/adapters-consumer && cd /tmp/adapters-consumer
           go mod init consumer
-          go get "${MODULE}@${VERSION}"
           for pkg in env jsonc properties toml yaml; do
             printf 'package main\nimport _ "%s/%s"\n' "$MODULE" "$pkg" > "use_${pkg}.go"
           done
           printf 'package main\nfunc main() {}\n' > main.go
+
+          # Retry, because this workflow races the tag that triggered it. Until
+          # the proxy has indexed the nested module, `go get` does not fail —
+          # it falls back to the parent module and reports that
+          # github.com/o3co/go.hocon does not contain package .../adapters,
+          # which reads like a packaging mistake and is not one. Runs 1 and 2
+          # of adapters/v1.12.0 failed exactly that way; run 3, six minutes
+          # later, resolved the module.
+          for attempt in 1 2 3 4 5 6; do
+            if go get "${MODULE}@${VERSION}"; then
+              break
+            fi
+            if [ "$attempt" = 6 ]; then
+              echo "::error::${MODULE}@${VERSION} did not become resolvable; the tag may be missing or the module broken"
+              exit 1
+            fi
+            echo "not resolvable yet (attempt ${attempt}/6) — the proxy is probably still indexing; retrying in 60s"
+            sleep 60
+          done
+
+          # Required, and the reason this job has failed since
+          # adapters/v1.11.0. `go get MODULE@VERSION` records that module and
+          # nothing else: the go.sum entries for the packages it imports —
+          # the core module, go-toml, go-yaml — are never written, so the
+          # build below fails on every one of them. Creating the import files
+          # first does not help; only resolving the graph does.
+          go mod tidy
+
           go build ./...
