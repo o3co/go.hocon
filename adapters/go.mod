@@ -3,7 +3,7 @@ module github.com/o3co/go.hocon/adapters
 go 1.23.0
 
 require (
-	github.com/o3co/go.hocon v1.11.0
+	github.com/o3co/go.hocon v1.12.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 )
 
