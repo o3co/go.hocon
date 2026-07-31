@@ -285,3 +285,58 @@ func TestUseAsSubstitutionSourceUnderHOCON(t *testing.T) {
 		t.Errorf("artifacts = %q, want ./dist/bundle.js", got)
 	}
 }
+
+// F3.5 — an unpaired surrogate escape is an error, mirroring F2.8 for
+// .properties.
+//
+// encoding/json substitutes U+FFFD for one without a word, so the config held a
+// character the document never contained and nothing failed: the
+// plausible-but-wrong output this spec ranks worst. rs.hocon already refused
+// (serde_json does); py.hocon kept the lone surrogate and failed later, at
+// encode time, far from the parse that admitted it. ts.hocon accepts it and
+// stays that way — JavaScript strings are UTF-16 like Java's, the S1.2.6-class
+// divergence F2.8 already records.
+func TestUnpairedSurrogateRejected(t *testing.T) {
+	for name, src := range map[string]string{
+		"lone high in a value": `{"a":"\ud800"}`,
+		"lone low in a value":  `{"a":"\udc00"}`,
+		"lone high in a key":   `{"\ud800":1}`,
+		"lone after a pair":    `{"a":"\ud83d\ude00\ud800"}`,
+		"high then non-low":    `{"a":"\ud800\u0041"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := jsonc.Parse([]byte(src), "test.jsonc")
+			if err == nil {
+				t.Fatalf("Parse(%s) succeeded, want an F3.5 error", src)
+			}
+			if !strings.Contains(err.Error(), "F3.5") {
+				t.Errorf("error %q does not cite the spec item F3.5", err)
+			}
+		})
+	}
+}
+
+// The other half: what must keep working. A valid pair is one astral
+// codepoint, and the scan must not mistake text that merely looks like an
+// escape for one.
+func TestSurrogateCheckLeavesValidDocumentsAlone(t *testing.T) {
+	for name, tc := range map[string]struct{ src, want string }{
+		"valid pair":      {`{"a":"\ud83d\ude00"}`, "\U0001F600"},
+		"astral literal":  {"{\"a\":\"\U0001F600\"}", "\U0001F600"},
+		"ordinary escape": {`{"a":"x\u0041y"}`, "xAy"},
+		// `\` is an escaped backslash, so the `u` after it is text, not an
+		// escape — a scan that just looked for `\u` would misread this.
+		"escaped backslash":      {`{"a":"\\u0041"}`, `\u0041`},
+		"surrogate-looking text": {`{"a":"\\ud800 is text"}`, `\ud800 is text`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := jsonc.Parse([]byte(tc.src), "test.jsonc")
+			if err != nil {
+				t.Fatalf("Parse(%s): %v", tc.src, err)
+			}
+			if got := cfg.GetString("a"); got != tc.want {
+				t.Errorf("a = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
