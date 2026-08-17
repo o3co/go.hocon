@@ -35,6 +35,13 @@ Requires Go 1.23+.
 ```go
 import "github.com/o3co/go.hocon"
 
+type App struct {
+    Server struct {
+        Host string `hocon:"host"`
+        Port int    `hocon:"port"`
+    } `hocon:"server"`
+}
+
 cfg, err := hocon.ParseString(`
   server {
     host = "localhost"
@@ -45,9 +52,20 @@ if err != nil {
     log.Fatal(err)
 }
 
-host := cfg.GetString("server.host")  // "localhost"
-port := cfg.GetInt("server.port")     // 8080
+var app App
+if err := cfg.Unmarshal(&app); err != nil {
+    log.Fatal(err) // fails fast: missing field, wrong type
+}
+// app.Server.Host == "localhost", app.Server.Port == 8080
+
+// Single values: Get*E returns (T, error)
+host, err := cfg.GetStringE("server.host")
 ```
+
+Prefer `Unmarshal` (whole-struct, fails fast at startup) or the
+error-returning `Get*E` getters. Panicking `Get*` and `Option`-returning
+`Get*Option` variants exist for code where those semantics fit — see
+[Scalar Getters](#scalar-getters).
 
 ## Why HOCON?
 
@@ -127,18 +145,25 @@ Use `ResolveOptions.WithUseSystemEnvironment(false)` for hermetic resolution
 
 ### Scalar Getters
 
-| Method | Returns | Panics if |
-|--------|---------|-----------|
-| `GetString(path)` | `string` | missing, null, wrong type |
-| `GetInt(path)` | `int` | missing, null, wrong type |
-| `GetInt64(path)` | `int64` | missing, null, wrong type |
-| `GetFloat64(path)` | `float64` | missing, null, wrong type |
-| `GetFloat32(path)` | `float32` | missing, null, wrong type |
-| `GetBool(path)` | `bool` | missing, null, wrong type |
-| `GetDuration(path)` | `time.Duration` | missing, null, invalid format |
-| `GetBytes(path)` | `int64` | missing, null, invalid format |
+Three families share the same path and coercion semantics; they differ only
+in how a missing key / null / type mismatch comes back. **Default to the
+error-returning `Get*E` family** in application code. The panicking family
+suits config already validated (e.g. right after `Unmarshal` in `main`); the
+`Option` family suits optional keys with a fallback (`OrElse`).
 
-Each has a corresponding `GetXxxOption(path) Option[T]` variant that returns `None` instead of panicking.
+| Error-returning (recommended) | Panicking | Option |
+|---|---|---|
+| `GetStringE(path) (string, error)` | `GetString(path) string` | `GetStringOption(path) Option[string]` |
+| `GetIntE` / `GetInt64E` | `GetInt` / `GetInt64` | `GetIntOption` / `GetInt64Option` |
+| `GetFloat64E` / `GetFloat32E` | `GetFloat64` / `GetFloat32` | `GetFloat64Option` / `GetFloat32Option` |
+| `GetBoolE` | `GetBool` | `GetBoolOption` |
+| `GetDurationE` | `GetDuration` | `GetDurationOption` |
+| `GetBytesE` | `GetBytes` | `GetBytesOption` |
+
+`Get*E` returns a typed `*ConfigError` (missing path, null, wrong type, or
+invalid duration/byte format); unresolved-placeholder failures satisfy
+`errors.Is(err, hocon.ErrNotResolved)`. The panicking getters panic with the
+same `*ConfigError` as payload. `Get*Option` returns `None` instead.
 
 ### Slice Getters
 
@@ -149,12 +174,13 @@ cfg.GetIntSlice(path)      []int
 cfg.GetConfigSlice(path)   []*Config
 ```
 
-Each has a `GetXxxSliceOption` variant.
+Each has `GetXxxSliceE` (error-returning) and `GetXxxSliceOption` variants.
 
 ### Object Access
 
 ```go
-sub := cfg.GetConfig("server")          // *Config scoped to "server"
+sub, err := cfg.GetConfigE("server")    // (*Config, error), scoped to "server"
+sub := cfg.GetConfig("server")          // panicking variant
 opt := cfg.GetConfigOption("server")    // Option[*Config]
 ```
 
@@ -198,6 +224,10 @@ err := cfg.Unmarshal(&s)
 // map[string]any also supported
 m := make(map[string]any)
 err = cfg.Unmarshal(&m)
+
+// UnmarshalPath decodes any node at a path — object, array, or scalar:
+var servers []ServerConfig
+err = cfg.UnmarshalPath("servers", &servers)
 ```
 
 Fields without a `hocon` tag use the lowercased field name. `omitempty` preserves the pre-populated value when the key is missing.
@@ -207,7 +237,7 @@ Fields without a `hocon` tag use the lowercased field name. `omitempty` preserve
 ```go
 var pe *hocon.ParseError   // lexing/parsing failure — has Line, Col, FilePath
 var re *hocon.ResolveError // substitution/include failure — has Path
-var ce *hocon.ConfigError  // GetXxx panic payload — has Path
+var ce *hocon.ConfigError  // Get*E returned error / GetXxx panic payload — has Path
 ```
 
 ## HOCON Examples
