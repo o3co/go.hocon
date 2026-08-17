@@ -188,8 +188,11 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅ (backtick was accepted until xx.hocon#68 — the ✅ predating that fix was unverified for this member of the forbidden set)
 
 - **S8.2** `//` inside an unquoted string starts a comment — §Unquoted strings (L248)
-  tests: spec_phase5_test.go (TestSpec_S8_2_SlashSlashInUnquoted_Pin, TestSpec_S8_2_SlashSlashInUnquoted_Spec)
-  status: ❌ ([#76](https://github.com/o3co/go.hocon/issues/76)) — `foo = bar//baz` produces "bar//baz" instead of "bar"; `//` inside an unquoted token run is not treated as comment start
+  tests: spec_phase5_test.go (TestSpec_S8_2_SlashSlashInUnquoted_Spec)
+  status: ✅ — Fixed 2026-08-17 ([#76](https://github.com/o3co/go.hocon/issues/76)): the
+  unquoted-token scan stops at `//`, so `foo = bar//baz` is the value "bar" followed by a
+  comment (mirrors ts.hocon's `isUnquotedContinue`). A single `/` stays part of the token
+  (`/etc/x` paths unaffected); quoted strings remain opaque to comment syntax.
 
 - **S8.3** Initial token `true`/`false`/`null` parsed as keyword — §Unquoted strings (L250)
   tests: internal/parser/parser_test.go:148 (TestParser_NullBoolNumbers)

@@ -160,27 +160,41 @@ func TestSpec_S6_5_NewlineMeansLF(t *testing.T) {
 
 // ── S8.2: // inside unquoted string starts a comment ─────────────────────────
 
-// TestSpec_S8_2_SlashSlashInUnquoted_Pin pins the current (non-conformant)
-// behaviour: `//` embedded in an unquoted token without preceding whitespace
-// is treated as literal text rather than starting a comment.
-// Spec HOCON.md L248: "//" starts a comment anywhere outside a quoted string.
-func TestSpec_S8_2_SlashSlashInUnquoted_Pin(t *testing.T) {
-	// pin: see #76 — "bar//baz" is treated as unquoted string "bar//baz"
-	_ = specIssueS8_2_SlashSlash
-	cfg := mustParseCfg(t, "foo = bar//baz")
-	got := cfg.GetString("foo")
-	if got != "bar//baz" {
-		t.Errorf("[pin] expected current value %q, got %q", "bar//baz", got)
-	}
-}
-
-// TestSpec_S8_2_SlashSlashInUnquoted_Spec is the spec-correct assertion:
-// `foo = bar//baz` → `//baz` starts a comment, so foo = "bar".
+// TestSpec_S8_2_SlashSlashInUnquoted_Spec asserts the spec behaviour
+// (HOCON.md L248, fixed via #76): `//` starts a comment anywhere outside a
+// quoted string, including mid-run in an unquoted token.
 func TestSpec_S8_2_SlashSlashInUnquoted_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S8.2 — //baz not treated as comment in unquoted run; see #%d", specIssueS8_2_SlashSlash)
+	_ = specIssueS8_2_SlashSlash
 	cfg := mustParseCfg(t, "foo = bar//baz")
 	if got := cfg.GetString("foo"); got != "bar" {
 		t.Errorf("expected foo=%q (// starts comment), got %q", "bar", got)
+	}
+
+	// A single '/' stays part of the unquoted token — paths are unaffected.
+	cfg = mustParseCfg(t, "foo = /etc/app.conf")
+	if got := cfg.GetString("foo"); got != "/etc/app.conf" {
+		t.Errorf("expected single-slash path preserved, got %q", got)
+	}
+
+	// Quoted strings are opaque to comment syntax.
+	cfg = mustParseCfg(t, `foo = "bar//baz"`)
+	if got := cfg.GetString("foo"); got != "bar//baz" {
+		t.Errorf("expected quoted // preserved, got %q", got)
+	}
+
+	// The comment runs to end of line only; the next line still parses.
+	cfg = mustParseCfg(t, "foo = bar//baz\nqux = 1")
+	if got := cfg.GetString("foo"); got != "bar" {
+		t.Errorf("expected foo=%q, got %q", "bar", got)
+	}
+	if got := cfg.GetInt("qux"); got != 1 {
+		t.Errorf("expected qux=1 on the following line, got %d", got)
+	}
+
+	// Concat context: the comment terminates the whole value at that point.
+	cfg = mustParseCfg(t, "foo = a b//c d")
+	if got := cfg.GetString("foo"); got != "a b" {
+		t.Errorf("expected concat cut at //, got %q", got)
 	}
 }
 
