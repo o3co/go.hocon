@@ -13,8 +13,14 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 ## S1. Unchanged from JSON
 
 - **S1.1** Files must be valid UTF-8 — §Unchanged from JSON (L117)
-  tests: spec_phase5_test.go (TestSpec_S1_1_InvalidUTF8_Pin, TestSpec_S1_1_InvalidUTF8_Spec)
-  status: ❌ — Go's `string` is a `[]byte` that is **not** guaranteed to be valid UTF-8 (arbitrary bytes are reachable via `ParseString(string([]byte{0xff}))` and via `ParseFile` reading non-UTF-8 files). The current impl silently substitutes invalid byte sequences with U+FFFD (REPLACEMENT CHARACTER) instead of rejecting them per spec L117. Pinned via `_Pin` test asserting current substitution behavior, with `_Spec` skipped until the parse boundary rejects invalid UTF-8.
+  tests: spec_phase5_test.go (TestSpec_S1_1_InvalidUTF8_Spec, TestSpec_S1_1_InvalidUTF8_FileAndInclude)
+  status: ✅ — Fixed 2026-08-17. Go's `string` is a `[]byte` that is **not** guaranteed to be
+  valid UTF-8, so arbitrary bytes reach the parser via `ParseString` and via file reads.
+  `parser.Parse` — the single choke point every document (top-level and include) funnels
+  through — now rejects invalid byte sequences with a parse error carrying the line/col of
+  the first offending sequence, instead of the former silent U+FFFD substitution. A
+  properly encoded U+FFFD literal is unaffected. ts stays ➖ (JS strings are pre-decoded);
+  rs was ✅ by language guarantee; py is at its own I/O boundary.
 
 - **S1.2.1** Quoted strings accept valid JSON escape sequences (`\" \\ \/ \b \f \n \r \t`) — §Unchanged from JSON (L118)
   tests: internal/lexer/lexer_test.go:212 (TestUnicodeEscape); testdata/hocon/subst-tokenize/st10-escape-newline.conf (fixture); testdata/hocon/subst-tokenize/st12-escape-backslash.conf (fixture); testdata/hocon/subst-tokenize/st13-escape-quote.conf (fixture); testdata/hocon/subst-tokenize/st20-quoted-escape-backspace-formfeed.conf (fixture)

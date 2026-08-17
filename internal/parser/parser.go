@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/o3co/go.hocon/internal/lexer"
 )
@@ -74,9 +75,39 @@ var ErrArrayAtRoot = errors.New("document has type array rather than object at f
 // Parse parses a HOCON string and returns the root ObjectNode.
 // The input may omit outer braces (root object shorthand).
 func Parse(src string) (*ObjectNode, error) {
+	// S1.1 (HOCON.md L117): files must be valid UTF-8. A Go string is not
+	// language-guaranteed UTF-8, so arbitrary bytes reach this boundary via
+	// ParseString and file reads; reject them here rather than letting rune
+	// decoding silently substitute U+FFFD. Every HOCON document — top-level
+	// or include — funnels through Parse, so this is the single choke point.
+	if !utf8.ValidString(src) {
+		line, col := invalidUTF8Position(src)
+		return nil, newError(line, col, "invalid UTF-8 byte sequence: HOCON input must be valid UTF-8 (S1.1)")
+	}
 	p := &parser{lex: lexer.New(src)}
 	p.advance()
 	return p.parseRoot()
+}
+
+// invalidUTF8Position returns the 1-based line/col of the first invalid UTF-8
+// byte sequence in src. Call only when utf8.ValidString(src) is false; a
+// properly encoded U+FFFD decodes with size 3 and is never reported.
+func invalidUTF8Position(src string) (line, col int) {
+	line, col = 1, 1
+	for i := 0; i < len(src); {
+		r, size := utf8.DecodeRuneInString(src[i:])
+		if r == utf8.RuneError && size == 1 {
+			return line, col
+		}
+		if r == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+		i += size
+	}
+	return line, col
 }
 
 // ParseBytes is like Parse but accepts a byte slice.

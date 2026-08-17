@@ -177,6 +177,41 @@ func TestDocs_ReadmeComplianceRates(t *testing.T) {
 	}
 }
 
+// TestDocs_ReadmeJaComplianceRates gates README.ja.md's table with the same
+// recomputation. It was not covered before and drifted 17+ points (found
+// 2026-08-17 still showing a 2026-05-13 snapshot).
+func TestDocs_ReadmeJaComplianceRates(t *testing.T) {
+	counts := countCompliance(t)
+	data, err := os.ReadFile("README.ja.md")
+	if err != nil {
+		t.Fatalf("read README.ja.md: %v", err)
+	}
+	readme := string(data)
+
+	for _, tc := range []struct {
+		what string
+		re   *regexp.Regexp
+		want float64
+	}{
+		{
+			what: "spec-total compliance rate (ja)",
+			re:   regexp.MustCompile(`\| 仕様全体（out-of-scope を含む） \| \*\*([0-9.]+)%\*\* \|`),
+			want: counts.specTotalRate(),
+		},
+		{
+			what: "in-scope compliance rate (ja)",
+			re:   regexp.MustCompile(`\| In-scope のみ \| \*\*([0-9.]+)%\*\* \|`),
+			want: counts.inScopeRate(),
+		},
+	} {
+		got := findOne(t, "README.ja.md", readme, tc.re, tc.what)
+		if want := fmt.Sprintf("%.1f", tc.want); got != want {
+			t.Errorf("README.ja %s is %s%%, recomputed from docs/spec-compliance.md it is %s%% (✅%d ⚠️%d ❌%d ➖%d)",
+				tc.what, got, want, counts.pass, counts.partial, counts.fail, counts.outOfScope)
+		}
+	}
+}
+
 func TestDocs_ReadmeGoVersionMatchesGoMod(t *testing.T) {
 	data, err := os.ReadFile("go.mod")
 	if err != nil {
