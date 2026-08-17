@@ -896,6 +896,15 @@ func (l *Lexer) readUnquoted(prefix string, line, col int) Token {
 		if !ok || isUnquotedForbidden(ch) {
 			break
 		}
+		// S8.2 (HOCON.md L248): `//` starts a comment anywhere outside a
+		// quoted string, including mid-run in an unquoted token — `bar//baz`
+		// is the value "bar" followed by a comment. A single '/' remains part
+		// of the token (paths like `/etc/x` are unaffected). The unconsumed
+		// `//...` is eaten by the next skipWhitespaceAndComments. Mirrors
+		// ts.hocon's isUnquotedContinue.
+		if ch == '/' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '/' {
+			break
+		}
 		sb.WriteRune(l.advance())
 	}
 	return Token{Type: TokenString, Value: sb.String(), Line: line, Col: col}

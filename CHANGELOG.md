@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Behavior
 
+- **BREAKING (spec fix, S8.2): `//` now starts a comment inside an unquoted
+  run.** `foo = bar//baz` used to produce the value `"bar//baz"`; per
+  HOCON.md L248 `//` begins a comment anywhere outside a quoted string, so it
+  now produces `"bar"` with `//baz` discarded to end of line — matching
+  ts.hocon and rs.hocon (#76). A single `/` is unaffected (`/etc/x` paths
+  still parse), and quoted strings remain opaque (`"bar//baz"` keeps the
+  slashes). A value that needs a literal `//` must be quoted.
 - **BREAKING (spec fix, S1.1): invalid UTF-8 input is now a parse error.** A
   Go `string` is not language-guaranteed UTF-8, so arbitrary bytes reach the
   parser via `ParseString` and file reads; they were silently decoded with
