@@ -64,32 +64,46 @@ const specIssueS10_15_QuotedWS = 83
 // invalid UTF-8 to be rejected; the current impl silently substitutes invalid
 // byte sequences with U+FFFD (REPLACEMENT CHARACTER) instead. Pinned ❌.
 
-// TestSpec_S1_1_InvalidUTF8_Pin pins the current (non-conformant) behaviour:
-// invalid UTF-8 bytes are silently replaced with U+FFFD instead of producing a
-// parse error. The probed input `key = " hello<0xff>world "` parses without
-// error and yields key = "hello�world".
-func TestSpec_S1_1_InvalidUTF8_Pin(t *testing.T) {
-	// pin: see spec L117 — impl currently accepts and replaces invalid UTF-8
-	input := "key = \"hello" + string([]byte{0xff}) + "world\""
-	cfg, err := hocon.ParseString(input)
-	if err != nil {
-		t.Errorf("[pin] expected current impl to accept invalid UTF-8 (silent replacement), got err: %v", err)
-		return
-	}
-	got := cfg.GetString("key")
-	want := "hello�world"
-	if got != want {
-		t.Errorf("[pin] expected silently-replaced value %q, got %q", want, got)
-	}
-}
-
-// TestSpec_S1_1_InvalidUTF8_Spec is the spec-correct assertion: invalid UTF-8
-// in the input must be rejected with a parse error.
+// TestSpec_S1_1_InvalidUTF8_Spec asserts the spec behaviour (HOCON.md L117):
+// invalid UTF-8 in the input is rejected with a parse error at the parse
+// boundary, instead of the pre-fix silent U+FFFD substitution. A properly
+// encoded U+FFFD literal stays accepted — only invalid byte sequences error.
 func TestSpec_S1_1_InvalidUTF8_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S1.1 (HOCON.md L117) — invalid UTF-8 is currently accepted with U+FFFD substitution; should be rejected at the parse boundary")
 	input := "key = \"hello" + string([]byte{0xff}) + "world\""
 	if _, err := hocon.ParseString(input); err == nil {
 		t.Error("expected parse error for invalid UTF-8 input, got nil")
+	}
+
+	// control: a validly-encoded U+FFFD is an ordinary character, not an error
+	cfg, err := hocon.ParseString("key = \"hello�world\"")
+	if err != nil {
+		t.Fatalf("validly-encoded U+FFFD must parse: %v", err)
+	}
+	if got, want := cfg.GetString("key"), "hello�world"; got != want {
+		t.Errorf("expected literal U+FFFD preserved, got %q want %q", got, want)
+	}
+}
+
+// TestSpec_S1_1_InvalidUTF8_FileAndInclude covers the two file-read routes to
+// the parse boundary: ParseFile on a non-UTF-8 file, and an include of one.
+func TestSpec_S1_1_InvalidUTF8_FileAndInclude(t *testing.T) {
+	dir := t.TempDir()
+	bad := []byte("key = \"a\xffb\"\n")
+
+	badPath := filepath.Join(dir, "bad.conf")
+	if err := os.WriteFile(badPath, bad, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hocon.ParseFile(badPath); err == nil {
+		t.Error("ParseFile: expected parse error for invalid UTF-8 file, got nil")
+	}
+
+	mainPath := filepath.Join(dir, "main.conf")
+	if err := os.WriteFile(mainPath, []byte("include \"bad.conf\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hocon.ParseFile(mainPath); err == nil {
+		t.Error("include: expected parse error for invalid UTF-8 include file, got nil")
 	}
 }
 
