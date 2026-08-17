@@ -982,16 +982,11 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			}
 			return resolved, nil
 		}
-		// Also try env var with original path (raw dot-join, no quoting).
-		// Skip for listSuffix substitutions: env-var access for ${X[]} is handled
-		// exclusively by resolveEnvList below (S13c.5 invariant: scalar env must
-		// not be consulted for list-suffix substitutions). Returning ScalarVal here
-		// would violate S13c.5 and produce the wrong type.
-		if !s.listSuffix && r.opts.UseSystemEnvironment {
-			if ev, ok := os.LookupEnv(strings.Join(originalStrs, ".")); ok {
-				return &ScalarVal{Raw: ev, Type: ScalarString}, nil
-			}
-		}
+		// The env-var lookup for this bare base does NOT happen here — see the
+		// scalar env fallback below. Keeping it in this block put bare before
+		// full for `${X}` while resolveEnvList put full before bare for
+		// `${X[]}`, so the two forms disagreed with each other and with the
+		// three sibling impls (xx.hocon#55, E17).
 	}
 
 	// S13c: env-var list expansion — when '[]' suffix is present, delegate to
@@ -1023,10 +1018,23 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		return r.resolveEnvList(s, segStrs, n)
 	}
 
-	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior
+	// env var fallback — use raw dot-join (no quoting) to match Lightbend behavior.
+	//
+	// Candidate order for a relativized substitution (prefixLen > 0) is the full
+	// base first, then the bare one — xx.hocon E17. Lightbend consults only the
+	// bare base; consulting the full one as well is the accepted o3co divergence,
+	// but the ORDER is cross-impl normative and must match ts/rs/py and this
+	// resolver's own `${X[]}` handling in resolveEnvList. Config exhaustion
+	// (prefixed + original-path, S14c.2) has already run above, so this stage is
+	// reached only when both config lookups missed.
 	if r.opts.UseSystemEnvironment {
 		if ev, ok := os.LookupEnv(strings.Join(segStrs, ".")); ok {
 			return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+		}
+		if s.prefixLen > 0 && len(segStrs) > s.prefixLen {
+			if ev, ok := os.LookupEnv(strings.Join(segStrs[s.prefixLen:], ".")); ok {
+				return &ScalarVal{Raw: ev, Type: ScalarString}, nil
+			}
 		}
 	}
 	if n.Optional {
