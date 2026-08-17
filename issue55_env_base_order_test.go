@@ -76,7 +76,6 @@ func TestIssue55EnvBaseOrderScalar(t *testing.T) {
 			for name, val := range map[string]string{fullName: tc.full, bareName: tc.bare} {
 				if val == "" {
 					unsetEnvForTest(t, name)
-					_ = os.Unsetenv(name)
 					continue
 				}
 				t.Setenv(name, val)
