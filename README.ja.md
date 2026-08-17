@@ -31,6 +31,13 @@ Go 1.21 以上が必要。
 ```go
 import "github.com/o3co/go.hocon"
 
+type App struct {
+    Server struct {
+        Host string `hocon:"host"`
+        Port int    `hocon:"port"`
+    } `hocon:"server"`
+}
+
 cfg, err := hocon.ParseString(`
   server {
     host = "localhost"
@@ -41,9 +48,20 @@ if err != nil {
     log.Fatal(err)
 }
 
-host := cfg.GetString("server.host")  // "localhost"
-port := cfg.GetInt("server.port")     // 8080
+var app App
+if err := cfg.Unmarshal(&app); err != nil {
+    log.Fatal(err) // フィールド欠落・型違いは起動時に fail する
+}
+// app.Server.Host == "localhost", app.Server.Port == 8080
+
+// 単一の値は Get*E が (T, error) を返す
+host, err := cfg.GetStringE("server.host")
 ```
+
+既定では `Unmarshal` (struct 丸ごと、起動時に fail fast) か、error を返す
+`Get*E` ゲッターを使ってください。panic する `Get*` と `Option` を返す
+`Get*Option` は、その意味論が合う場面向けの variant です —
+[スカラーゲッター](#スカラーゲッター) を参照。
 
 ## なぜ HOCON？
 
@@ -88,18 +106,25 @@ hocon.ParseFile(path string)    (*Config, error)
 
 ### スカラーゲッター
 
-| メソッド | 戻り値 | パニック条件 |
-|---------|-------|------------|
-| `GetString(path)` | `string` | missing・null・型違い |
-| `GetInt(path)` | `int` | missing・null・型違い |
-| `GetInt64(path)` | `int64` | missing・null・型違い |
-| `GetFloat64(path)` | `float64` | missing・null・型違い |
-| `GetFloat32(path)` | `float32` | missing・null・型違い |
-| `GetBool(path)` | `bool` | missing・null・型違い |
-| `GetDuration(path)` | `time.Duration` | missing・null・不正フォーマット |
-| `GetBytes(path)` | `int64` | missing・null・不正フォーマット |
+3 系列は同じパス解決・型変換を共有し、違いは「missing / null / 型違い」の
+返し方だけです。**アプリケーションコードでは error を返す `Get*E` 系列を
+既定に**してください。panic 系列は検証済みの config (例: `main` で
+`Unmarshal` 直後) 向け、`Option` 系列は default 付きの任意キー
+(`OrElse`) 向けです。
 
-それぞれに `GetXxxOption(path) Option[T]` 版があり、パニックの代わりに `None` を返す。
+| Error 返却 (推奨) | Panic | Option |
+|---|---|---|
+| `GetStringE(path) (string, error)` | `GetString(path) string` | `GetStringOption(path) Option[string]` |
+| `GetIntE` / `GetInt64E` | `GetInt` / `GetInt64` | `GetIntOption` / `GetInt64Option` |
+| `GetFloat64E` / `GetFloat32E` | `GetFloat64` / `GetFloat32` | `GetFloat64Option` / `GetFloat32Option` |
+| `GetBoolE` | `GetBool` | `GetBoolOption` |
+| `GetDurationE` | `GetDuration` | `GetDurationOption` |
+| `GetBytesE` | `GetBytes` | `GetBytesOption` |
+
+`Get*E` は型付き `*ConfigError` を返します (missing / null / 型違い /
+duration・byte の不正フォーマット)。未解決 placeholder 起因の失敗は
+`errors.Is(err, hocon.ErrNotResolved)` で判定できます。panic 系列は同じ
+`*ConfigError` を payload に panic し、`Get*Option` は `None` を返します。
 
 ### スライスゲッター
 
@@ -110,12 +135,13 @@ cfg.GetIntSlice(path)      []int
 cfg.GetConfigSlice(path)   []*Config
 ```
 
-それぞれに `GetXxxSliceOption` 版あり。
+それぞれに `GetXxxSliceE` (error 返却) と `GetXxxSliceOption` 版あり。
 
 ### オブジェクトアクセス
 
 ```go
-sub := cfg.GetConfig("server")        // "server" スコープの *Config
+sub, err := cfg.GetConfigE("server")  // (*Config, error)、"server" スコープ
+sub := cfg.GetConfig("server")        // panic 版
 opt := cfg.GetConfigOption("server")  // Option[*Config]
 ```
 
@@ -159,6 +185,10 @@ err := cfg.Unmarshal(&s)
 // map[string]any も対応
 m := make(map[string]any)
 err = cfg.Unmarshal(&m)
+
+// UnmarshalPath はパス上の任意ノード (オブジェクト・配列・スカラー) を decode する:
+var servers []ServerConfig
+err = cfg.UnmarshalPath("servers", &servers)
 ```
 
 `hocon` タグがないフィールドはフィールド名を小文字化したキーで検索する。`omitempty` はキーが存在しないとき、フィールドの既存値を保持する。
@@ -168,7 +198,7 @@ err = cfg.Unmarshal(&m)
 ```go
 var pe *hocon.ParseError   // 字句解析・構文解析エラー — Line, Col, FilePath を持つ
 var re *hocon.ResolveError // 代入・include 解決エラー — Path を持つ
-var ce *hocon.ConfigError  // GetXxx パニックのペイロード — Path を持つ
+var ce *hocon.ConfigError  // Get*E の返却エラー / GetXxx パニックのペイロード — Path を持つ
 ```
 
 ## HOCON の例
