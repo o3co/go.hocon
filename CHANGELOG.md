@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Behavior
+
+- **Env-var fallback for a relativized substitution now tries the full base
+  before the bare one, matching `${X[]}` and the three sibling implementations.**
+  A substitution written in an included file is relativized, so `${a.b}` inside a
+  file mounted at `foo` has two candidate env-var names: `foo.a.b` (full) and
+  `a.b` (bare). This resolver consulted the bare one first for `${X}` — the
+  lookup sat inside the S14c.2 original-path block, which runs before the
+  env-var stage at the bottom of `resolveSubst` — while `${X[]}` went through
+  `resolveEnvList` and tried full first. The two forms therefore disagreed with
+  each other, and the scalar form disagreed with ts.hocon / rs.hocon / py.hocon,
+  which all try full first. The bare lookup now sits after the full one; config
+  exhaustion (prefixed + original-path, S14c.2) is unchanged and still runs
+  before either.
+
+  Reaching a behavior difference requires both names to be set, and neither can
+  be set from a shell — POSIX env-var names cannot contain a dot — so this is
+  observable only through a programmatic `os.Setenv` with a dotted name. Pinned
+  by `issue55_env_base_order_test.go`.
+
+  Consulting the full base at all remains a deliberate divergence from Lightbend
+  1.4.6, which consults only the bare one; it is documented as
+  [xx.hocon E17](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md)
+  ([xx.hocon#55](https://github.com/o3co/xx.hocon/issues/55)). Only the ordering
+  changed here.
+
 ## [1.12.0] - 2026-07-31
 
 Cross-impl release, coordinated to land at v1.12.0 across go.hocon / ts.hocon /
