@@ -56,6 +56,9 @@ if err := cfg.Unmarshal(&app); err != nil {
 
 // 単一の値は Get*E が (T, error) を返す
 host, err := cfg.GetStringE("server.host")
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 既定では `Unmarshal` (struct 丸ごと、起動時に fail fast) か、error を返す
@@ -141,7 +144,7 @@ cfg.GetConfigSlice(path)   []*Config
 
 ```go
 sub, err := cfg.GetConfigE("server")  // (*Config, error)、"server" スコープ
-sub := cfg.GetConfig("server")        // panic 版
+mustSub := cfg.GetConfig("server")    // panic 版
 opt := cfg.GetConfigOption("server")  // Option[*Config]
 ```
 

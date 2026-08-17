@@ -60,6 +60,9 @@ if err := cfg.Unmarshal(&app); err != nil {
 
 // Single values: Get*E returns (T, error)
 host, err := cfg.GetStringE("server.host")
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 Prefer `Unmarshal` (whole-struct, fails fast at startup) or the
@@ -180,7 +183,7 @@ Each has `GetXxxSliceE` (error-returning) and `GetXxxSliceOption` variants.
 
 ```go
 sub, err := cfg.GetConfigE("server")    // (*Config, error), scoped to "server"
-sub := cfg.GetConfig("server")          // panicking variant
+mustSub := cfg.GetConfig("server")      // panicking variant
 opt := cfg.GetConfigOption("server")    // Option[*Config]
 ```
 
