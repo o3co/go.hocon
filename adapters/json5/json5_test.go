@@ -221,6 +221,11 @@ func TestNumberErrors(t *testing.T) {
 	for _, lit := range []string{"Infinity", "-Infinity", "+Infinity", "NaN", "-NaN", "+NaN"} {
 		parseErr(t, `{a: `+lit+`}`, "spec F0.6")
 	}
+	// A longer identifier that merely STARTS with those spellings is not the
+	// F0.6 case — it errors as an unexpected token / malformed number.
+	parseErr(t, `{a: Infinityx}`, "unexpected character")
+	parseErr(t, `{a: NaNx}`, "unexpected character")
+	parseErr(t, `{a: -Infinityx}`, "malformed number")
 }
 
 // ---------------------------------------------------------------------------
@@ -301,9 +306,18 @@ func TestBOM(t *testing.T) {
 }
 
 func TestInvalidUTF8Rejected(t *testing.T) {
-	_, err := json5.Parse([]byte("{a: \"\xff\"}"), "test.json5")
-	if err == nil || !strings.Contains(err.Error(), "invalid UTF-8") {
-		t.Fatalf("expected invalid UTF-8 error, got %v", err)
+	// Invalid bytes are rejected wherever they hide: string literals, and the
+	// bodies of both comment forms (comments are skipped, not decoded, so the
+	// scanner must still look at every byte it steps over).
+	for name, src := range map[string]string{
+		"string":        "{a: \"\xff\"}",
+		"line-comment":  "{a: 1} // c\xffc",
+		"block-comment": "{a: /* c\xffc */ 1}",
+	} {
+		_, err := json5.Parse([]byte(src), "test.json5")
+		if err == nil || !strings.Contains(err.Error(), "invalid UTF-8") {
+			t.Fatalf("%s: expected invalid UTF-8 error, got %v", name, err)
+		}
 	}
 }
 

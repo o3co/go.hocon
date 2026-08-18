@@ -190,6 +190,9 @@ func (p *parser) skipSpace() error {
 			p.pos += 2
 			for p.pos < len(p.src) {
 				r2, s2 := p.rune()
+				if r2 == utf8.RuneError && s2 == 1 {
+					return p.errf("invalid UTF-8 byte 0x%02x", p.src[p.pos])
+				}
 				if isLineTerminator(r2) {
 					break
 				}
@@ -200,6 +203,9 @@ func (p *parser) skipSpace() error {
 			closed := false
 			for p.pos < len(p.src) {
 				r2, s2 := p.rune()
+				if r2 == utf8.RuneError && s2 == 1 {
+					return p.errf("invalid UTF-8 byte 0x%02x", p.src[p.pos])
+				}
 				if r2 == '*' && p.pos+1 < len(p.src) && p.src[p.pos+1] == '/' {
 					p.pos += 2
 					closed = true
@@ -247,7 +253,7 @@ func (p *parser) parseKeyword() (any, error) {
 		}
 	}
 	for _, kw := range []string{"Infinity", "NaN"} {
-		if strings.HasPrefix(rest, kw) {
+		if strings.HasPrefix(rest, kw) && !continuesIdentifier(rest, len(kw)) {
 			return nil, p.errf("%s is not representable in the HOCON number model (spec F0.6)", kw)
 		}
 	}
@@ -619,7 +625,7 @@ func (p *parser) parseNumber() (any, error) {
 	}
 	rest := p.src[p.pos:]
 	for _, kw := range []string{"Infinity", "NaN"} {
-		if strings.HasPrefix(rest, kw) {
+		if strings.HasPrefix(rest, kw) && !continuesIdentifier(rest, len(kw)) {
 			return nil, p.errf("%s is not representable in the HOCON number model (spec F0.6)", kw)
 		}
 	}
