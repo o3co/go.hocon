@@ -29,6 +29,7 @@
 //	properties  java.util.Properties files
 //	env         environment variables, and .env files
 //	jsonc       JSON with comments and trailing commas
+//	json5       JSON5 documents (hand-rolled scanner, zero dependencies)
 //	toml        TOML documents
 //	yaml        YAML documents, or an already-decoded tree
 //

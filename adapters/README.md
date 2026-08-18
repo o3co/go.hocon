@@ -92,9 +92,9 @@ Items are cited from code and error messages as F0.1, F2.5 and so on.
 | `properties` | available | `java.util.Properties` syntax, UTF-8, dotted keys nest |
 | `env` | available | Bulk-mounts a prefixed namespace; also reads `.env` files |
 | `jsonc` | available | JSON with comments and trailing commas |
+| `json5` | available | JSON5 1.0.0, hand-rolled scanner (the Go JSON5 libraries are unmaintained) |
 | `toml` | available | TOML 1.0 via `pelletier/go-toml/v2` |
 | `yaml` | available | via `goccy/go-yaml` (YAML 1.2 core schema) |
-| `json5` | planned | |
 
 Plain JSON needs no adapter — HOCON is a JSON superset, so `hocon.ParseFile`
 already accepts it. `json_conformance_test.go` keeps that claim honest.
