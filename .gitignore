@@ -27,6 +27,7 @@ coverage.out
 
 # Fetched test data (from xx.hocon)
 testdata/expected/
+testdata/emitter-roundtrip/
 
 # xx.hocon version tracking (local cache marker)
 .xx-hocon-version
