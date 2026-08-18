@@ -45,6 +45,11 @@ func TestE18EmitterRoundTripCorpus(t *testing.T) {
 			if err := dec.Decode(&tree); err != nil {
 				t.Fatalf("fixture is not a JSON object: %v", err)
 			}
+			if tree == nil {
+				// Decode accepts a top-level `null` into a nil map without
+				// error; a fixture must be a real object.
+				t.Fatal("fixture is JSON null, not an object")
+			}
 			cfg, err := hocon.FromMap(normalizeNumbers(tree).(map[string]any), e.Name())
 			if err != nil {
 				t.Fatalf("FromMap: %v", err)
@@ -98,6 +103,10 @@ func normalizeNumbers(v any) any {
 			if i, err := x.Int64(); err == nil {
 				return i
 			}
+			// An integer lexeme past int64: keep the json.Number so FromMap
+			// rejects it loudly instead of a silent precision-losing float.
+			// (The shared corpus stays within 2^53 by convention — E18.)
+			return x
 		}
 		f, _ := x.Float64()
 		return f
