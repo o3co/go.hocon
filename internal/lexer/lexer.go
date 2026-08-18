@@ -421,16 +421,11 @@ func (l *Lexer) readTripleQuoted(line, col int) Token {
 			}
 			continue
 		}
-		// normalize \r\n and standalone \r to \n
-		if ch == '\r' {
-			l.advance()
-			// if followed by \n, skip the \r — the \n will be written next iteration
-			if next, ok2 := l.peek(); ok2 && next == '\n' {
-				continue
-			}
-			sb.WriteByte('\n')
-			continue
-		}
+		// S9.2: every character between the quotes is content, verbatim —
+		// including CR and CRLF. Lightbend preserves them (probe 2026-08-19:
+		// """a<CRLF>b""" renders "a\r\nb"); the old normalization of \r\n and
+		// lone \r to \n was a spec deviation, the same family as the
+		// leading-newline strip the siblings carried.
 		// handle newline tracking
 		if ch == '\n' {
 			l.advance()

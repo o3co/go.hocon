@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Behavior
 
+- **BREAKING (spec fix, S9.2): CR and CRLF inside triple-quoted strings are
+  now preserved verbatim** (`"""a<CRLF>b"""` → `"a\r\nb"`, was `"a\nb"`).
+  The lexer normalized them to LF; the Lightbend reference preserves every
+  character between the quotes (probe 2026-08-19) — the same S9.2 family as
+  the leading-newline strip the sibling ports carried.
+- `RenderHOCON` now quotes an `include` key: unquoted `include` at the start
+  of a key is reserved by the parser (and rejected by Lightbend), so the bare
+  form broke the E18 round-trip contract for configs containing that key.
+
 - **BREAKING (spec fix, S21.2–S21.3): byte units now match the Lightbend
   reference exactly.** The kilo-decimal spelling is `kB` — the old `KB` key
   (which Lightbend rejects) is now an error, and the case-sensitive table

@@ -11,7 +11,7 @@ EXPECTED_DIR   := testdata/expected
 # only fetched-only subdir; keep the sentinel on it (or another fetched-only
 # dir) so a restored expected/ cache can never skip the fixture download.
 testdata:
-	@if [ -f .xx-hocon-version ] && [ -d "$(EXPECTED_DIR)" ] && [ -d testdata/hocon/array-root ]; then \
+	@if [ -f .xx-hocon-version ] && [ -d "$(EXPECTED_DIR)" ] && [ -d testdata/hocon/array-root ] && [ -d testdata/emitter-roundtrip ]; then \
 	  remote_sha=$$(curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4) && \
 	  local_sha=$$(cat .xx-hocon-version) && \
 	  if [ "$$remote_sha" = "$$local_sha" ]; then \
