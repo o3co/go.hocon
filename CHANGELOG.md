@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Behavior
 
+- **BREAKING (spec fix, S13a.12): a substitution whose target lies inside the
+  field being defined (`foo : ${foo.a}`) now resolves against the field's
+  "below" value — the merge of the stack beneath the substitution — instead of
+  the final tree.** The spec example `foo:{a:{c:1}}; foo:${foo.a}; foo:{a:2}`
+  now yields `{a:2, c:1}` (was `{a:2}`, dropping `c`), and the two-layer form
+  now resolves instead of erroring. A required prefix self-ref with nothing
+  below at the navigated path errors as an unresolved substitution; an
+  optional one vanishes transparently, leaving the below layer as the
+  surviving prior (#79). Found by a cross-impl probe — all four sibling
+  implementations shared the gap and the fixes land in lockstep.
+
 - **BREAKING (spec fix, S8.2): `//` now starts a comment inside an unquoted
   run.** `foo = bar//baz` used to produce the value `"bar//baz"`; per
   HOCON.md L248 `//` begins a comment anywhere outside a quoted string, so it

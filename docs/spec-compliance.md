@@ -514,8 +514,15 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13a.12** Self-ref in path expression `${foo.a}` resolves to "below" — §Self-Referential (L791)
-  tests: spec_phase5_test.go (TestSpec_S13a_12_SelfRefInPathResolvesBelow_Pin, TestSpec_S13a_12_SelfRefInPathResolvesBelow_Spec)
-  status: ❌ ([#79](https://github.com/o3co/go.hocon/issues/79)) — spec example `foo:{a:{c:1}};foo:${foo.a};foo:{a:2}` should yield {a:2,c:1} but c is lost in the merge
+  tests: spec_phase5_test.go (TestSpec_S13a_12_SelfRefInPathResolvesBelow_Spec, TestSpec_S13a_12_PrefixSelfRefEdges)
+  status: ✅ — Fixed 2026-08-18 ([#79](https://github.com/o3co/go.hocon/issues/79)): the
+  prefix direction (`foo` ⊏ `foo.a`) was missing from self-reference detection in ALL
+  FOUR siblings (a 2026-08-18 cross-impl probe reclassified this from go-only), so the
+  substitution resolved against the final tree instead of the stack "below". Fixed in
+  the fold (prefix self-refs fold at prior-save time; standalone occurrences form a
+  merge layer keeping the below layer's other keys) and in resolveSubst (standing
+  prefix self-refs resolve via the field's prior + remainder navigation, undefined
+  classification on a miss). Landed in lockstep with ts.hocon / py.hocon / rs.hocon.
 
 - **S13a.13** `a = ${?a}foo` resolves to `"foo"` (look-back undefined) — §Self-Referential (L841)
   tests: internal/resolver/resolver_test.go (TestSpecS13a_13_OptionalSelfRefUndefinedBecomesEmpty, TestSpecS13a_13_SelfRefLookback), s13a13_self_ref_lookback_test.go (TestS13a13_SelfRefLookback_Success, TestS13a13_SelfRefLookback_Errors)
