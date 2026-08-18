@@ -197,3 +197,29 @@ e = ${a}
 		t.Errorf("parsed-doc round trip diverged\n  before: %s\n  after:  %s\n%s", before, after, text)
 	}
 }
+
+// The `include` key is reserved unquoted; the emitter must quote it for the
+// round trip to hold (Copilot review on the E18 sibling ports; Lightbend
+// rejects `include = 1`).
+func TestRenderHOCONQuotesIncludeKey(t *testing.T) {
+	assertRoundTrip(t, "include-key", map[string]any{
+		"include": "reserved word must be quoted to round-trip",
+		"nested":  map[string]any{"include": 1},
+	})
+}
+
+// S9.2: CR and CRLF inside triple-quoted strings are content, verbatim —
+// the old lexer normalized them to LF (spec deviation; Lightbend preserves,
+// probe 2026-08-19).
+func TestTripleQuotedCRPreserved(t *testing.T) {
+	cfg, err := ParseString("a = \"\"\"x\r\ny\"\"\"\nb = \"\"\"p\rq\"\"\"")
+	if err != nil {
+		t.Fatalf("ParseString: %v", err)
+	}
+	if got := cfg.GetString("a"); got != "x\r\ny" {
+		t.Errorf("a = %q, want %q", got, "x\r\ny")
+	}
+	if got := cfg.GetString("b"); got != "p\rq" {
+		t.Errorf("b = %q, want %q", got, "p\rq")
+	}
+}
