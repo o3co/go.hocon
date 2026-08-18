@@ -1202,7 +1202,6 @@ func (r *resolver) resolveEnvList(s *substPlaceholder, segStrs []string, n *pars
 	}
 }
 
-// findPrior looks up the per-object priorValues for a given path in the tree.
 // navigateResolvedVal walks resolved ObjectVal fields by segment text
 // (S13a.12). A missing segment or a walk into a scalar/array is path-absent →
 // nil.
@@ -1222,6 +1221,7 @@ func navigateResolvedVal(v Val, remainder []string) Val {
 	return cur
 }
 
+// findPrior looks up the per-object priorValues for a given path in the tree.
 func (r *resolver) findPrior(root *ObjectVal, segments []string, pathStr string) Val {
 	// Check resolver-level priorValues first (top-level keys).
 	if prior, ok := r.priorValues[pathStr]; ok {

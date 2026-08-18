@@ -166,18 +166,6 @@ func foldSelfRefInner(v Val, fullKey string, replacement Val, allowPrefix bool) 
 	}
 }
 
-// foldOrSkipPrior decides how to save a self-reference-aware prior at one
-// of the three prior-save sites (direct assignment, include-merge non-object
-// override, setPath nested assignment). Cases:
-//
-//   - prior has no self-ref to fullKey         → save prior as-is  → (prior,  true)
-//   - prior has self-ref AND old != nil        → fold against old  → (folded, true)
-//   - optional self-ref AND old == nil         → fold to absent    → (folded, true)
-//   - required self-ref AND old == nil         → skip save         → (nil,    false)
-//
-// The no-prior optional case preserves S13a.13's "optional self-ref with no
-// prior resolves to undefined" rule while still saving concat literal pieces
-// for the next overwrite.
 // substPrefixRemainder returns the remainder segment texts when fullKey is a
 // PROPER segment-wise prefix of the subst's path (`foo` ⊏ `foo.a` → ["a"]),
 // else nil. Boundary-safe on the dotted keys because both sides share
@@ -252,6 +240,11 @@ func mergePriorLayers(base, top *ObjectVal) *ObjectVal {
 	for k, pv := range base.priorValues {
 		out.priorValues[k] = pv
 	}
+	// Carry BOTH layers' bookkeeping: top's priorValues (its keys' own
+	// delayed-merge chains) win per key over base's.
+	for k, pv := range top.priorValues {
+		out.priorValues[k] = pv
+	}
 	for _, k := range top.Keys() {
 		tv, _ := top.Get(k)
 		if bv, ok := out.Get(k); ok {
@@ -267,6 +260,18 @@ func mergePriorLayers(base, top *ObjectVal) *ObjectVal {
 	return out
 }
 
+// foldOrSkipPrior decides how to save a self-reference-aware prior at one
+// of the three prior-save sites (direct assignment, include-merge non-object
+// override, setPath nested assignment). Cases:
+//
+//   - prior has no self-ref to fullKey         → save prior as-is  → (prior,  true)
+//   - prior has self-ref AND old != nil        → fold against old  → (folded, true)
+//   - optional self-ref AND old == nil         → fold to absent    → (folded, true)
+//   - required self-ref AND old == nil         → skip save         → (nil,    false)
+//
+// The no-prior optional case preserves S13a.13's "optional self-ref with no
+// prior resolves to undefined" rule while still saving concat literal pieces
+// for the next overwrite.
 func foldOrSkipPrior(prior Val, fullKey string, old Val) (Val, bool) {
 	// S13a.12: a STANDALONE prefix self-ref in field-value position is a
 	// merge LAYER — an object it navigates to merges over the stack below,
