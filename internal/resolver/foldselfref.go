@@ -8,6 +8,8 @@
 
 package resolver
 
+import "strings"
+
 // foldSelfRef walks v and rewrites every substPlaceholder whose dotted-path
 // key equals fullKey by substituting replacement. The boolean return reports
 // whether at least one such self-reference was found in v (regardless of
@@ -37,13 +39,22 @@ func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 		if vv.knownAbsent {
 			return v, false
 		}
-		if substFullKey(vv) != fullKey {
-			return v, false
+		if substFullKey(vv) == fullKey {
+			if replacement != nil {
+				return replacement, true
+			}
+			return v, true
 		}
-		if replacement != nil {
-			return replacement, true
+		// S13a.12: a substitution whose path has fullKey as a PROPER prefix
+		// (`${foo.a}` inside the stack of `foo`) is also a self-reference —
+		// it folds to the remainder navigated into the below value.
+		if rem := substPrefixRemainder(vv, fullKey); rem != nil {
+			if replacement == nil {
+				return v, true // detection-only pass
+			}
+			return foldPrefixSelfRef(vv, replacement, rem), true
 		}
-		return v, true
+		return v, false
 	case *concatPlaceholder:
 		var newVals []Val
 		anyHit := false
@@ -154,7 +165,115 @@ func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 // The no-prior optional case preserves S13a.13's "optional self-ref with no
 // prior resolves to undefined" rule while still saving concat literal pieces
 // for the next overwrite.
+// substPrefixRemainder returns the remainder segment texts when fullKey is a
+// PROPER segment-wise prefix of the subst's path (`foo` ⊏ `foo.a` → ["a"]),
+// else nil. Boundary-safe on the dotted keys because both sides share
+// segmentsToKey's quoting — a literal dotted segment renders quoted and can
+// never string-prefix `foo.` (S13a.12).
+func substPrefixRemainder(sp *substPlaceholder, fullKey string) []string {
+	texts := segTexts(sp.segments)
+	if !strings.HasPrefix(segmentsToKey(texts), fullKey+".") {
+		return nil
+	}
+	for n := 1; n < len(texts); n++ {
+		if segmentsToKey(texts[:n]) == fullKey {
+			return texts[n:]
+		}
+	}
+	return nil
+}
+
+// navigateVal walks remainder into a resolver value structurally, following
+// ObjectVal fields. Returns (node, true) when reached, (nil, true) when a
+// segment is missing or the walk dead-ends in a scalar/array (path-absent),
+// and (nil, false) when it hits a node it cannot see through (a live
+// substitution or concat placeholder).
+func navigateVal(v Val, remainder []string) (Val, bool) {
+	cur := v
+	for _, seg := range remainder {
+		switch cv := cur.(type) {
+		case *substPlaceholder, *concatPlaceholder:
+			_ = cv
+			return nil, false
+		case *ObjectVal:
+			next, ok := cv.Get(seg)
+			if !ok {
+				return nil, true
+			}
+			cur = next
+		default:
+			return nil, true
+		}
+	}
+	return cur, true
+}
+
+// foldPrefixSelfRef folds one prefix self-reference against the below value.
+// A missing path folds to the undefined classification — a knownAbsent
+// placeholder that disappears when optional and errors at resolve time when
+// required. An unnavigable path leaves the subst unchanged for the
+// resolve-time guard.
+func foldPrefixSelfRef(sp *substPlaceholder, replacement Val, remainder []string) Val {
+	nav, navigable := navigateVal(replacement, remainder)
+	if !navigable {
+		return sp
+	}
+	if nav == nil {
+		absent := *sp
+		absent.knownAbsent = true
+		return &absent
+	}
+	return nav
+}
+
+// mergePriorLayers merges the navigated value (top) over the below layer
+// (base) for the standalone-prefix-self-ref save case (S13a.12). A local,
+// bookkeeping-free merge — deliberately NOT deepMerge, which re-runs
+// prior-save logic that has already happened for these layers.
+func mergePriorLayers(base, top *ObjectVal) *ObjectVal {
+	out := newObjectVal()
+	for _, k := range base.Keys() {
+		v, _ := base.Get(k)
+		out.set(k, v)
+	}
+	for k, pv := range base.priorValues {
+		out.priorValues[k] = pv
+	}
+	for _, k := range top.Keys() {
+		tv, _ := top.Get(k)
+		if bv, ok := out.Get(k); ok {
+			if bo, okB := bv.(*ObjectVal); okB {
+				if to, okT := tv.(*ObjectVal); okT {
+					out.set(k, mergePriorLayers(bo, to))
+					continue
+				}
+			}
+		}
+		out.set(k, tv)
+	}
+	return out
+}
+
 func foldOrSkipPrior(prior Val, fullKey string, old Val) (Val, bool) {
+	// S13a.12: a STANDALONE prefix self-ref in field-value position is a
+	// merge LAYER — an object it navigates to merges over the stack below,
+	// so the saved prior keeps the below layer's other keys. An optional one
+	// whose navigated path is absent vanishes transparently (the below layer
+	// itself survives as the prior). Nested occurrences substitute in place
+	// via the generic fold below.
+	if sp, ok := prior.(*substPlaceholder); ok && !sp.knownAbsent && old != nil {
+		if rem := substPrefixRemainder(sp, fullKey); rem != nil {
+			nav, navigable := navigateVal(old, rem)
+			if nav == nil && navigable && sp.node.Optional {
+				return old, true
+			}
+			if navObj, okN := nav.(*ObjectVal); okN {
+				if oldObj, okO := old.(*ObjectVal); okO {
+					return mergePriorLayers(oldObj, navObj), true
+				}
+			}
+		}
+	}
 	folded, hasSelfRef := foldSelfRef(prior, fullKey, old)
 	if !hasSelfRef {
 		return prior, true
@@ -168,7 +287,8 @@ func foldOrSkipPrior(prior Val, fullKey string, old Val) (Val, bool) {
 func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
 	switch vv := v.(type) {
 	case *substPlaceholder:
-		if vv.knownAbsent || substFullKey(vv) != fullKey {
+		if vv.knownAbsent ||
+			(substFullKey(vv) != fullKey && substPrefixRemainder(vv, fullKey) == nil) {
 			return v, true
 		}
 		if !vv.node.Optional {

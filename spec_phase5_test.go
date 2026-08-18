@@ -416,31 +416,13 @@ func TestSpec_S13a_10_MemoizedByInstance(t *testing.T) {
 
 // ── S13a.12: self-ref in path expression resolves to "below" ─────────────────
 
-// TestSpec_S13a_12_SelfRefInPathResolvesBelow_Pin pins the current behaviour:
-// the spec example `foo : { a : { c : 1 } }; foo : ${foo.a}; foo : { a : 2 }`
-// should yield {a:2, c:1} but the impl produces {a:2} (c is lost).
-// Spec HOCON.md L791.
-func TestSpec_S13a_12_SelfRefInPathResolvesBelow_Pin(t *testing.T) {
-	// pin: see #79 — ${foo.a} self-reference does not include {c:1} in the merge
-	_ = specIssueS13a_12_SelfRefPath
-	cfg := mustParseCfg(t, `
-foo : { a : { c : 1 } }
-foo : ${foo.a}
-foo : { a : 2 }
-`)
-	// a=2 is correct regardless
-	if cfg.GetInt("foo.a") != 2 {
-		t.Errorf("[pin] foo.a: expected 2, got %d", cfg.GetInt("foo.a"))
-	}
-	// c should be absent (current buggy behaviour)
-	if cfg.GetIntOption("foo.c").IsSome() {
-		t.Error("[pin] foo.c should be absent in current impl (self-ref-in-path bug)")
-	}
-}
-
-// TestSpec_S13a_12_SelfRefInPathResolvesBelow_Spec is the spec-correct assertion.
+// TestSpec_S13a_12_SelfRefInPathResolvesBelow_Spec asserts the spec behaviour
+// (HOCON.md L791, fixed via #79): a substitution whose target lies inside the
+// field being defined resolves against the field's "below" value — the merge
+// of the stack beneath the substitution — never the final tree. Fixed in
+// lockstep with ts.hocon / py.hocon / rs.hocon (all four shared the gap).
 func TestSpec_S13a_12_SelfRefInPathResolvesBelow_Spec(t *testing.T) {
-	t.Skipf("[skip] spec violation per S13a.12 — ${foo.a} does not include {c:1}; see #%d", specIssueS13a_12_SelfRefPath)
+	_ = specIssueS13a_12_SelfRefPath
 	cfg := mustParseCfg(t, `
 foo : { a : { c : 1 } }
 foo : ${foo.a}
@@ -452,6 +434,62 @@ foo : { a : 2 }
 	}
 	if cfg.GetInt("foo.c") != 1 {
 		t.Errorf("foo.c: expected 1, got %d", cfg.GetInt("foo.c"))
+	}
+}
+
+// TestSpec_S13a_12_PrefixSelfRefEdges covers the surrounding contract: layer
+// merge keeps the below layer's other keys, two-layer forms resolve, a scalar
+// navigation resets the stack, optional misses vanish transparently, required
+// misses take the undefined classification, and non-self-ref shapes are
+// untouched.
+func TestSpec_S13a_12_PrefixSelfRefEdges(t *testing.T) {
+	// Two layers, substitution last: navigated object merges over the below.
+	cfg := mustParseCfg(t, "foo : { a : { c : 1 } }\nfoo : ${foo.a}")
+	if cfg.GetInt("foo.c") != 1 || cfg.GetInt("foo.a.c") != 1 {
+		t.Errorf("two-layer: expected {a:{c:1}, c:1}, got c=%v a.c=%v",
+			cfg.GetIntOption("foo.c"), cfg.GetIntOption("foo.a.c"))
+	}
+
+	// Below layer keys not touched by the sandwich survive.
+	cfg = mustParseCfg(t, "foo : { a : { c : 1 }, keep : 9 }\nfoo : ${foo.a}\nfoo : { a : 2 }")
+	if cfg.GetInt("foo.keep") != 9 || cfg.GetInt("foo.c") != 1 || cfg.GetInt("foo.a") != 2 {
+		t.Error("keep: expected {a:2, keep:9, c:1}")
+	}
+
+	// Navigating to a scalar resets the stack (later object wins alone).
+	cfg = mustParseCfg(t, "foo : { a : 5 }\nfoo : ${foo.a}\nfoo : { b : 2 }")
+	if cfg.GetIntOption("foo.a").IsSome() || cfg.GetInt("foo.b") != 2 {
+		t.Error("scalar-nav: expected {b:2}")
+	}
+
+	// Optional prefix self-ref with nothing below vanishes transparently.
+	cfg = mustParseCfg(t, "foo : { a : 1 }\nfoo : ${?foo.nope}\nfoo : { b : 2 }")
+	if cfg.GetInt("foo.a") != 1 || cfg.GetInt("foo.b") != 2 {
+		t.Error("opt-vanish: expected {a:1, b:2}")
+	}
+
+	// Required prefix self-ref with nothing below is an unresolved error.
+	if _, err := hocon.ParseString("foo : { a : 1 }\nfoo : ${foo.nope}\nfoo : { b : 2 }"); err == nil {
+		t.Error("req-missing: expected unresolved-substitution error, got nil")
+	}
+
+	// Nested paths: the prior lives on the parent scope.
+	cfg = mustParseCfg(t, "srv : { foo : { a : { c : 1 } } }\nsrv : { foo : ${srv.foo.a} }\nsrv : { foo : { a : 2 } }")
+	if cfg.GetInt("srv.foo.a") != 2 || cfg.GetInt("srv.foo.c") != 1 {
+		t.Error("nested: expected srv.foo = {a:2, c:1}")
+	}
+
+	// Regression: a sibling reference in a deeper field's prior still sees the
+	// final tree (rfp span covers prior resolution).
+	cfg = mustParseCfg(t, "bar { nested { x = { q: 10 }\na = ${bar.nested.x}\na = { c: 3 } } }")
+	if cfg.GetInt("bar.nested.a.q") != 10 || cfg.GetInt("bar.nested.a.c") != 3 {
+		t.Error("sibling-prior: expected bar.nested.a = {q:10, c:3}")
+	}
+
+	// Unnavigable below (live subst mid-walk): the optional form stays resolvable.
+	cfg = mustParseCfg(t, "foo : { a : ${x} }\nfoo : ${?foo.a.b}\nfoo : { z : 1 }\nx : { b : 7 }")
+	if cfg.GetInt("foo.z") != 1 {
+		t.Error("unnav-opt: expected {z:1}")
 	}
 }
 

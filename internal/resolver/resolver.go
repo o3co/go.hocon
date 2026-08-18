@@ -475,6 +475,18 @@ type resolver struct {
 	priorValues   map[string]Val  // previous value before self-referential overwrite (first pass)
 	includeStack  *[]string       // shared stack for circular include detection (normalized paths)
 	lenient       bool            // when true, unresolved substitutions are left as placeholders instead of erroring
+
+	// resolvingFieldPath is the full dotted path of the field currently being
+	// resolved in phase 2 (S13a.12 prefix-self-ref owner gate). The push/pop
+	// span in resolveSubstitutions covers both the value and the prior-chain
+	// resolution of each field.
+	resolvingFieldPath []string
+	// resolvingPrefixPriors guards the S13a.12 prefix-self-ref branch against
+	// re-entry: saved priors are prefix-self-ref-free by the fold invariant,
+	// so re-entry only happens on a shape the fold could not see through — it
+	// is reported as unresolvable instead of recursing forever. Lazily
+	// initialized at first use.
+	resolvingPrefixPriors map[string]bool
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, pathPrefix []string) (*ObjectVal, error) {
@@ -739,10 +751,33 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 	result := newObjectVal()
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
-		resolved, err := r.resolveVal(v, root, k)
+		// The push/pop span covers BOTH the value resolution and the
+		// prior-chain resolution below: a prior belongs to this field's value
+		// stack, so a substitution inside it must see the full field path
+		// (S13a.12). With the field popped, a prior's reference into a
+		// sibling of this field would satisfy the prefix-self-ref test
+		// against the truncated path and mis-route to the parent's prior.
+		r.resolvingFieldPath = append(r.resolvingFieldPath, k)
+		err := func() error {
+			resolved, err := r.resolveVal(v, root, k)
+			if err != nil {
+				return err
+			}
+			return r.finishField(result, obj, root, k, resolved)
+		}()
+		r.resolvingFieldPath = r.resolvingFieldPath[:len(r.resolvingFieldPath)-1]
 		if err != nil {
 			return nil, err
 		}
+	}
+	return result, nil
+}
+
+// finishField applies the delayed-merge / prior-fallback tail of one field's
+// phase-2 resolution (split from resolveSubstitutions so the whole tail stays
+// inside the resolvingFieldPath span).
+func (r *resolver) finishField(result, obj, root *ObjectVal, k string, resolved Val) error {
+	{
 		if resolved != nil {
 			// Delayed merge (site 1): if both current and prior resolve to objects,
 			// deep-merge them (prior as base, current on top).
@@ -750,7 +785,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 				if prior, hasPrior := obj.priorValues[k]; hasPrior {
 					priorResolved, perr := r.resolveVal(prior, root, k)
 					if perr != nil {
-						return nil, perr
+						return perr
 					}
 					if priorResolved != nil {
 						if priorObj, pOk := priorResolved.(*ObjectVal); pOk {
@@ -768,7 +803,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 			// optional substitution resolved to nothing — fall back to prior value (per-object scope)
 			fallback, ferr := r.resolveVal(prior, root, k)
 			if ferr != nil {
-				return nil, ferr
+				return ferr
 			}
 			if fallback != nil {
 				result.set(k, fallback)
@@ -779,7 +814,7 @@ func (r *resolver) resolveSubstitutions(obj *ObjectVal, root *ObjectVal) (*Objec
 		}
 		// nil means the field was dropped (optional substitution resolved to nothing)
 	}
-	return result, nil
+	return nil
 }
 
 func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) {
@@ -814,12 +849,61 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// the `+=` chain bottom had nothing preceding it — collapse to absent.
 		// Rehydration (deepMerge / the include-merge stitch) replaces sentinels
 		// that DO have a predecessor before they ever reach here.
+		//
+		// S13a.12: a REQUIRED substitution folded to knownAbsent (prefix fold
+		// with no below value at the navigated path) is the spec's "undefined"
+		// classification — an error, not a silent disappearance. The `+=`
+		// sentinel is always `${?…}` and keeps the silent path.
+		if !s.node.Optional {
+			if r.lenient {
+				return s, nil
+			}
+			k := segmentsToKey(segTexts(s.segments))
+			return nil, &ResolveError{Message: "unresolved substitution", Path: k, Line: s.node.Line(), Col: s.node.Col()}
+		}
 		return nil, nil
 	}
 
 	n := s.node
 	segStrs := segTexts(s.segments)
 	key := segmentsToKey(segStrs)
+
+	// S13a.12 (HOCON.md L791): a substitution whose target lies INSIDE the
+	// field currently being resolved (the field path is a proper prefix of
+	// the target path, e.g. `foo : ${foo.a}` while resolving `foo`) is
+	// self-referential and resolves against the field's "below" value — its
+	// saved prior — never the final tree, which would see the layers ABOVE
+	// the substitution. Runs before the resolvedCache fast path: the cache
+	// holds final-tree values.
+	if rfp := r.resolvingFieldPath; len(rfp) > 0 && len(rfp) < len(segStrs) &&
+		segmentsToKey(segStrs[:len(rfp)]) == segmentsToKey(rfp) {
+		guardKey := segmentsToKey(rfp)
+		if !r.resolvingPrefixPriors[guardKey] {
+			if prior := r.findPrior(root, rfp, guardKey); prior != nil {
+				if r.resolvingPrefixPriors == nil {
+					r.resolvingPrefixPriors = make(map[string]bool)
+				}
+				r.resolvingPrefixPriors[guardKey] = true
+				priorResolved, perr := r.resolveVal(prior, root, guardKey)
+				delete(r.resolvingPrefixPriors, guardKey)
+				if perr != nil {
+					return nil, perr
+				}
+				if priorResolved != nil {
+					if nav := navigateResolvedVal(priorResolved, segStrs[len(rfp):]); nav != nil {
+						return nav, nil
+					}
+				}
+			}
+		}
+		if n.Optional {
+			return nil, nil
+		}
+		if r.lenient {
+			return s, nil
+		}
+		return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
+	}
 
 	// Fast path: if this key is already fully resolved (e.g. `b = ${a}` where
 	// `a` was processed first), return the cached value immediately.  This
@@ -1099,6 +1183,25 @@ func (r *resolver) resolveEnvList(s *substPlaceholder, segStrs []string, n *pars
 }
 
 // findPrior looks up the per-object priorValues for a given path in the tree.
+// navigateResolvedVal walks resolved ObjectVal fields by segment text
+// (S13a.12). A missing segment or a walk into a scalar/array is path-absent →
+// nil.
+func navigateResolvedVal(v Val, remainder []string) Val {
+	cur := v
+	for _, seg := range remainder {
+		obj, ok := cur.(*ObjectVal)
+		if !ok {
+			return nil
+		}
+		next, found := obj.Get(seg)
+		if !found {
+			return nil
+		}
+		cur = next
+	}
+	return cur
+}
+
 func (r *resolver) findPrior(root *ObjectVal, segments []string, pathStr string) Val {
 	// Check resolver-level priorValues first (top-level keys).
 	if prior, ok := r.priorValues[pathStr]; ok {
