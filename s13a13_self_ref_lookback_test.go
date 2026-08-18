@@ -51,6 +51,12 @@ var s13a13SuccessFixtures = []string{
 	"sr14-cache-prior-external",
 	"sr15-double-self-ref",
 	"sr16-external-before-self-ref",
+	// S13a.12 (xx.hocon#90) — path-prefix self-ref discriminators, vendored
+	// with the 2026-08-18 fixture sync. sr17 (sandwich) separates below-
+	// resolution ({a:2, c:1}) from final-tree resolution ({a:2}); sr18 pins
+	// the two-layer merge form.
+	"sr17-path-prefix-sandwich",
+	"sr18-path-prefix-two-layer",
 }
 
 // s13a13ErrorFixtures lists fixtures that must produce a non-nil error.
