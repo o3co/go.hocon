@@ -1,0 +1,7 @@
+# Fixture bytes are semantic: HOCON triple-quoted strings preserve CR/CRLF
+# verbatim (S9.2), and several fixtures pin exact line endings. Never let git
+# convert line endings in these trees (GitHub's Windows runners set
+# core.autocrlf=true, which used to CRLF-ify checkouts — masked, until
+# go#196, by the lexer's spec-deviating CRLF normalization).
+testdata/** -text
+adapters/testdata-format-ingestion/** -text
