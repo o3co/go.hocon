@@ -898,16 +898,16 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S21.2** Powers of 10 (kB, MB, GB, TB, PB, EB, ZB, YB + long forms) — §Size in bytes format (L1365)
-  tests: config_test.go:97 (TestConfig_GetBytes); config_test.go:575 (TestConfig_GetBytesOption_Some)
-  status: ✅
+  tests: config_test.go:97 (TestConfig_GetBytes); config_test.go:575 (TestConfig_GetBytesOption_Some); spec_s21_lightbend_units_test.go (PB–YB, case-sensitivity)
+  status: ✅ — the prior ✅ over-claimed: the table stopped at TB and was keyed `KB`, which Lightbend rejects (its kilo-decimal spelling is `kB` — probe 2026-08-18, four-impl units audit). Aligned to the exact case-sensitive reference set; ZB/YB (multipliers past int64) route through the float path, where any count ≥1 overflows exactly as it does in Lightbend.
 
 - **S21.3** Powers of 2 (K/Ki/KiB, M/Mi/MiB, ...) — §Size in bytes format (L1376)
-  tests: config_test.go:97 (TestConfig_GetBytes)
-  status: ✅
+  tests: config_test.go:97 (TestConfig_GetBytes); spec_s21_lightbend_units_test.go (Ki–Yi, `kiB`/`ki` rejected)
+  status: ✅ — the two-letter `Ki`/`Mi`/… forms were missing (only `KiB` parsed); extended 2026-08-18 through `Yi`/`YiB` + long forms, capital-first exactly per Lightbend.
 
 - **S21.4** Single-letter abbreviations → powers of 2 (java -Xmx convention) — §Size in bytes format (L1385)
   tests: s21_4_bsl_test.go (TestS21_4_BSL_GetBytes, TestS21_4_Overflow); config_test.go (TestSpec_S21_4_SingleLetterByteAbbreviations); spec_s18_units_default_test.go (ub05-bytes-with-unit)
-  status: ✅ — Fixed in cluster 3h (Phase 6). K/k/M/m/G/g/T/t/P/p/E/e added to `multipliers` map as powers of two per HOCON.md L1385. Overflow-checked multiplication added for integer path (8E and above return error). Fractional overflow checked against math.MaxInt64.
+  status: ✅ — Fixed in cluster 3h (Phase 6); the four-impl units audit (2026-08-18) completed the ladder with Z/z/Y/y (multipliers past int64 route through the float path; count ≥1 overflows exactly as in Lightbend, pinned in spec_s21_lightbend_units_test.go). Overflow-checked multiplication for the integer path, float guard at 2^63.
 
 - **S21.5** Fractional values supported (`0.5M`) — §Units format (L1281-1294) + §Size in bytes (L1335-1342)
   tests: config_test.go (TestSpec_S21_5_FractionalByteValues)
