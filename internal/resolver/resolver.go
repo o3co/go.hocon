@@ -215,6 +215,19 @@ func MergeUnresolved(receiver, fallback *ObjectVal) *ObjectVal {
 
 // deepMerge merges src into dst (dst values take precedence for non-objects).
 func deepMerge(dst, src *ObjectVal) *ObjectVal {
+	return deepMergeAt(dst, src, nil, false)
+}
+
+// deepMergeAt is deepMerge with optional path-aware prior bookkeeping
+// (S13a.12; ts/rs parity — their deep merges have been path-aware since
+// v1.5.1). When savePriors is true, a non-object collision records the
+// shadowed older (src) value as the prior for the child key, folded against
+// the running prior with the child's FULL dotted key — so self-references in
+// the newer value (exact or prefix, e.g. `${srv.foo.a}` inside srv's second
+// definition) can look back at it. Phase-2 merges of resolved values and
+// MergeUnresolved (which does its own prior bookkeeping) pass false and are
+// byte-for-byte unchanged.
+func deepMergeAt(dst, src *ObjectVal, pathPrefix []string, savePriors bool) *ObjectVal {
 	result := newObjectVal()
 	// add all dst keys first
 	for _, k := range dst.keys {
@@ -231,8 +244,14 @@ func deepMerge(dst, src *ObjectVal) *ObjectVal {
 			// both object → merge
 			if do, dok := dv.(*ObjectVal); dok {
 				if so, sok := sv.(*ObjectVal); sok {
-					result.values[k] = deepMerge(do, so)
+					result.values[k] = deepMergeAt(do, so, append(append([]string{}, pathPrefix...), k), savePriors)
 					continue
+				}
+			}
+			if savePriors {
+				childKey := segmentsToKey(append(append([]string{}, pathPrefix...), k))
+				if folded, doSave := foldOrSkipPrior(sv, childKey, result.priorValues[k]); doSave {
+					result.priorValues[k] = folded
 				}
 			}
 			// #134: dst's value chains off an outer `${?k}` (a desugared `+=`
@@ -522,7 +541,7 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 					if eo, eok := existing.(*ObjectVal); eok {
 						if io, iok := iv.(*ObjectVal); iok {
 							// both objects → deep merge with included on top
-							obj.set(k, deepMerge(io, eo))
+							obj.set(k, deepMergeAt(io, eo, append(append([]string{}, pathPrefix...), k), true))
 							// #120: save existing as prior even on object+object
 							// merge, so a self-referential `${k}` in the included
 							// file's body (e.g. `o = { history = ${o}, v = 2 }`
@@ -647,7 +666,8 @@ func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, p
 			if existing, ok := obj.Get(key); ok {
 				if eo, eok := existing.(*ObjectVal); eok {
 					if nv, nok := val.(*ObjectVal); nok {
-						val = deepMerge(nv, eo) // new over existing: nv=dst wins
+						childPath := append(append([]string{}, pathPrefix...), key)
+						val = deepMergeAt(nv, eo, childPath, true) // new over existing: nv=dst wins
 					}
 				}
 				// Always save existing as prior (whether or not val deep-merged
@@ -1537,7 +1557,7 @@ func (r *resolver) setPath(obj *ObjectVal, segments []string, val Val, fullPath 
 		if existing, ok := obj.Get(key); ok {
 			if eo, eok := existing.(*ObjectVal); eok {
 				if nv, nok := val.(*ObjectVal); nok {
-					val = deepMerge(nv, eo) // new over existing: nv=dst wins
+					val = deepMergeAt(nv, eo, fullPath, true) // new over existing: nv=dst wins
 				}
 			}
 			// #120: always save existing as prior (mirror of the top-level

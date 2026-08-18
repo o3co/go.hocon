@@ -777,3 +777,14 @@ func TestSpec_S23_4_ObjectWinsOverString(t *testing.T) {
 		}
 	})
 }
+
+// TestSpec_S13a_12_InteriorSiblingStaysLazy pins the allowPrefix narrowing:
+// a substitution nested inside an object literal that references a sibling
+// branch of the same field is a lazy final-tree lookup (S13a.14), not a
+// below-lookback.
+func TestSpec_S13a_12_InteriorSiblingStaysLazy(t *testing.T) {
+	cfg := mustParseCfg(t, "a = { p : { v : 1 }, x : ${a.p.v} }\na = { y : 2 }")
+	if cfg.GetInt("a.x") != 1 || cfg.GetInt("a.y") != 2 || cfg.GetInt("a.p.v") != 1 {
+		t.Error("interior sibling: expected a = {p:{v:1}, x:1, y:2}")
+	}
+}

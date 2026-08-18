@@ -34,6 +34,17 @@ import "strings"
 // Rehydration of sentinels happens separately in rehydrateSentinel during
 // MergeUnresolved when a fallback prior is available.
 func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
+	return foldSelfRefInner(v, fullKey, replacement, true)
+}
+
+// foldSelfRefInner threads allowPrefix: the S13a.12 prefix rule applies only
+// in value-stack positions — it stays true through concat nodes and array
+// elements (the value chain of the field itself) but turns false when
+// descending into object interiors. A substitution nested inside an object
+// literal that references a sibling branch of the same field
+// (`a = { x = ${a.p.v} }`) is a lazy final-tree lookup (S13a.14), NOT a
+// below-lookback.
+func foldSelfRefInner(v Val, fullKey string, replacement Val, allowPrefix bool) (Val, bool) {
 	switch vv := v.(type) {
 	case *substPlaceholder:
 		if vv.knownAbsent {
@@ -48,18 +59,20 @@ func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 		// S13a.12: a substitution whose path has fullKey as a PROPER prefix
 		// (`${foo.a}` inside the stack of `foo`) is also a self-reference —
 		// it folds to the remainder navigated into the below value.
-		if rem := substPrefixRemainder(vv, fullKey); rem != nil {
-			if replacement == nil {
-				return v, true // detection-only pass
+		if allowPrefix {
+			if rem := substPrefixRemainder(vv, fullKey); rem != nil {
+				if replacement == nil {
+					return v, true // detection-only pass
+				}
+				return foldPrefixSelfRef(vv, replacement, rem), true
 			}
-			return foldPrefixSelfRef(vv, replacement, rem), true
 		}
 		return v, false
 	case *concatPlaceholder:
 		var newVals []Val
 		anyHit := false
 		for i, e := range vv.vals {
-			ne, hit := foldSelfRef(e, fullKey, replacement)
+			ne, hit := foldSelfRefInner(e, fullKey, replacement, allowPrefix)
 			if hit {
 				if !anyHit && replacement != nil {
 					// First hit — lazy-init the rewritten slice so the
@@ -85,7 +98,7 @@ func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 		var newEls []Val
 		anyHit := false
 		for i, e := range vv.Elements {
-			ne, hit := foldSelfRef(e, fullKey, replacement)
+			ne, hit := foldSelfRefInner(e, fullKey, replacement, allowPrefix)
 			if hit {
 				if !anyHit && replacement != nil {
 					newEls = make([]Val, len(vv.Elements))
@@ -112,7 +125,7 @@ func foldSelfRef(v Val, fullKey string, replacement Val) (Val, bool) {
 		anyHit := false
 		for _, k := range vv.keys {
 			val := vv.values[k]
-			nv, hit := foldSelfRef(val, fullKey, replacement)
+			nv, hit := foldSelfRefInner(val, fullKey, replacement, false)
 			if hit {
 				if !anyHit && replacement != nil {
 					newObj = newObjectVal()
@@ -285,10 +298,15 @@ func foldOrSkipPrior(prior Val, fullKey string, old Val) (Val, bool) {
 }
 
 func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
+	return foldOptionalSelfRefAbsentInner(v, fullKey, true)
+}
+
+// See foldSelfRefInner for the allowPrefix narrowing rule.
+func foldOptionalSelfRefAbsentInner(v Val, fullKey string, allowPrefix bool) (Val, bool) {
 	switch vv := v.(type) {
 	case *substPlaceholder:
-		if vv.knownAbsent ||
-			(substFullKey(vv) != fullKey && substPrefixRemainder(vv, fullKey) == nil) {
+		prefixHit := allowPrefix && substPrefixRemainder(vv, fullKey) != nil
+		if vv.knownAbsent || (substFullKey(vv) != fullKey && !prefixHit) {
 			return v, true
 		}
 		if !vv.node.Optional {
@@ -300,7 +318,7 @@ func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
 	case *concatPlaceholder:
 		newVals := make([]Val, len(vv.vals))
 		for i, e := range vv.vals {
-			folded, ok := foldOptionalSelfRefAbsent(e, fullKey)
+			folded, ok := foldOptionalSelfRefAbsentInner(e, fullKey, allowPrefix)
 			if !ok {
 				return nil, false
 			}
@@ -310,7 +328,7 @@ func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
 	case *ArrayVal:
 		newEls := make([]Val, len(vv.Elements))
 		for i, e := range vv.Elements {
-			folded, ok := foldOptionalSelfRefAbsent(e, fullKey)
+			folded, ok := foldOptionalSelfRefAbsentInner(e, fullKey, allowPrefix)
 			if !ok {
 				return nil, false
 			}
@@ -329,7 +347,7 @@ func foldOptionalSelfRefAbsent(v Val, fullKey string) (Val, bool) {
 		// correct — the rebuilt object must preserve the full prior chain.
 		newObj := newObjectVal()
 		for _, k := range vv.keys {
-			folded, ok := foldOptionalSelfRefAbsent(vv.values[k], fullKey)
+			folded, ok := foldOptionalSelfRefAbsentInner(vv.values[k], fullKey, false)
 			if !ok {
 				return nil, false
 			}
