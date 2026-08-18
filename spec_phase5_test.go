@@ -493,6 +493,124 @@ func TestSpec_S13a_12_PrefixSelfRefEdges(t *testing.T) {
 	}
 }
 
+// TestSpec_S13a_12_LayerMergeBookkeeping pins the bookkeeping side of the
+// standalone-prefix layer merge: priorValues from BOTH layers survive so
+// per-object look-back keeps working after the fold. Expected values verified
+// against py.hocon (post-#37/#38).
+func TestSpec_S13a_12_LayerMergeBookkeeping(t *testing.T) {
+	// Two object layers below the sandwich: the navigated `a` carries its own
+	// delayed-merge chain (c:1 under c:2), and the below layer carries chains
+	// for a/k — the merged prior must keep both layers' bookkeeping.
+	cfg := mustParseCfg(t, `
+foo : { a : { c : 1 }, k : 1 }
+foo : { a : { c : 2 }, k : 2 }
+foo : ${foo.a}
+foo : { z : 9 }
+`)
+	if cfg.GetInt("foo.a.c") != 2 || cfg.GetInt("foo.k") != 2 ||
+		cfg.GetInt("foo.c") != 2 || cfg.GetInt("foo.z") != 9 {
+		t.Errorf("layered: expected {a:{c:2}, k:2, c:2, z:9}, got a.c=%v k=%v c=%v z=%v",
+			cfg.GetIntOption("foo.a.c"), cfg.GetIntOption("foo.k"),
+			cfg.GetIntOption("foo.c"), cfg.GetIntOption("foo.z"))
+	}
+
+	// Key collision where both sides are objects: the layer merge recurses
+	// instead of letting the navigated side clobber the below object.
+	cfg = mustParseCfg(t, `
+foo : { shared : { p : 1 }, a : { shared : { q : 2 } } }
+foo : ${foo.a}
+foo : { z : 0 }
+`)
+	if cfg.GetInt("foo.shared.p") != 1 || cfg.GetInt("foo.shared.q") != 2 ||
+		cfg.GetInt("foo.a.shared.q") != 2 || cfg.GetInt("foo.z") != 0 {
+		t.Errorf("recurse: expected shared={p:1,q:2}, got p=%v q=%v",
+			cfg.GetIntOption("foo.shared.p"), cfg.GetIntOption("foo.shared.q"))
+	}
+}
+
+// TestSpec_S13a_12_UndefinedClassificationErrors pins the error side of the
+// prefix rule: every way the below-navigation can come up empty or poisoned
+// takes the spec's "undefined" classification (required → error). Expected
+// outcomes verified against py.hocon (post-#37/#38).
+func TestSpec_S13a_12_UndefinedClassificationErrors(t *testing.T) {
+	cases := []struct{ name, src string }{
+		// fold-side: the walk dead-ends in a scalar mid-path at prior-save time
+		{"fold-scalar-deadend", "foo : { a : 5 }\nfoo : ${foo.a.b}\nfoo : { c : 1 }"},
+		// resolve-side (no layer above): the below has no such key
+		{"resolve-key-miss", "foo : { a : 1 }\nfoo : ${foo.b}"},
+		// resolve-side: the walk dead-ends in a scalar mid-path
+		{"resolve-scalar-deadend", "foo : { a : 1 }\nfoo : ${foo.a.b}"},
+		// resolve-side: the below itself fails to resolve — the error propagates
+		{"prior-error-propagates", "foo : { a : ${zz} }\nfoo : ${foo.a}"},
+		// an optional final layer that vanishes falls back to the saved prior,
+		// and the prior's own undefined classification still errors
+		{"optional-final-prior-error", "foo : { a : 1 }\nfoo : ${foo.b}\nfoo : ${?zz}"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := hocon.ParseString(tc.src); err == nil {
+				t.Errorf("expected unresolved-substitution error, got nil")
+			}
+		})
+	}
+}
+
+// TestSpec_S13a_12_AllowUnresolvedLenientContract pins the lenient contract
+// for a required prefix self-ref with no below value. Resolve side (the subst
+// IS the field value): the placeholder survives in the tree. Fold side (the
+// knownAbsent sentinel sits in a prior layer under a top object): the
+// unresolvable prior is dropped from the delayed merge and the top layer
+// resolves alone — the same input errors in strict mode (see
+// TestSpec_S13a_12_UndefinedClassificationErrors/fold-scalar-deadend).
+func TestSpec_S13a_12_AllowUnresolvedLenientContract(t *testing.T) {
+	lenientResolve := func(t *testing.T, src string) *hocon.Config {
+		t.Helper()
+		cfg, err := hocon.ParseStringWithOptions(src,
+			hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		resolved, err := cfg.Resolve(hocon.DefaultResolveOptions().WithAllowUnresolved(true))
+		if err != nil {
+			t.Fatalf("Resolve(AllowUnresolved=true): %v", err)
+		}
+		return resolved
+	}
+
+	t.Run("resolve-side", func(t *testing.T) {
+		resolved := lenientResolve(t, "foo : { a : 1 }\nfoo : ${foo.b}")
+		if resolved.IsResolved() {
+			t.Error("expected the required prefix self-ref to remain unresolved")
+		}
+	})
+
+	t.Run("fold-side", func(t *testing.T) {
+		resolved := lenientResolve(t, "foo : { a : 5 }\nfoo : ${foo.a.b}\nfoo : { c : 1 }")
+		if !resolved.IsResolved() {
+			t.Fatal("expected the top layer to resolve with the poisoned prior dropped")
+		}
+		if resolved.GetInt("foo.c") != 1 || resolved.GetIntOption("foo.a").IsSome() {
+			t.Errorf("expected foo={c:1}, got c=%v a=%v",
+				resolved.GetIntOption("foo.c"), resolved.GetIntOption("foo.a"))
+		}
+	})
+
+	t.Run("fold-side-delayed-merge", func(t *testing.T) {
+		// The top layer carries its own placeholder, so phase-2 visits the
+		// field and the delayed merge actually resolves the knownAbsent prior
+		// — the lenient path returns it as a placeholder, which (not being an
+		// object) is dropped from the merge.
+		resolved := lenientResolve(t, "foo : { a : 5 }\nfoo : ${foo.a.b}\nfoo : { c : ${x} }\nx : 1")
+		if !resolved.IsResolved() {
+			t.Fatal("expected the top layer to resolve with the poisoned prior dropped")
+		}
+		if resolved.GetInt("foo.c") != 1 || resolved.GetIntOption("foo.a").IsSome() {
+			t.Errorf("expected foo={c:1}, got c=%v a=%v",
+				resolved.GetIntOption("foo.c"), resolved.GetIntOption("foo.a"))
+		}
+	})
+}
+
 // ── S13a.14: mutually-referring objects resolve lazily without false cycle ─────
 
 // TestSpec_S13a_14_MutualRefNoCycle verifies the spec example:
