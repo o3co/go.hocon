@@ -571,28 +571,61 @@ func parseBytes(s string) (int64, error) {
 		return 0, fmt.Errorf("unexpected characters in byte size %q", s)
 	}
 
+	// S21.1–S21.4 — the EXACT Lightbend unit set (typesafe-config 1.4.6 probe,
+	// 2026-08-18). Multi-letter units are case-sensitive: the kilo-decimal
+	// spelling is "kB" (KB/kb are errors), binary prefixes are capital-first
+	// ("Ki", never "ki"), long forms are lowercase only. Only the bare byte
+	// unit (B/b) and the single-letter -Xmx forms accept both cases.
 	multipliers := map[string]int64{
 		"":  1, // S18.4: no unit → bytes (HOCON.md L1341)
-		"B": 1, "byte": 1, "bytes": 1,
+		"B": 1, "b": 1, "byte": 1, "bytes": 1,
 		// S21.4: single-letter abbreviations → powers of two (HOCON.md L1385,
-		// java -Xmx convention). Both upper- and lower-case are accepted.
+		// java -Xmx convention). Z/z/Y/y live in bigMultipliers below.
 		"K": 1 << 10, "k": 1 << 10,
 		"M": 1 << 20, "m": 1 << 20,
 		"G": 1 << 30, "g": 1 << 30,
 		"T": 1 << 40, "t": 1 << 40,
 		"P": 1 << 50, "p": 1 << 50,
 		"E": 1 << 60, "e": 1 << 60,
-		"KB": 1000, "kilobyte": 1000, "kilobytes": 1000,
-		"KiB": 1024, "kibibyte": 1024, "kibibytes": 1024,
+		"kB": 1000, "kilobyte": 1000, "kilobytes": 1000,
+		"Ki": 1024, "KiB": 1024, "kibibyte": 1024, "kibibytes": 1024,
 		"MB": 1_000_000, "megabyte": 1_000_000, "megabytes": 1_000_000,
-		"MiB": 1024 * 1024, "mebibyte": 1024 * 1024, "mebibytes": 1024 * 1024,
+		"Mi": 1024 * 1024, "MiB": 1024 * 1024, "mebibyte": 1024 * 1024, "mebibytes": 1024 * 1024,
 		"GB": 1_000_000_000, "gigabyte": 1_000_000_000, "gigabytes": 1_000_000_000,
-		"GiB": 1024 * 1024 * 1024, "gibibyte": 1024 * 1024 * 1024, "gibibytes": 1024 * 1024 * 1024,
+		"Gi": 1 << 30, "GiB": 1 << 30, "gibibyte": 1 << 30, "gibibytes": 1 << 30,
 		"TB": 1_000_000_000_000, "terabyte": 1_000_000_000_000, "terabytes": 1_000_000_000_000,
-		"TiB": 1024 * 1024 * 1024 * 1024, "tebibyte": 1024 * 1024 * 1024 * 1024, "tebibytes": 1024 * 1024 * 1024 * 1024,
+		"Ti": 1 << 40, "TiB": 1 << 40, "tebibyte": 1 << 40, "tebibytes": 1 << 40,
+		"PB": 1_000_000_000_000_000, "petabyte": 1_000_000_000_000_000, "petabytes": 1_000_000_000_000_000,
+		"Pi": 1 << 50, "PiB": 1 << 50, "pebibyte": 1 << 50, "pebibytes": 1 << 50,
+		"EB": 1_000_000_000_000_000_000, "exabyte": 1_000_000_000_000_000_000, "exabytes": 1_000_000_000_000_000_000,
+		"Ei": 1 << 60, "EiB": 1 << 60, "exbibyte": 1 << 60, "exbibytes": 1 << 60,
+	}
+	// Units whose multiplier exceeds int64 (ZB=10^21, YB=10^24, Zi=2^70,
+	// Yi=2^80). Lightbend recognises them and range-errors on any result past
+	// the long ceiling, so an integer count ≥1 can never survive — every
+	// valid use is fractional, and those route through the float path with
+	// its overflow guard.
+	bigMultipliers := map[string]float64{
+		"ZB": 1e21, "zettabyte": 1e21, "zettabytes": 1e21,
+		"Zi": math.Exp2(70), "ZiB": math.Exp2(70), "zebibyte": math.Exp2(70), "zebibytes": math.Exp2(70),
+		"Z": math.Exp2(70), "z": math.Exp2(70),
+		"YB": 1e24, "yottabyte": 1e24, "yottabytes": 1e24,
+		"Yi": math.Exp2(80), "YiB": math.Exp2(80), "yobibyte": math.Exp2(80), "yobibytes": math.Exp2(80),
+		"Y": math.Exp2(80), "y": math.Exp2(80),
 	}
 	mult, ok := multipliers[unit]
 	if !ok {
+		if bigMult, bigOK := bigMultipliers[unit]; bigOK {
+			f, err := strconv.ParseFloat(numStr, 64)
+			if err != nil {
+				return 0, err
+			}
+			prod := f * bigMult
+			if math.IsInf(prod, 0) || math.IsNaN(prod) || prod >= math.Exp2(63) || prod < math.MinInt64 {
+				return 0, fmt.Errorf("byte size %q overflows int64 representable range", s)
+			}
+			return int64(prod), nil
+		}
 		return 0, fmt.Errorf("unknown byte unit %q", unit)
 	}
 

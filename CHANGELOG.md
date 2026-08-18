@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Behavior
 
+- **BREAKING (spec fix, S21.2–S21.3): byte units now match the Lightbend
+  reference exactly.** The kilo-decimal spelling is `kB` — the old `KB` key
+  (which Lightbend rejects) is now an error, and the case-sensitive table
+  gains the missing units: two-letter binary `Ki`–`Yi`, `PB`–`YB`,
+  `PiB`–`YiB` (+ long forms) and single-letter `Z`/`z`/`Y`/`y`. Multipliers
+  past int64 (ZB, YB, Zi, Yi) route through the float path, where any count
+  ≥ 1 overflows exactly as it does in Lightbend (probe 2026-08-18). Part of
+  the four-impl units audit.
+
 - **BREAKING (spec fix, S13a.12): a substitution whose target lies inside the
   field being defined (`foo : ${foo.a}`) now resolves against the field's
   "below" value — the merge of the stack beneath the substitution — instead of
