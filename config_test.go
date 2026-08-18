@@ -100,7 +100,7 @@ func TestConfig_GetBytes(t *testing.T) {
 		want int64
 	}{
 		{`b = "100B"`, 100},
-		{`b = "1KB"`, 1000},
+		{`b = "1kB"`, 1000},
 		{`b = "1KiB"`, 1024},
 		{`b = "1MB"`, 1_000_000},
 		{`b = "1MiB"`, 1024 * 1024},
@@ -573,7 +573,7 @@ func TestConfig_GetDurationOption_None(t *testing.T) {
 }
 
 func TestConfig_GetBytesOption_Some(t *testing.T) {
-	cfg := mustParseCfg(t, `sz = "1KB"`)
+	cfg := mustParseCfg(t, `sz = "1kB"`)
 	opt := cfg.GetBytesOption("sz")
 	if !opt.IsSome() {
 		t.Fatal("expected Some")
@@ -585,7 +585,7 @@ func TestConfig_GetBytesOption_Some(t *testing.T) {
 }
 
 func TestConfig_GetBytesOption_None(t *testing.T) {
-	cfg := mustParseCfg(t, `sz = "1KB"`)
+	cfg := mustParseCfg(t, `sz = "1kB"`)
 	if cfg.GetBytesOption("missing").IsSome() {
 		t.Error("expected None for missing key")
 	}
@@ -1223,8 +1223,8 @@ func TestSpec_S21_5_FractionalByteValues(t *testing.T) {
 		src  string
 		want int64
 	}{
-		{`v: "0.5KB"`, 500},
-		{`v: "1.5KB"`, 1500},
+		{`v: "0.5kB"`, 500},
+		{`v: "1.5kB"`, 1500},
 		{`v: "0.5MB"`, 500_000},
 		{`v: "0.5MiB"`, 512 * 1024},
 		{`v: "0.5KiB"`, 512},
@@ -1388,7 +1388,7 @@ func TestParseBytes_MultiByteWS(t *testing.T) {
 		input string
 		want  int64
 	}{
-		{"emsp-between-number-and-unit", "1" + emsp + "KB", 1000},
+		{"emsp-between-number-and-unit", "1" + emsp + "kB", 1000},
 	}
 	for _, tc := range tests {
 		tc := tc
