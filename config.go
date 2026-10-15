@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/o3co/go.hocon/internal/resolver"
 )
@@ -450,55 +449,9 @@ func (c *Config) GetDurationOption(path string) Option[time.Duration] {
 }
 
 func parseDuration(s string) (time.Duration, error) {
-	// Strip HOCON whitespace (not unicode.IsSpace — see isHoconWS).
-	s = strings.TrimFunc(s, isHoconWS)
-
-	// Scan optional sign + digits + optional fractional part.
-	i := 0
-	if i < len(s) && (s[i] == '+' || s[i] == '-') {
-		i++
-	}
-	digStart := i
-	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-		i++
-	}
-	if i == digStart {
-		return 0, errors.New("no number")
-	}
-	if i < len(s) && s[i] == '.' {
-		i++ // consume dot
-		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-			i++
-		}
-	}
-	numStr := s[:i]
-
-	// Consume optional HOCON whitespace between number and unit.
-	for i < len(s) {
-		r, w := utf8.DecodeRuneInString(s[i:])
-		if !isHoconWS(r) {
-			break
-		}
-		i += w
-	}
-
-	// Consume unit (letters only; error if non-letter non-WS remains).
-	unitStart := i
-	for i < len(s) && (s[i] >= 'a' && s[i] <= 'z' || s[i] >= 'A' && s[i] <= 'Z') {
-		i++
-	}
-	unit := s[unitStart:i]
-
-	// Trailing HOCON whitespace.
-	for i < len(s) {
-		r, w := utf8.DecodeRuneInString(s[i:])
-		if !isHoconWS(r) {
-			break
-		}
-		i += w
-	}
-	if i < len(s) {
-		return 0, errors.New("unexpected characters")
+	numStr, unit, err := splitUnitValue(s)
+	if err != nil {
+		return 0, err
 	}
 
 	// Resolve multiplier.
@@ -602,57 +555,9 @@ func (c *Config) GetBytesOption(path string) Option[int64] {
 }
 
 func parseBytes(s string) (int64, error) {
-	// Strip HOCON whitespace (not unicode.IsSpace — see isHoconWS).
-	s = strings.TrimFunc(s, isHoconWS)
-
-	// Scan optional sign + digits + optional fractional part.
-	i := 0
-	if i < len(s) && (s[i] == '+' || s[i] == '-') {
-		i++
-	}
-	digStart := i
-	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-		i++
-	}
-	if i == digStart {
-		return 0, fmt.Errorf("no number in byte size %q", s)
-	}
-	hasFrac := false
-	if i < len(s) && s[i] == '.' {
-		hasFrac = true
-		i++ // consume dot
-		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-			i++
-		}
-	}
-	numStr := s[:i]
-
-	// Consume optional HOCON whitespace between number and unit.
-	for i < len(s) {
-		r, w := utf8.DecodeRuneInString(s[i:])
-		if !isHoconWS(r) {
-			break
-		}
-		i += w
-	}
-
-	// Consume unit (letters + uppercase allowed for bytes per HOCON.md L1344).
-	unitStart := i
-	for i < len(s) && (s[i] >= 'a' && s[i] <= 'z' || s[i] >= 'A' && s[i] <= 'Z') {
-		i++
-	}
-	unit := s[unitStart:i]
-
-	// Trailing HOCON whitespace.
-	for i < len(s) {
-		r, w := utf8.DecodeRuneInString(s[i:])
-		if !isHoconWS(r) {
-			break
-		}
-		i += w
-	}
-	if i < len(s) {
-		return 0, fmt.Errorf("unexpected characters in byte size %q", s)
+	numStr, unit, err := splitUnitValue(s)
+	if err != nil {
+		return 0, err
 	}
 
 	// S21.1–S21.4 — the EXACT Lightbend unit set (typesafe-config 1.4.6 probe,
@@ -700,7 +605,7 @@ func parseBytes(s string) (int64, error) {
 	// integer-form → int64 * mult (exact, overflow-checked); fractional →
 	// exact decimal product, then truncate toward zero (E20, Lightbend
 	// BigDecimal.toBigInteger parity: 1.001kB is 1001, 1.0009kB is 1000).
-	if !hasFrac && integerRegex.MatchString(numStr) {
+	if integerRegex.MatchString(numStr) {
 		n, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {
 			return 0, err
@@ -742,18 +647,104 @@ var bigByteMultipliers = func() map[string]*big.Int {
 	}
 }()
 
+// unitNumberRegex is the number part of a unit value: Java's double grammar
+// (E20 exponent forms, xx.hocon#111) — `1e+5`, `1.e3`, `.5` are numbers.
+var unitNumberRegex = regexp.MustCompile(`^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$`)
+
+// splitUnitValue splits a duration or byte-size value into its number and
+// unit, as Lightbend's getUnits does: the unit is the trailing run of
+// letters, the number is everything before it with HOCON whitespace
+// trimmed. The duration and byte-size readers both go through it, so the
+// number grammar has one owner. Its errors are reasons, without the value.
+func splitUnitValue(s string) (num, unit string, err error) {
+	s = strings.TrimFunc(s, isHoconWS)
+	i := len(s)
+	for i > 0 && (s[i-1] >= 'a' && s[i-1] <= 'z' || s[i-1] >= 'A' && s[i-1] <= 'Z') {
+		i--
+	}
+	num, unit = strings.TrimRightFunc(s[:i], isHoconWS), s[i:]
+	if num == "" {
+		return "", "", errors.New("no number")
+	}
+	if !unitNumberRegex.MatchString(num) {
+		return "", "", errors.New("unexpected characters")
+	}
+	return num, unit, nil
+}
+
 // truncProduct returns num × mult truncated toward zero, computed exactly from
-// the decimal numeral num ([+-]digits[.digits], as the duration and byte-size
-// scanners produce it) — never through float64, whose binary rounding turns
+// the decimal numeral num (unitNumberRegex: sign, digits, fraction,
+// exponent) — never through float64, whose binary rounding turns
 // 1.001 × 1000 into 1000.9999999999999 (E20). fits is false when the result
 // does not fit in int64.
+//
+// A huge exponent never builds 10^N: once the magnitude of num is known to
+// be at least 10^20 the product cannot fit int64 (mult >= 1), and below
+// 10^-25 it truncates to 0 even for the largest unit (Yi = 2^80 < 1.3e24).
+// Only exponents between those bounds reach big.Rat.
 func truncProduct(num string, mult *big.Int) (n int64, fits bool) {
-	r, ok := new(big.Rat).SetString(num)
+	neg := false
+	switch {
+	case strings.HasPrefix(num, "-"):
+		neg, num = true, num[1:]
+	case strings.HasPrefix(num, "+"):
+		num = num[1:]
+	}
+	mantissa, expPart := num, ""
+	if i := strings.IndexAny(num, "eE"); i >= 0 {
+		mantissa, expPart = num[:i], num[i+1:]
+	}
+	intPart, fracPart := mantissa, ""
+	if i := strings.IndexByte(mantissa, '.'); i >= 0 {
+		intPart, fracPart = mantissa[:i], mantissa[i+1:]
+	}
+	digits := strings.TrimLeft(intPart+fracPart, "0")
+	if digits == "" {
+		return 0, true // zero, whatever the exponent
+	}
+	var exp int64
+	if expPart != "" {
+		expNeg := strings.HasPrefix(expPart, "-")
+		expDigits := strings.TrimLeft(strings.TrimLeft(expPart, "+-"), "0")
+		if len(expDigits) > 9 { // |exp| >= 10^9: far outside either bound
+			if expNeg {
+				return 0, true
+			}
+			return 0, false
+		}
+		if expDigits != "" {
+			e, err := strconv.ParseInt(expDigits, 10, 64)
+			if err != nil {
+				return 0, false
+			}
+			exp = e
+		}
+		if expNeg {
+			exp = -exp
+		}
+	}
+	// |num| lies in [10^(top-1), 10^top).
+	top := int64(len(digits)) + exp - int64(len(fracPart))
+	switch {
+	case top > 20:
+		return 0, false
+	case top < -25:
+		return 0, true
+	}
+	d, ok := new(big.Int).SetString(digits, 10)
 	if !ok {
-		// Unreachable: the scanners only hand over [+-]digits[.digits].
 		return 0, false
 	}
+	r := new(big.Rat).SetInt(d)
+	if scale := exp - int64(len(fracPart)); scale >= 0 {
+		r.Mul(r, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(scale), nil)))
+	} else {
+		r.Quo(r, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(-scale), nil)))
+	}
 	r.Mul(r, new(big.Rat).SetInt(mult))
+	if neg {
+		r.Neg(r)
+	}
 	q := new(big.Int).Quo(r.Num(), r.Denom()) // Quo truncates toward zero
 	if !q.IsInt64() {
 		return 0, false
