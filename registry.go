@@ -130,7 +130,9 @@ func (r *pkgRegistry) unregister(identifier, file string) {
 }
 
 // lookup looks up a (identifier, file) pair in the global registry.
-// Returns (content, nil) on success, (nil, error) on miss.
+// Returns (content, nil) on success, (nil, error) on miss. The miss error
+// carries the blank-import hint — only the registry knows the lookup missed —
+// and leaves the package(...) context to the resolver, which adds it.
 func (r *pkgRegistry) lookup(identifier, file string) ([]byte, error) {
 	key := pkgKey{identifier: identifier, file: file}
 	r.mu.RLock()
@@ -138,9 +140,8 @@ func (r *pkgRegistry) lookup(identifier, file string) ([]byte, error) {
 	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf(
-			"package(%q, %q) not found in registry; "+
-				"ensure the providing package is imported with _ %q in your application",
-			identifier, file, identifier,
+			"not found in registry; ensure the providing package is imported with _ %q in your application",
+			identifier,
 		)
 	}
 	return content, nil
