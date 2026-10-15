@@ -18,8 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The value stays exact (E20) and truncates the same way: `"1e-3kB"` is 1
   byte, `"1.0005e3B"` 1000, `"1e-3s"` 1 ms.
 - A huge exponent never builds 10^N: `"1e400s"` is an overflow error (E21),
-  `"1e400B"` is out of range (S21.4), and `"1e-400s"` is 0, each decided before
-  any big-number work.
+  `"1e400B"` is an invalid (out-of-range, S21.4) byte size, and `"1e-400s"` is
+  0, each decided before any big-number work.
+- Some error reasons for input that was already an error read differently,
+  because the number and unit are now split as Lightbend does: e.g. `"1e3B"`
+  as a duration is `unknown unit "B"` (was `unexpected characters`), and
+  `"-ms"` is `unexpected characters` (was `no number`).
 - Periods are unchanged: integer-only, so `"1e2d"` is an error, as in
   Lightbend. An invalid number part stays an error (`"1e3.5ms"`).
 

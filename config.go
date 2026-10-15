@@ -706,11 +706,10 @@ func truncProduct(num string, mult *big.Int) (n int64, fits bool) {
 	if expPart != "" {
 		expNeg := strings.HasPrefix(expPart, "-")
 		expDigits := strings.TrimLeft(strings.TrimLeft(expPart, "+-"), "0")
-		if len(expDigits) > 9 { // |exp| >= 10^9: far outside either bound
-			if expNeg {
-				return 0, true
-			}
-			return 0, false
+		if len(expDigits) > 18 {
+			// Saturate: |exp| >= 10^18 dwarfs any mantissa length a string
+			// can hold, and keeps the top computation inside int64.
+			expDigits = "1000000000000000000"
 		}
 		if expDigits != "" {
 			e, err := strconv.ParseInt(expDigits, 10, 64)

@@ -61,7 +61,7 @@ func TestE20Exp_DurationRejects(t *testing.T) {
 		`"1e3e"`,    // unit "e" is not a duration unit
 		`"1e"`,      // unit "e"
 		`"1e+ms"`,   // exponent without digits
-		`"e3ms"`,    // no number
+		`"e3ms"`,    // "e3" is not a number (unit "ms")
 	} {
 		t.Run(in, func(t *testing.T) {
 			cfg := mustParseCfg(t, "t = "+in)
@@ -86,6 +86,7 @@ func TestE20Exp_Bytes(t *testing.T) {
 		{`"1e-999999999kB"`, 0}, // fast: no 10^N built
 		{`"1e-30Yi"`, 0},        // below 1 byte even with the largest unit
 		{`"1e-6ZB"`, 1000000000000000},
+		{`"1e-3e"`, 1152921504606846}, // unit e = 2^60 (Lightbend getUnits); 1e-3 × 2^60 truncated
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {

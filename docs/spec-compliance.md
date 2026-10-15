@@ -824,7 +824,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S18.2** String parsed as: optional ws + number + ws + unit + ws — §Units format (L1281-1294)
-  tests: config_test.go:78 (TestConfig_GetDuration); config_test.go:97 (TestConfig_GetBytes)
+  tests: config_test.go:78 (TestConfig_GetDuration); config_test.go:97 (TestConfig_GetBytes); e20_exponent_units_test.go (exponent forms, xx.hocon#111)
   status: ✅
 
 - **S18.3** Unit name letters-only (Unicode L* / `isLetter`) — §Units format (L1287)
@@ -832,7 +832,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S18.4** String with no unit → interpreted with default unit — §Units format (L1290)
-  tests: spec_phase5_test.go (TestSpec_S18_4_StringNoUnit_Pin, TestSpec_S18_4_StringNoUnit_Spec); spec_s18_units_default_test.go (TestUnitsDefault_Duration, TestUnitsDefault_Bytes, TestUnitsDefault_Negative)
+  tests: spec_phase5_test.go (TestSpec_S18_4_StringNoUnit_Pin, TestSpec_S18_4_StringNoUnit_Spec); spec_s18_units_default_test.go (TestUnitsDefault_Duration, TestUnitsDefault_Bytes, TestUnitsDefault_Negative; ud14–ud20 / ub09–ub13 exponent forms)
   status: ✅ — fixed in Phase 6 #3d; parseDuration/parseBytes now treat bare-number strings as default unit (ms / bytes). Free rider: S18.1 co-fixed. Closes #81.
 
 ## S19. Duration format
