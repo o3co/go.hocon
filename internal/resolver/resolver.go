@@ -350,8 +350,9 @@ type Options struct {
 	Fallback *ObjectVal
 	// PackageLookup, if non-nil, is called by resolveInclude for package(...) includes.
 	// It receives the identifier and file and returns the registered HOCON source bytes,
-	// or (nil, non-nil error) on miss. When nil, the resolver returns a ResolveError for
-	// any package include encountered.
+	// or (nil, non-nil error) on miss. The error says why (a registry miss carries its
+	// import hint) and must not repeat the package(...) context: the resolver adds it.
+	// When nil, the resolver returns a ResolveError for any package include encountered.
 	// E11: child resolvers created during include resolution MUST copy this field from the
 	// parent so that package includes within included files are resolved correctly.
 	PackageLookup func(identifier, file string) ([]byte, error)
@@ -1883,9 +1884,7 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 		}
 	} else {
 		return nil, &ResolveError{
-			Message: fmt.Sprintf("package(%q, %q) not found in registry; "+
-				"ensure the providing package is imported with _ %q in your application",
-				identifier, file, identifier),
+			Message: fmt.Sprintf("package(%q, %q): no package lookup configured", identifier, file),
 		}
 	}
 
