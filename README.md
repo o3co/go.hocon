@@ -430,11 +430,12 @@ Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v
 | Optional substitutions (`${?path}`) | ✅ | ✅ |
 | Include | ✅ | ✅ |
 | `include required(...)` / `file(...)` | ✅ | ✅ |
-| `include classpath(...)` | ❌ (by design — see [Known Limitations](#known-limitations); use [`include package(...)`](#package-includes-include-package)) | ✅ (resolved against the top-level file's directory) |
+| `include classpath(...)` | ❌ (by design — see [Known Limitations](#known-limitations); use [`include package(...)`](#package-includes-include-package)) | ✅ (resolved against the top-level file's directory; the working directory for `ParseString`) |
 | `include url(...)` | ❌ (by design — see [Known Limitations](#known-limitations)) | ❌ |
-| Array as the document root (`[1, 2]`) | ❌ (rejected with a `ConfigError`, as Lightbend's Config API does) | ✅ (`GetRoot()` returns the array) |
+| Circular include detection | ✅ | ❌ (no cycle check; the recursion ends in a "too many open files" error or a stack overflow) |
+| Array as the document root (`[1, 2]`) | ❌ (by design — see [Known Limitations](#known-limitations)) | ⚠️ (`GetRoot()` returns the array; substitutions inside it are left unresolved) |
 | Object/Array concatenation | ✅ | ✅ |
-| Type coercion | ✅ | ✅ |
+| Type coercion | ✅ | ⚠️ (string → number/bool only; an integer such as `1` fails `GetFloat64E`, and `GetIntSliceE` does not convert `"1"`) |
 | Duration parsing (`30s`, `5m`) | ✅ | ⚠️ (unquoted literals only; a quoted `"30s"` or one from an env var fails `GetDurationE`) |
 | Byte size parsing (`512MB`) | ✅ | ❌ (parses as a string) |
 | `+=` append | ✅ | ✅ |
@@ -623,7 +624,8 @@ if err := conf.Unmarshal(&app); err != nil {
 ## Known Limitations
 
 - **`include url(...)`** is not supported. Fetching remote configuration is outside the scope of this parser. Use your application's HTTP client to fetch the content, then pass it to `ParseString()`.
-- **`include classpath(...)`** is not supported. This is a JVM-specific include form with no equivalent outside Java runtimes.
+- **`include classpath(...)`** is not supported. This is a JVM-specific include form; go.hocon provides [`include package(...)`](#package-includes-include-package) for the same purpose.
+- **Array-root documents** (`[1, 2]`) parse but are rejected with a `ConfigError`, as Lightbend's object-rooted Config API does. Wrap the array in an object (`items = [1, 2]`).
 - **No watch/reload** — the library parses config at load time. For live-reloading, re-call `ParseString()` or `ParseFile()` on change.
 - **No streaming parser** — the entire input is loaded into memory.
 

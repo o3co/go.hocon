@@ -417,7 +417,7 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 
 ### HOCON 実装
 
-[gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.4.0** と 2026-10-16 に照合して検証。
+[gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.4.0** と 2026-10-16 に比較。
 
 | 機能 | go.hocon | gurkankaymak/hocon v1.4.0 |
 | --- | :---: | :---: |
@@ -425,11 +425,12 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 | オプショナル代入（`${?path}`） | ✅ | ✅ |
 | Include | ✅ | ✅ |
 | `include required(...)` / `file(...)` | ✅ | ✅ |
-| `include classpath(...)` | ❌（設計上の判断 — [既知の制限](#既知の制限) を参照。代わりに [`include package(...)`](#パッケージ-include-include-package)） | ✅（トップレベルのファイルのディレクトリを基準に解決） |
+| `include classpath(...)` | ❌（設計上の判断 — [既知の制限](#既知の制限) を参照。代わりに [`include package(...)`](#パッケージ-include-include-package)） | ✅（トップレベルのファイルのディレクトリを基準に解決。`ParseString` では作業ディレクトリ） |
 | `include url(...)` | ❌（設計上の判断 — [既知の制限](#既知の制限) を参照） | ❌ |
-| ドキュメントのルートが配列（`[1, 2]`） | ❌（Lightbend の Config API と同じく `ConfigError` で拒否） | ✅（`GetRoot()` が配列を返す） |
+| 循環 include の検出 | ✅ | ❌（循環を検査しない。再帰は "too many open files" エラーかスタックオーバーフローで止まる） |
+| ドキュメントのルートが配列（`[1, 2]`） | ❌（設計上の判断 — [既知の制限](#既知の制限) を参照） | ⚠️（`GetRoot()` が配列を返す。中の代入は解決されない） |
 | オブジェクト / 配列の連結 | ✅ | ✅ |
-| 型変換 | ✅ | ✅ |
+| 型変換 | ✅ | ⚠️（文字列 → 数値 / 真偽値のみ。`1` のような整数は `GetFloat64E` が失敗し、`GetIntSliceE` は `"1"` を変換しない） |
 | Duration パース（`30s`、`5m`） | ✅ | ⚠️（クォートなしのリテラルのみ。クォートした `"30s"` や環境変数から来た値は `GetDurationE` が失敗） |
 | バイトサイズパース（`512MB`） | ✅ | ❌（文字列としてパース） |
 | `+=` 追記 | ✅ | ✅ |
@@ -596,7 +597,8 @@ if err := conf.Unmarshal(&app); err != nil {
 ## 既知の制限
 
 - **`include url(...)`** は非対応です。リモート設定の取得はこのパーサーの対象外です。アプリケーションの HTTP クライアントで取得し、内容を `ParseString()` に渡してください。
-- **`include classpath(...)`** は非対応です。JVM 固有の include 形式で、Java ランタイム以外に相当するものがありません。
+- **`include classpath(...)`** は非対応です。JVM 固有の include 形式で、go.hocon では同じ目的に [`include package(...)`](#パッケージ-include-include-package) を使います。
+- **ルートが配列のドキュメント**（`[1, 2]`）はパースできますが、Lightbend のオブジェクトをルートとする Config API と同じく `ConfigError` で拒否します。配列はオブジェクトで包んでください（`items = [1, 2]`）。
 - **監視 / リロードなし** — 設定はロード時にパースします。ライブリロードが必要なら、変更時に `ParseString()` / `ParseFile()` を呼び直してください。
 - **ストリーミングパーサーなし** — 入力全体をメモリに読み込みます。
 
