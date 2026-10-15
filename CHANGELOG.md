@@ -18,8 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"9223372036854775807ns"` and `"-9223372036854775808ns"` are accepted, one
   nanosecond further is an error.
 - **A deliberate divergence from Lightbend (E21)**: Lightbend 1.4.6 saturates
-  to `Long.MAX_VALUE` nanoseconds instead (`TimeUnit.toNanos` clamps, and so
-  does the `(long)` cast on the fractional path). Byte sizes already error on
+  instead, to `Long.MAX_VALUE` / `Long.MIN_VALUE` nanoseconds
+  (`TimeUnit.toNanos` clamps, and so does the `(long)` cast on the fractional
+  path). Byte sizes already error on
   overflow; durations now match them.
 
 ### Fixed — fractional durations and byte sizes are computed exactly (E20, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))

@@ -483,7 +483,10 @@ func parseDuration(s string) (time.Duration, error) {
 	if integerRegex.MatchString(numStr) {
 		n, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {
-			return 0, overflow() // only ErrRange: integerRegex matched
+			if errors.Is(err, strconv.ErrRange) {
+				return 0, overflow()
+			}
+			return 0, err
 		}
 		// Go's / truncates toward zero, so these are the exact bounds on n.
 		if n > math.MaxInt64/int64(mult) || n < math.MinInt64/int64(mult) {
