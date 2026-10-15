@@ -93,14 +93,14 @@ HOCON は単なるシリアライズ形式ではなく、**プログラムに注
 
 - **各モジュールが名前空間を所有し、自分のデフォルトを同梱する。** `auth` モジュールは `auth { … }` を自分のコードの隣に置き、すべてのデフォルト値を埋めておきます。アプリケーションはそのデフォルトをコピーせず、`include` 1 行で取り込みます。
 - **アプリケーションは違う部分だけを上書きする。** 後のレイヤーが前のレイヤーにディープマージされるので、アプリケーションが書くのはブロック全体ではなく 2 キーだけです。
-- **各モジュールは自分の subtree だけを、自分のスキーマで読む。** モジュールは `auth` を要求し、自分が定義したスキーマで検証します。そのセクションの形がモジュールの契約で、ファイルの他の部分はモジュールから見えません。
-- **モジュール間の配線はアプリケーションに置く。** データベースが必要なモジュールは、オプショナル代入（`${?shared.db}`）でそれを表明します。値をどこから持ってくるかはアプリケーションが決めます。モジュール同士は互いを参照しないので、依存は一方向になります。
+- **各モジュールは自分のサブツリーだけを、自分のスキーマで読む。** モジュールは `auth` を要求し、自分が定義したスキーマで検証します。そのセクションの形がモジュールの契約で、ファイルの他の部分はモジュールから見えません。
+- **モジュール間の配線はアプリケーションに置く。** モジュールは自分が読むキー（`auth.db`）を宣言するだけで、アプリケーションが与えるべきものにはデフォルトを置きません。アプリケーションがそれを共有の値につなぎます（`auth.db = ${shared.db}`）。モジュールは互いのキーもアプリケーションのキーも参照しないので、依存は一方向になります。
 
 ```hocon
 # auth/reference.conf: auth パッケージに同梱、auth チームが所有
 auth {
   session { lifetime = 30m, max-body = 64KiB }
-  db = ${?shared.db}
+  # db: デフォルトなし。アプリケーションが auth.db を与える
 }
 ```
 
@@ -109,11 +109,21 @@ auth {
 include package("github.com/acme/auth", "reference.conf")
 
 shared.db { host = db.internal, port = 5432 }
+auth.db = ${shared.db}       # 配線はアプリケーションに置く
 auth.session.lifetime = 2h   # 違う部分だけ上書きし、残りはモジュールのデフォルトのまま
 ```
 
 ```go
 // auth モジュールの中
+package auth
+
+import (
+    _ "embed"
+    "fmt"
+    "time"
+
+    "github.com/o3co/go.hocon"
+)
 
 //go:embed reference.conf
 var reference []byte
@@ -125,36 +135,32 @@ func init() {
     }
 }
 
-// Config はモジュールの契約: auth セクションの形
-type Config struct {
+// Auth はモジュールの契約: auth セクションの形
+type Auth struct {
     Session struct {
         Lifetime time.Duration  `hocon:"lifetime"`
         MaxBody  hocon.ByteSize `hocon:"max-body"`
     } `hocon:"session"`
-    DB *struct {
+    DB struct {
         Host string `hocon:"host"`
         Port int    `hocon:"port"`
-    } `hocon:"db,omitempty"` // アプリケーションが shared.db を配線しない限り存在しない
+    } `hocon:"db"` // デフォルトなし: アプリケーションが auth.db を与える
 }
 
-// Load は auth の subtree だけを読む
-func Load(root *hocon.Config) (Config, error) {
-    var c Config
-    sub, err := root.GetConfigE("auth")
-    if err != nil {
-        return c, err
+// Load は auth のサブツリーだけを読む
+func Load(root *hocon.Config) (Auth, error) {
+    var auth Auth
+    if err := root.UnmarshalPath("auth", &auth); err != nil {
+        return auth, err
     }
-    if err := sub.Unmarshal(&c); err != nil {
-        return c, err
+    if auth.Session.Lifetime <= 0 {
+        return auth, fmt.Errorf("auth.session.lifetime must be positive, got %v", auth.Session.Lifetime)
     }
-    if c.Session.Lifetime <= 0 {
-        return c, fmt.Errorf("auth.session.lifetime must be positive, got %v", c.Session.Lifetime)
-    }
-    return c, nil
+    return auth, nil
 }
 ```
 
-`include package(...)` は、アプリケーションにファイルの置き場所を知らせずにモジュールがデフォルトを公開する仕組みです（[パッケージ include](#パッケージ-include-include-package) を参照）。JVM では Lightbend の `reference.conf` 規約が同じ役割を担います。
+`include package(...)` は HOCON.md の一部ではなく、o3co の実装が共有する規約です（[E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md#e11)）。`include classpath(...)` に相当する、JVM 以外のための仕組みです。アプリケーションがファイルの置き場所を知らなくても、モジュールはこれでデフォルトを公開できます（[パッケージ include](#パッケージ-include-include-package) を参照）。JVM では Lightbend の `reference.conf` 規約が同じ役割を担います。
 
 ## 特徴
 
@@ -209,7 +215,7 @@ resolved, _ := cfg.
 fmt.Println(resolved.GetString("version")) // "1.2.3-42"
 ```
 
-`ResolveOptions.WithUseSystemEnvironment(false)` で環境変数を参照しない閉じた解決（`os.Environ` へのフォールバックなし）に、`.WithAllowUnresolved(true)` で部分解決（未解決のパスは placeholder のまま残り、そこへの getter は `hocon.ErrNotResolved` を返す）になります。
+`ResolveOptions.WithUseSystemEnvironment(false)` で環境変数を参照しない閉じた解決（`os.Environ` へのフォールバックなし）に、`.WithAllowUnresolved(true)` で部分解決（未解決のパスは placeholder のまま残り、そこへの `Get*E` は `errors.Is(err, hocon.ErrNotResolved)` を満たすエラーを返す）になります。
 
 ### スカラーゲッター
 
@@ -308,7 +314,7 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 ### パッケージ include (`include package(...)`)
 
-`include package("<identifier>", "<file>")` は、Go パッケージが登録した HOCON を取り込みます。ライブラリは自分のモジュールの中にデフォルトを同梱し、アプリケーションはそのファイルがディスクのどこにあるかを知らずに取り込めます。これは実装横断の拡張（[E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md)）で、Lightbend HOCON の一部ではありません。
+`include package("<identifier>", "<file>")` は、Go パッケージが登録した HOCON を取り込みます。ライブラリは自分のモジュールの中にデフォルトを同梱し、アプリケーションはそのファイルがディスクのどこにあるかを知らずに取り込めます。これは実装横断の拡張（[E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md#e11)）で、Lightbend HOCON の一部ではありません。
 
 提供側のパッケージは、ファイルを埋め込んで `init()` で登録します:
 
@@ -387,7 +393,7 @@ max-size  = "512MiB"
 
 ## パフォーマンス
 
-Apple M4 Pro で `go test -bench`（Go 組み込みのベンチマーク）で計測。各イテレーションはパースと `GetString` 1 回を含みます。再現は `go test -bench=. -benchmem ./...`。
+Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）により計測。各イテレーションはパースと `GetString` 1 回を含みます。再現は `go test -bench=. -benchmem ./...`。
 
 | シナリオ | ops/sec | 1 回あたり |
 | --- | --- | --- |
@@ -457,7 +463,7 @@ Apple M4 Pro で `go test -bench`（Go 組み込みのベンチマーク）で�
 | --- | --- |
 | 仕様全体（out-of-scope を含む） | **92.4%** |
 | In-scope のみ | **100.0%** |
-| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 合格（`TestLightbendEquiv` / `TestLightbendSuite`。`*-expected.json` の比較のうち 3 つは理由を明記して除外: `test01` は環境依存、`test02` と `test03` は Lightbend 1.4.6 との既知の差異） |
+| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 合格（`TestLightbendEquiv` / `TestLightbendSuite`。`TestLightbendExpected` の `*-expected.json` の比較のうち 3 つは理由を明記して除外: `test01` は環境依存、`test02` と `test03` は Lightbend 1.4.6 との既知の差異） |
 | [hocon2](https://github.com/o3co/hocon2) 準拠テスト（JSON/YAML/TOML/Properties 出力） | 合格 |
 
 ## フォーマットアダプタ
