@@ -46,13 +46,17 @@
 // Unmarshal into a struct using hocon struct tags, or into map[string]any:
 //
 //	type ServerConfig struct {
-//	    Host    string        `hocon:"host"`
-//	    Port    int           `hocon:"port"`
-//	    Timeout time.Duration `hocon:"timeout,omitempty"`
+//	    Host    string         `hocon:"host"`
+//	    Port    int            `hocon:"port"`
+//	    Timeout time.Duration  `hocon:"timeout,omitempty"`
+//	    MaxBody hocon.ByteSize `hocon:"max-body,omitempty"`
 //	}
 //
 //	var s ServerConfig
 //	err := cfg.Unmarshal(&s)
+//
+// A time.Duration field reads like GetDuration and a ByteSize field reads like
+// GetBytes, so a unit value means the same thing through either path.
 //
 // # Substitutions
 //

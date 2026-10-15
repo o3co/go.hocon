@@ -215,10 +215,11 @@ v := opt.OrElse("default")
 
 ```go
 type ServerConfig struct {
-    Host    string        `hocon:"host"`
-    Port    int           `hocon:"port"`
-    Timeout time.Duration `hocon:"timeout,omitempty"`
-    Tags    []string      `hocon:"tags"`
+    Host    string         `hocon:"host"`
+    Port    int            `hocon:"port"`
+    Timeout time.Duration  `hocon:"timeout,omitempty"`
+    MaxBody hocon.ByteSize `hocon:"max-body,omitempty"`
+    Tags    []string       `hocon:"tags"`
 }
 
 var s ServerConfig
@@ -234,6 +235,8 @@ err = cfg.UnmarshalPath("servers", &servers)
 ```
 
 Fields without a `hocon` tag use the lowercased field name. `omitempty` preserves the pre-populated value when the key is missing.
+
+Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`.
 
 ### Error Types
 

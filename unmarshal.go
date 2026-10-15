@@ -301,6 +301,16 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 		return nil
 	}
 
+	// ByteSize (underlying kind is int64): same reader as GetBytes.
+	if target.Type() == reflect.TypeOf(ByteSize(0)) {
+		n, err := readBytes(sv.Raw)
+		if err != nil {
+			return fmt.Errorf("hocon: %w", err)
+		}
+		target.SetInt(n)
+		return nil
+	}
+
 	switch target.Kind() {
 	case reflect.String:
 		target.SetString(sv.Raw)

@@ -189,12 +189,9 @@ func (c *Config) GetBytesE(path string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	n, perr := parseBytes(s)
+	n, perr := readBytes(s)
 	if perr != nil {
-		return 0, &ConfigError{Path: path, Message: "invalid byte size: " + s}
-	}
-	if n < 0 {
-		return 0, &ConfigError{Path: path, Message: "byte size must not be negative"}
+		return 0, &ConfigError{Path: path, Message: perr.Error()}
 	}
 	return n, nil
 }
