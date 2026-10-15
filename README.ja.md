@@ -12,6 +12,8 @@
 > **[Claude](https://claude.ai/)（Anthropic）による実装** — 設計・実装のすべてを Claude Code が担当。
 > [GitHub Copilot](https://github.com/features/copilot) および [OpenAI Codex](https://openai.com/index/openai-codex/) によるレビュー。
 
+**ドキュメント:** [o3co.github.io/hocon](https://o3co.github.io/hocon/) — 4 実装・hocon2 CLI・共通の準拠コーパスをまとめた横断ハブです。
+
 [English](README.md)
 
 **ライブラリの立ち位置** — go.hocon は低レベルのパーサー API ではなく、HOCON の設定ローダーです。目的は `.hocon` ファイルを読み、Config API（`GetString`、`GetInt`、`GetFloat64`、`GetBool`、`GetDuration`、`GetBytes`、`Unmarshal`）で型付きにアクセスできるようにすることです。`ScalarVal` などの内部型はマイナーバージョン間で変わることがあります。
