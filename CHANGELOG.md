@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workaround**: quote the value to keep it a string (`a = "1."`,
   `a = "-.5"`, `a = "1e+5.5"`); write a space before `+=` after a numeric key
   (`1 += 2`).
+- Also: an element of a value concatenation that fails to parse is now an
+  error instead of being dropped — `a = prefix 1e999` (and an out-of-range
+  integer there) silently read as `"prefix"`.
 - Also: in a key that starts with a number, whitespace after a trailing dot
   is now kept on the next segment, as on every other key path (E13):
   `123foo. bar = 1` is `{"123foo":{" bar":1}}` (was `{"123foo":{"bar":1}}`).

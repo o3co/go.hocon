@@ -970,7 +970,10 @@ func (p *parser) parseValue() (Node, error) {
 		precedingWS := p.current.PrecedingWhitespace
 		next, err2 := p.parseSingleValue()
 		if err2 != nil {
-			break
+			// A concatenation element that fails to parse (an overflowing
+			// number, …) is an error. Breaking here instead silently dropped
+			// it: `a = prefix 1e999` read as "prefix".
+			return nil, err2
 		}
 		if hadSpace {
 			sep := precedingWS

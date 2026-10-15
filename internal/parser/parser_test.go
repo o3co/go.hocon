@@ -1224,3 +1224,20 @@ func TestSpecS14a_9_NoSubstInIncludeArg(t *testing.T) {
 		t.Error("expected parse error for include with substitution argument, got nil")
 	}
 }
+
+// TestConcatElementErrorIsReported: an element of a value concatenation that
+// fails to parse is an error. The concat loop used to break on it and keep
+// only the elements before, so `a = prefix 1e999` silently read as "prefix".
+func TestConcatElementErrorIsReported(t *testing.T) {
+	for _, src := range []string{
+		"a = prefix 1e999",
+		"a = prefix 1.e999",
+		"a = prefix -.5e999",
+		"a = prefix 99999999999999999999",
+		"a = x y 1e999 z",
+	} {
+		if _, err := parser.Parse(src); err == nil {
+			t.Errorf("Parse(%q): want an error, got nil", src)
+		}
+	}
+}
