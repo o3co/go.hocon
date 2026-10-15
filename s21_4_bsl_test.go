@@ -73,7 +73,7 @@ func TestS21_4_BSL_GetBytes(t *testing.T) {
 //
 // Boundary cases for the float64 precision fix (go-I1 / go-T1 convergent):
 //   - "8E"  = 8×2^60 = 2^63 exactly  → overflow (boundary, must error)
-//   - "8.0E"= 8.0×2^60 = 2^63 exactly → overflow (float path, must error)
+//   - "8.0E"= 8.0×2^60 = 2^63 exactly → overflow (exact path, must error)
 //   - "8.001E"                         → overflow (above boundary)
 //   - "10.0E"                          → overflow
 //   - "9E"  = 9×2^60 ≈ 1.04e19        → overflow
