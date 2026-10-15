@@ -223,20 +223,11 @@ func (l *Lexer) nextToken() Token {
 	case ch == '"':
 		return l.readString(line, col)
 
-	case ch == '-':
-		// E8 (xx.hocon#31, commit dd102e8): dispatch `-` to readNumber only
-		// when the next char is a digit (RFC 8259 JSON-number grammar).
-		// Otherwise route to readUnquotedOrKeyword so bare `-` and `-foo` at
-		// value-position lex as unquoted strings — matching Lightbend's
-		// pragmatic reading of HOCON.md L270-276's "begin" as value-position
-		// begin (first component of a concatenation), not token-position
-		// begin at any lexer offset.
-		if l.pos+1 < len(l.src) && l.src[l.pos+1] >= '0' && l.src[l.pos+1] <= '9' {
-			return l.readNumber(line, col)
-		}
-		return l.readUnquotedOrKeyword(line, col)
-
-	case ch >= '0' && ch <= '9':
+	case ch == '-' || ch >= '0' && ch <= '9':
+		// '-' starts a number run like a digit does (Lightbend's
+		// firstNumberChars), so `-.5` is the number -0.5. A run that is not
+		// a number continues as unquoted text, which keeps bare `-`, `-foo`
+		// and `-.` the strings they were (E8, xx.hocon#31).
 		return l.readNumber(line, col)
 
 	default:
