@@ -111,34 +111,43 @@ resolvable.
 
 ## Releasing
 
-Go modules are versioned by git tags — there is no version file to bump.
-CI triggers Go module proxy indexing automatically when a `v*` tag is pushed.
+Go modules are versioned by git tags — there is no version file to bump. A tag
+**is** the release: the Go module proxy can serve a version as soon as its tag
+is pushed, and nothing downstream can stop it. So the gate is upstream of the
+tag: **only tag a commit whose CI on `develop` is green**, including the docs
+consistency tests in `docs_test.go`.
 
-```bash
-git tag v0.4.0
-git push origin v0.4.0
-```
+A release goes through one release-prep PR, then two tags:
 
-That's it. The Go module proxy picks up the new version within minutes.
+1. **Release-prep PR** (merged into `develop` like any other PR):
+   - Cut `CHANGELOG.md`: rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, open
+     a new empty `[Unreleased]`, and update the link references at the bottom.
+     `release.yml` builds the GitHub Release body from that section and fails
+     the release if the section is missing or empty.
+   - Bump `adapters/go.mod`'s core `require` to `vX.Y.Z` — the version about to
+     be tagged — unless an earlier PR already did (see
+     [above](#before-releasing-build-the-adapters-without-the-replace)). Until
+     that core tag exists, CI's "adapters without replace (published core)"
+     job warns and skips rather than failing.
+2. Tag and push the **core** (`vX.Y.Z`) on the merged, green commit, so the
+   version the adapters require exists on the proxy:
 
-The nested `adapters/` module is versioned by its own tags, in Go's
-subdirectory form — the tag name is the module path below the repository root:
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
 
-```bash
-git tag adapters/v1.10.1
-git push origin adapters/v1.10.1
-```
+3. Tag and push the **adapters** in Go's subdirectory form — the tag name is the
+   module path below the repository root — on the same commit:
 
-The two modules are released together, in this order:
-
-1. The PR that changes both already bumped `adapters/go.mod`'s core `require`
-   to the version about to be tagged (see [above](#before-releasing-build-the-adapters-without-the-replace)).
-2. Tag and push the **core** (`vX.Y.Z`) first, so the version the adapters
-   require exists on the proxy.
-3. Tag and push the **adapters** (`adapters/vX.Y.Z`).
+   ```bash
+   git tag adapters/vX.Y.Z
+   git push origin adapters/vX.Y.Z
+   ```
 
 `release.yml` handles both tag shapes: it triggers proxy indexing for whichever
-module was tagged, and for an adapters tag it also builds the published module
+module was tagged; for a core tag it also creates the GitHub Release from the
+CHANGELOG section; and for an adapters tag it also builds the published module
 the way `go get` delivers it — no checkout, no `replace` — so a tag whose core
 requirement cannot be satisfied fails there rather than at a user's build.
 
