@@ -813,19 +813,16 @@ func TestSpecS8_6_MultipleAdjacentTokenInts(t *testing.T) {
 }
 
 func TestSpecS8_6_TrailingDotInTailContinuesOuterLoop(t *testing.T) {
-	// Exercises the `concatTrailingDotContinue` sentinel: after a
-	// numeric-headed chain consumes a tail whose text ends with `.`,
-	// the outer parseKey loop must `continue` so the next token starts
-	// a fresh path segment (NOT a chained tail). Here whitespace forces
-	// `foo.` to terminate as its own token, so the lexer emits
-	// TokenString("foo.") + TokenString("bar"). Without the sentinel
-	// the outer loop would fall through to `break` and parseField
-	// would reject the trailing `bar`.
+	// `123-456` is not a number run, so it lexes as unquoted text with
+	// `foo.` (the Lightbend number-run rule); whitespace then ends that
+	// token and `bar` starts the next path segment. Path-expression
+	// whitespace is kept verbatim (E13, pw01: `a b. c = 1` →
+	// {"a b":{" c":1}}), so the second segment is " bar".
 	obj, err := parser.Parse(`123-456foo. bar = 1`)
 	if err != nil {
 		t.Fatalf("expected `123-456foo. bar = 1` to parse, got error: %v", err)
 	}
-	assertKeyPath(t, obj, []string{"123-456foo", "bar"})
+	assertKeyPath(t, obj, []string{"123-456foo", " bar"})
 }
 
 func TestSpecS8_6_QuotedKeyRejectsAdjacentNumeric(t *testing.T) {

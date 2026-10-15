@@ -711,115 +711,107 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 	return l.parseSubstBody(line, col)
 }
 
-// readNumber lexes a number per the HOCON.md §Number grammar (which mirrors
-// JSON's number grammar): `int frac? exp?` with optional leading `-`. The
-// implementation uses **greedy-with-backtrack**: the fractional and exponent
-// productions each independently backtrack to the last valid number end if
-// the production cannot be fully consumed (e.g. `1.x` returns number `1` and
-// leaves `.x` for the next-token pass; `1ex` returns number `1` and leaves
-// `ex`). E8 amendment (xx.hocon#31, commit dd102e8): caller dispatch in
-// nextToken now guarantees the leading char is `-` followed by a digit OR a
-// digit directly, so the "no integer digits" branch is unreachable from the
-// main dispatch — the dead-code reject was removed. See docs/spec-compliance.md
-// §S8.6 for the post-E8 reading.
+// readNumber lexes a token that starts like a number (S8.4) the way the
+// Lightbend reference does (Tokenizer.pullNumber, measured on 1.4.6):
+//
+//  1. Take the greedy run of number characters [0-9.eE+-] from the start.
+//  2. If the whole run is a number, it is a number token: Java's
+//     Double.parseDouble grammar when the run has '.', 'e' or 'E'
+//     (`1.` and `1.e+5` are numbers), otherwise an integer.
+//  3. Otherwise the run is not a number. If it contains '+', that is a
+//     reserved character outside quotes (E8 step 4): `1e+5.5` is an error,
+//     not the number 1e+5 followed by text. Any other run is unquoted text
+//     and continues as one (`1.2.3`, `1e-x`, `1.e`).
+//
+// A valid number run followed by other characters still concatenates
+// (`1e+5ms` is the string "1e+5ms"), because the run stops at the first
+// non-number character. Integer overflow is not judged here: an
+// out-of-range integer lexes as TokenInt and the parser reports it.
+//
+// TokenInt.Value carries the raw digit text. E8 canonicalization (`01` → "1",
+// `-0` → "0") happens at value position in parser.parseSingleValue, so that
+// parseKey, which reads the same token, keeps key text like `01` verbatim.
 func (l *Lexer) readNumber(line, col int) Token {
-	startPos := l.pos
-	startCol := col
-
-	// Optional leading '-' (only when dispatch routes here with `-` followed
-	// by a digit, per the nextToken contract).
-	if ch, _ := l.peek(); ch == '-' {
-		l.advance()
-	}
-
-	// Integer part — REQUIRED, guaranteed non-empty by caller dispatch.
-	// (We accept '0[0-9]*' to match Lightbend behavior; the spec says JSON
-	// numbers reject leading-zero forms like `01`, but Lightbend's parseLong
-	// silently accepts them. The resulting `TokenInt.Value` is kept verbatim
-	// here — E8 canonicalization (`01` → "1", `-0` → "0") happens at
-	// value-position only, in `parser.parseSingleValue`'s TokenInt case.
-	// Keeping it out of the lexer is required because `parseKey` reads the
-	// same token upstream; lexer-level normalization would silently rewrite
-	// keys like `01 = x` → `"1" = x`.)
+	start := l.pos
 	for {
 		c, ok := l.peek()
-		if !ok || c < '0' || c > '9' {
+		if !ok || !isNumberRunChar(c) {
 			break
 		}
 		l.advance()
 	}
-
-	lastValidEnd := l.pos
-	lastValidCol := l.col
-	hasDot := false
-	hasExp := false
-
-	// Try fractional part (greedy with backtrack).
-	if ch, ok := l.peek(); ok && ch == '.' {
-		savePos := l.pos
-		saveCol := l.col
-		l.advance() // consume '.'
-		if d, ok2 := l.peek(); ok2 && d >= '0' && d <= '9' {
-			for {
-				c, ok3 := l.peek()
-				if !ok3 || c < '0' || c > '9' {
-					break
-				}
-				l.advance()
-			}
-			lastValidEnd = l.pos
-			lastValidCol = l.col
-			hasDot = true
-		} else {
-			// Backtrack: '.' not followed by digit, leave '.' for next token.
-			l.pos = savePos
-			l.col = saveCol
+	run := string(l.src[start:l.pos])
+	if tt, ok := numberRunType(run); ok {
+		return Token{Type: tt, Value: run, Line: line, Col: col}
+	}
+	if i := strings.IndexByte(run, '+'); i >= 0 {
+		return Token{
+			Type:  TokenError,
+			Value: "reserved character '+' outside quotes (HOCON `+=` operator reservation, HOCON.md L270-276)",
+			Line:  line,
+			Col:   col + i,
 		}
 	}
+	tok := l.readUnquoted(run, line, col)
+	return tok
+}
 
-	// Try exponent part (greedy with backtrack).
-	if ch, ok := l.peek(); ok && (ch == 'e' || ch == 'E') {
-		savePos := l.pos
-		saveCol := l.col
-		l.advance() // consume 'e'/'E'
-		if s, ok2 := l.peek(); ok2 && (s == '+' || s == '-') {
-			l.advance()
-		}
-		if d, ok3 := l.peek(); ok3 && d >= '0' && d <= '9' {
-			for {
-				c, ok4 := l.peek()
-				if !ok4 || c < '0' || c > '9' {
-					break
-				}
-				l.advance()
-			}
-			lastValidEnd = l.pos
-			lastValidCol = l.col
-			hasExp = true
-		} else {
-			// Backtrack: 'e' not followed by digit (with optional sign), leave for next token.
-			l.pos = savePos
-			l.col = saveCol
+// isNumberRunChar reports whether c belongs to a number run (Lightbend's
+// Tokenizer numberChars).
+func isNumberRunChar(c rune) bool {
+	return c >= '0' && c <= '9' || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-'
+}
+
+// numberRunType reports whether run, as a whole, is a number, and which
+// token it is. With '.', 'e' or 'E' the grammar is Java's
+// Double.parseDouble restricted to the run characters:
+// -?(digits(.digits*)?|.digits)([eE][+-]?digits)?. Without them it is
+// -?digits.
+func numberRunType(run string) (TokenType, bool) {
+	i := 0
+	if i < len(run) && run[i] == '-' {
+		i++
+	}
+	intDigits := 0
+	for i < len(run) && run[i] >= '0' && run[i] <= '9' {
+		i++
+		intDigits++
+	}
+	isFloat := false
+	fracDigits := 0
+	if i < len(run) && run[i] == '.' {
+		isFloat = true
+		i++
+		for i < len(run) && run[i] >= '0' && run[i] <= '9' {
+			i++
+			fracDigits++
 		}
 	}
-
-	// Position should already be at lastValidEnd (last successful consume), but
-	// restore explicitly in case the exponent backtrack left us short.
-	l.pos = lastValidEnd
-	l.col = lastValidCol
-
-	tt := TokenInt
-	if hasDot || hasExp {
-		tt = TokenFloat
+	if intDigits == 0 && fracDigits == 0 {
+		return 0, false
 	}
-	// Note: TokenInt.Value carries the raw digit text (no normalization here).
-	// E8 (xx.hocon#31) canonicalization of leading zeros / negative-zero sign
-	// happens at value-position construction in internal/parser/parser.go
-	// `parseSingleValue` TokenInt case — keeping it out of the lexer ensures
-	// parseKey (which reads the same TokenInt.Value as a key path segment)
-	// preserves verbatim key text like `"01"` and `"01abc"`. Without this
-	// split, `01 = x` would silently rename to `"1" = x`.
-	return Token{Type: tt, Value: string(l.src[startPos:lastValidEnd]), Line: line, Col: startCol}
+	if i < len(run) && (run[i] == 'e' || run[i] == 'E') {
+		isFloat = true
+		i++
+		if i < len(run) && (run[i] == '+' || run[i] == '-') {
+			i++
+		}
+		expDigits := 0
+		for i < len(run) && run[i] >= '0' && run[i] <= '9' {
+			i++
+			expDigits++
+		}
+		if expDigits == 0 {
+			return 0, false
+		}
+	}
+	if i != len(run) {
+		return 0, false
+	}
+	if isFloat {
+		return TokenFloat, true
+	}
+	return TokenInt, true
 }
 
 // isHoconWhitespace reports whether r is a HOCON whitespace character per
