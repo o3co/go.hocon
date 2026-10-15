@@ -149,7 +149,8 @@ func TestUnitsDefault_Bytes(t *testing.T) {
 }
 
 // TestUnitsDefault_Negative drives un01–un03 and the E21 ud12–ud13 fixtures.
-// All three must return None from GetDurationOption (parse error: no valid number).
+// All must return None from GetDurationOption (un01–un03: no valid number;
+// ud12–ud13: E21 overflow).
 func TestUnitsDefault_Negative(t *testing.T) {
 	cases := []string{
 		"un01-empty-duration",

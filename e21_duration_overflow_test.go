@@ -17,6 +17,7 @@
 package hocon_test
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -101,5 +102,51 @@ func TestE21_Unmarshal_SameReader(t *testing.T) {
 	}
 	if want := `"timeout"`; !strings.Contains(err.Error(), want) {
 		t.Errorf("error %q does not name %s", err, want)
+	}
+}
+
+// TestE21_Duration_UnitBounds pins, for every unit, the largest and smallest
+// whole counts that fit int64 ns and the counts one past them.
+func TestE21_Duration_UnitBounds(t *testing.T) {
+	units := []struct {
+		name string
+		mult time.Duration
+	}{
+		{"ns", time.Nanosecond}, {"us", time.Microsecond}, {"ms", time.Millisecond},
+		{"s", time.Second}, {"m", time.Minute}, {"h", time.Hour}, {"d", 24 * time.Hour},
+		{"", time.Millisecond}, // S18.4: no unit = ms
+	}
+	for _, u := range units {
+		hi := math.MaxInt64 / int64(u.mult)
+		lo := math.MinInt64 / int64(u.mult) // truncates toward zero: the exact bound
+		cases := []struct {
+			n  int64
+			ok bool
+		}{{hi, true}, {lo, true}}
+		if hi < math.MaxInt64 {
+			cases = append(cases, struct {
+				n  int64
+				ok bool
+			}{hi + 1, false})
+		}
+		if lo > math.MinInt64 {
+			cases = append(cases, struct {
+				n  int64
+				ok bool
+			}{lo - 1, false})
+		}
+		for _, c := range cases {
+			in := fmt.Sprintf("%d%s", c.n, u.name)
+			t.Run(in, func(t *testing.T) {
+				cfg := mustParseCfg(t, `t = "`+in+`"`)
+				got, err := cfg.GetDurationE("t")
+				switch {
+				case c.ok && (err != nil || got != time.Duration(c.n)*u.mult):
+					t.Errorf("GetDurationE = %d, %v; want %d", got, err, time.Duration(c.n)*u.mult)
+				case !c.ok && err == nil:
+					t.Errorf("GetDurationE = %d; want overflow error", got)
+				}
+			})
+		}
 	}
 }
