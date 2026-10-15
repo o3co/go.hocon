@@ -743,8 +743,7 @@ func (l *Lexer) readNumber(line, col int) Token {
 			Col:   col + i,
 		}
 	}
-	tok := l.readUnquoted(run, line, col)
-	return tok
+	return l.readUnquoted(run, line, col)
 }
 
 // isNumberRunChar reports whether c belongs to a number run (Lightbend's

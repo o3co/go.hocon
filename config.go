@@ -1257,6 +1257,24 @@ func normalizeLeadingZeroNumber(raw string) string {
 	return sign + intPart[j:] + rest
 }
 
+// completeJSONFraction adds the zero digit JSON requires around a decimal
+// point that HOCON allows bare: `.5` → `0.5`, `1.` → `1.0`, `1.e5` → `1.0e5`.
+// Render-only, like normalizeLeadingZeroNumber.
+func completeJSONFraction(s string) string {
+	dot := strings.IndexByte(s, '.')
+	if dot < 0 {
+		return s
+	}
+	head, tail := s[:dot], s[dot+1:]
+	if head == "" || head == "-" || head == "+" {
+		head += "0"
+	}
+	if tail == "" || tail[0] == 'e' || tail[0] == 'E' {
+		tail = "0" + tail
+	}
+	return head + "." + tail
+}
+
 func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 	switch vv := v.(type) {
 	case nil:
@@ -1299,10 +1317,11 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			// number matching Lightbend/rs.hocon (e.g. "023"->23, "-08.5"->-8.5);
 			// xx.hocon#50. Render-only: GetString/concat still see the verbatim
 			// lexeme (S10.11), so this does not affect string coercion.
-			// A HOCON number lexeme that is not a JSON number (`1.`, `1.e5` —
-			// numbers since the Lightbend number-run rule) is quoted rather
-			// than emitted as malformed JSON.
-			norm := normalizeLeadingZeroNumber(vv.Raw)
+			// Number lexemes that HOCON reads but JSON does not spell (`1.`,
+			// `-.5`, `1.e5` — numbers under the Lightbend number-run rule)
+			// get the missing zero digit; quoting is only a last resort, so
+			// the output never contains a malformed JSON number.
+			norm := completeJSONFraction(normalizeLeadingZeroNumber(vv.Raw))
 			if jsonNumberRegex.MatchString(norm) {
 				sb.WriteString(norm)
 			} else {
