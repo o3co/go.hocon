@@ -182,3 +182,21 @@ func TestUnmarshal_ByteSize_Null(t *testing.T) {
 		t.Errorf("B = %d, want 7 (unchanged)", h.B)
 	}
 }
+
+// TestUnmarshalPath_ByteSize_ErrorCarriesPath asserts that a scalar target
+// decoded via UnmarshalPath names the requested path — the scalar itself has
+// no field / key / index to name.
+func TestUnmarshalPath_ByteSize_ErrorCarriesPath(t *testing.T) {
+	cfg := mustParseCfg(t, "server { max-body = -1 }")
+	var b hocon.ByteSize
+	err := cfg.UnmarshalPath("server.max-body", &b)
+	if err == nil {
+		t.Fatal("UnmarshalPath: expected error, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{`"server.max-body"`, "byte size must not be negative"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q does not contain %q", msg, want)
+		}
+	}
+}

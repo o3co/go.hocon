@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure names the key path, like `Unmarshal`'s other errors
   (`hocon: field "limits": hocon: field "max-body": hocon: byte size must not be negative`).
 - `GetBytes` still returns `int64`; nothing existing changes.
+- `UnmarshalPath` errors now name the requested path
+  (`hocon: path "server.max-body": …`). A scalar target has no field or key of
+  its own to name, so the path was missing before. The wrapped error is kept
+  (`%w`), so `errors.Is` / `errors.As` still match.
 
 ## [1.13.0] - 2026-08-19
 

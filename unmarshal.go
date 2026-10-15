@@ -54,7 +54,12 @@ func (c *Config) UnmarshalPath(path string, v any) error {
 	if !c.resolved && isUnresolvedPlaceholder(node) {
 		return fmt.Errorf("hocon: path %q is not resolved: %w", path, ErrNotResolved)
 	}
-	return unmarshalVal(node, rv.Elem())
+	// Name the requested path: nested failures already name their field /
+	// key / index, but a scalar target (int, Duration, ByteSize) has none.
+	if err := unmarshalVal(node, rv.Elem()); err != nil {
+		return fmt.Errorf("hocon: path %q: %w", path, err)
+	}
+	return nil
 }
 
 func unmarshalVal(val resolver.Val, target reflect.Value) error {
