@@ -433,8 +433,8 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 | 構造体 Unmarshal | ✅ | ❌ |
 | panic しないアクセス | ✅（`GetXxxE` + `Option[T]`） | ✅（`GetXxxE`） |
 | 環境変数フォールバック | ✅ | ✅ |
-| 遅延解決（parse / withFallback / resolve） | ✅（v1.4.0） | ✅（v1.3.0） |
-| `FromMap` / `Empty` | ✅（v1.4.0） | ❌ |
+| 遅延解決（parse / withFallback / resolve） | ✅（v1.4.0 から） | ✅（v1.3.0 から） |
+| `FromMap` / `Empty` | ✅（v1.4.0 から） | ⚠️（型付きの `Object{…}.ToConfig()`。`map[string]any` は不可） |
 
 ### 設定フレームワーク
 

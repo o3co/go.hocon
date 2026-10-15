@@ -122,8 +122,9 @@ A release goes through one release-prep PR, then two tags:
 1. **Release-prep PR** (merged into `develop` like any other PR):
    - Cut `CHANGELOG.md`: rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, open
      a new empty `[Unreleased]`, and update the link references at the bottom.
-     `release.yml` builds the GitHub Release body from that section and fails
-     the release if the section is missing or empty.
+     `release.yml` builds the GitHub Release body from that section; if the
+     section is missing or extracts to nothing, the GitHub Release step fails
+     (the module version itself is already published by the tag).
    - Bump `adapters/go.mod`'s core `require` to `vX.Y.Z` — the version about to
      be tagged — unless an earlier PR already did (see
      [above](#before-releasing-build-the-adapters-without-the-replace)). Until
