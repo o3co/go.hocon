@@ -12,6 +12,8 @@ A [Lightbend HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) pars
 > **Implemented by [Claude](https://claude.ai/) (Anthropic)** — designed and built end-to-end with Claude Code.
 > Reviewed by [GitHub Copilot](https://github.com/features/copilot) and [OpenAI Codex](https://openai.com/index/openai-codex/).
 
+**Docs:** [o3co.github.io/hocon](https://o3co.github.io/hocon/) — the cross-language hub for all four implementations, the hocon2 CLI and the shared conformance corpus.
+
 [日本語](README.ja.md)
 
 **Library stance** -- go.hocon is a HOCON config loader, not a low-level parser API. Its purpose is reading `.hocon` files and providing typed access via the Config API (`GetString`, `GetInt`, `GetFloat64`, `GetBool`, `GetDuration`, `GetBytes`, `Unmarshal`). Internal types such as `ScalarVal` may change between minor versions.
