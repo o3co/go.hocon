@@ -20,15 +20,16 @@ Open an issue first to discuss the proposal before sending a PR. This avoids was
 ```bash
 git clone https://github.com/o3co/go.hocon.git
 cd go.hocon
-make testdata   # fetch the xx.hocon conformance fixtures (CI does the same)
+make testdata
 go test ./...
 ```
 
 The library itself has no external dependencies. `gopkg.in/yaml.v3` is a
 test-only dependency (the fixture scenario runner).
 
-Run `make testdata` after cloning and again when the fixtures move: without
-the fetched fixtures the conformance tests skip silently instead of failing.
+`make testdata` fetches the xx.hocon conformance fixtures, as CI does. Run it
+after cloning and again when the fixtures move: without them the conformance
+tests skip silently instead of failing.
 
 ## Running Tests
 

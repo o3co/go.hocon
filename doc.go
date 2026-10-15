@@ -56,7 +56,7 @@
 //	}
 //
 //	var s ServerConfig
-//	err := cfg.Unmarshal(&s)
+//	err = cfg.Unmarshal(&s)
 //
 // A time.Duration field reads like GetDuration, a ByteSize field like GetBytes
 // and a Period field like GetPeriod, so a unit value means the same thing

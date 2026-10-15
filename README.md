@@ -94,13 +94,13 @@ In a large codebase, configuration tends to leak: one big file that every team e
 - **Each module owns a namespace and ships its own defaults.** The `auth` module keeps `auth { … }` next to its code, with every default filled in. The application never copies those defaults; it brings them in with one `include`.
 - **The application overrides only what differs.** Later layers deep-merge over earlier ones, so the application states two keys, not the whole block.
 - **Each module reads only its own subtree, through its own schema.** The module asks for `auth` and validates it against the schema it defines. The shape of that section is the module's contract; nothing else in the file is visible to it.
-- **Wiring between modules lives in the application.** A module that needs a database says so with an optional substitution (`${?shared.db}`). The application decides where that value comes from. Modules never reference each other, so dependencies run one way.
+- **Wiring between modules lives in the application.** The module only declares the keys it reads (`auth.db`) and leaves them without a default when the application must supply them. The application connects them to shared values (`auth.db = ${shared.db}`). Modules never reference each other or the application's keys, so dependencies run one way.
 
 ```hocon
 # auth/reference.conf: shipped inside the auth package, owned by the auth team
 auth {
   session { lifetime = 30m, max-body = 64KiB }
-  db = ${?shared.db}
+  # db: no default; the application supplies auth.db
 }
 ```
 
@@ -109,11 +109,21 @@ auth {
 include package("github.com/acme/auth", "reference.conf")
 
 shared.db { host = db.internal, port = 5432 }
+auth.db = ${shared.db}       # wiring lives in the application
 auth.session.lifetime = 2h   # override what differs; the rest stays the module's default
 ```
 
 ```go
 // inside the auth module
+package auth
+
+import (
+    _ "embed"
+    "fmt"
+    "time"
+
+    "github.com/o3co/go.hocon"
+)
 
 //go:embed reference.conf
 var reference []byte
@@ -125,36 +135,32 @@ func init() {
     }
 }
 
-// Config is the module's contract: the shape of the auth section.
-type Config struct {
+// Auth is the module's contract: the shape of the auth section.
+type Auth struct {
     Session struct {
         Lifetime time.Duration  `hocon:"lifetime"`
         MaxBody  hocon.ByteSize `hocon:"max-body"`
     } `hocon:"session"`
-    DB *struct {
+    DB struct {
         Host string `hocon:"host"`
         Port int    `hocon:"port"`
-    } `hocon:"db,omitempty"` // absent unless the application wires shared.db
+    } `hocon:"db"` // no default: the application must supply auth.db
 }
 
 // Load reads the auth subtree and nothing else.
-func Load(root *hocon.Config) (Config, error) {
-    var c Config
-    sub, err := root.GetConfigE("auth")
-    if err != nil {
-        return c, err
+func Load(root *hocon.Config) (Auth, error) {
+    var auth Auth
+    if err := root.UnmarshalPath("auth", &auth); err != nil {
+        return auth, err
     }
-    if err := sub.Unmarshal(&c); err != nil {
-        return c, err
+    if auth.Session.Lifetime <= 0 {
+        return auth, fmt.Errorf("auth.session.lifetime must be positive, got %v", auth.Session.Lifetime)
     }
-    if c.Session.Lifetime <= 0 {
-        return c, fmt.Errorf("auth.session.lifetime must be positive, got %v", c.Session.Lifetime)
-    }
-    return c, nil
+    return auth, nil
 }
 ```
 
-`include package(...)` is how a module publishes its defaults without the application knowing where its files live (see [Package includes](#package-includes-include-package)). On the JVM, Lightbend's `reference.conf` convention plays the same role.
+`include package(...)` is not part of HOCON.md: it is a convention shared by the o3co implementations ([E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md#e11)), a non-JVM counterpart to `include classpath(...)`. It is how a module publishes its defaults without the application knowing where its files live (see [Package includes](#package-includes-include-package)). On the JVM, Lightbend's `reference.conf` convention plays the same role.
 
 ## Features
 
@@ -213,8 +219,8 @@ fmt.Println(resolved.GetString("version")) // "1.2.3-42"
 
 Use `ResolveOptions.WithUseSystemEnvironment(false)` for hermetic resolution
 (no `os.Environ` fallback) or `.WithAllowUnresolved(true)` for partial resolve
-(unresolved paths remain placeholders; getter on them returns
-`hocon.ErrNotResolved`).
+(unresolved paths remain placeholders; `Get*E` on them returns an error
+satisfying `errors.Is(err, hocon.ErrNotResolved)`).
 
 ### Scalar Getters
 
@@ -313,7 +319,7 @@ A `hocon.Period` field reads like `GetPeriod`: `"30d"`, `"2w"`, `"6mo"`, `"1y"`,
 
 ### Package includes (`include package(...)`)
 
-`include package("<identifier>", "<file>")` includes HOCON that a Go package has registered. A library ships its defaults inside its own module, and an application includes them without knowing where the files live on disk. This is a cross-implementation extension ([E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md)), not part of Lightbend HOCON.
+`include package("<identifier>", "<file>")` includes HOCON that a Go package has registered. A library ships its defaults inside its own module, and an application includes them without knowing where the files live on disk. This is a cross-implementation extension ([E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md#e11)), not part of Lightbend HOCON.
 
 The providing package embeds its file and registers it in `init()`:
 
@@ -462,7 +468,7 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 | --- | --- |
 | Spec total (incl. out-of-scope) | **92.4%** |
 | In-scope only | **100.0%** |
-| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | passing (`TestLightbendEquiv` / `TestLightbendSuite`; three `*-expected.json` comparisons are excluded with documented reasons: `test01` is environment-dependent, `test02` and `test03` are known divergences from Lightbend 1.4.6) |
+| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | passing (`TestLightbendEquiv` / `TestLightbendSuite`; three `*-expected.json` comparisons in `TestLightbendExpected` are excluded with documented reasons: `test01` is environment-dependent, `test02` and `test03` are known divergences from Lightbend 1.4.6) |
 | [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | passing |
 
 ## Format adapters
