@@ -417,7 +417,7 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 
 ### HOCON 実装
 
-[gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.4.0** と 2026-10-16 に比較。
+[gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.4.0** と 2026-10-16 に照合して検証。
 
 | 機能 | go.hocon | gurkankaymak/hocon v1.4.0 |
 | --- | :---: | :---: |
@@ -425,9 +425,12 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 | オプショナル代入（`${?path}`） | ✅ | ✅ |
 | Include | ✅ | ✅ |
 | `include required(...)` / `file(...)` | ✅ | ✅ |
+| `include classpath(...)` | ❌（設計上の判断 — [既知の制限](#既知の制限) を参照。代わりに [`include package(...)`](#パッケージ-include-include-package)） | ✅（トップレベルのファイルのディレクトリを基準に解決） |
+| `include url(...)` | ❌（設計上の判断 — [既知の制限](#既知の制限) を参照） | ❌ |
+| ドキュメントのルートが配列（`[1, 2]`） | ❌（Lightbend の Config API と同じく `ConfigError` で拒否） | ✅（`GetRoot()` が配列を返す） |
 | オブジェクト / 配列の連結 | ✅ | ✅ |
 | 型変換 | ✅ | ✅ |
-| Duration パース（`30s`、`5m`） | ✅ | ✅ |
+| Duration パース（`30s`、`5m`） | ✅ | ⚠️（クォートなしのリテラルのみ。クォートした `"30s"` や環境変数から来た値は `GetDurationE` が失敗） |
 | バイトサイズパース（`512MB`） | ✅ | ❌（文字列としてパース） |
 | `+=` 追記 | ✅ | ✅ |
 | 構造体 Unmarshal | ✅ | ❌ |
@@ -435,6 +438,7 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 | 環境変数フォールバック | ✅ | ✅ |
 | 遅延解決（parse / withFallback / resolve） | ✅（v1.4.0 から） | ✅（v1.3.0 から） |
 | `FromMap` / `Empty` | ✅（v1.4.0 から） | ⚠️（型付きの `Object{…}.ToConfig()`。`map[string]any` は不可） |
+| 最低 Go バージョン（`go.mod`） | 1.23 | 1.17 |
 
 ### 設定フレームワーク
 

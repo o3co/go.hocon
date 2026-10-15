@@ -430,9 +430,12 @@ Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v
 | Optional substitutions (`${?path}`) | ✅ | ✅ |
 | Include | ✅ | ✅ |
 | `include required(...)` / `file(...)` | ✅ | ✅ |
+| `include classpath(...)` | ❌ (by design — see [Known Limitations](#known-limitations); use [`include package(...)`](#package-includes-include-package)) | ✅ (resolved against the top-level file's directory) |
+| `include url(...)` | ❌ (by design — see [Known Limitations](#known-limitations)) | ❌ |
+| Array as the document root (`[1, 2]`) | ❌ (rejected with a `ConfigError`, as Lightbend's Config API does) | ✅ (`GetRoot()` returns the array) |
 | Object/Array concatenation | ✅ | ✅ |
 | Type coercion | ✅ | ✅ |
-| Duration parsing (`30s`, `5m`) | ✅ | ✅ |
+| Duration parsing (`30s`, `5m`) | ✅ | ⚠️ (unquoted literals only; a quoted `"30s"` or one from an env var fails `GetDurationE`) |
 | Byte size parsing (`512MB`) | ✅ | ❌ (parses as a string) |
 | `+=` append | ✅ | ✅ |
 | Struct unmarshal | ✅ | ❌ |
@@ -440,6 +443,7 @@ Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v
 | Env variable fallback | ✅ | ✅ |
 | Deferred resolution (parse / withFallback / resolve) | ✅ (since v1.4.0) | ✅ (since v1.3.0) |
 | `FromMap` / `Empty` value factories | ✅ (since v1.4.0) | ⚠️ (typed `Object{…}.ToConfig()`, no `map[string]any`) |
+| Minimum Go version (`go.mod`) | 1.23 | 1.17 |
 
 ### Config Framework
 
