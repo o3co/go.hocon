@@ -7,37 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added — exponent forms in durations and byte sizes (E20, [xx.hocon#111](https://github.com/o3co/xx.hocon/pull/111))
+## [1.14.0] - 2026-10-16
 
-- **The number part of a duration or byte size may now carry an exponent**,
-  as in Lightbend: `"1e+5ms"` is 100000 ms, `"1.5e2s"` 150000 ms, `"1E3"`
-  1000 ms (no unit = ms), a number value `t = 1e3` 1000 ms, `"1e3kB"`
-  1000000 bytes, `"2E2KiB"` 204800. Before, each was an error. The grammar is
-  Java's double — `1.e3`, `.5` and `-.5` are numbers too — and the unit is the
-  trailing run of letters, so `"1E"` is still one exabyte.
-- The value stays exact (E20) and truncates the same way: `"1e-3kB"` is 1
-  byte, `"1.0005e3B"` 1000, `"1e-3s"` 1 ms.
-- A huge exponent never builds 10^N: `"1e400s"` is an overflow error (E21),
-  `"1e400B"` is an invalid (out-of-range, S21.4) byte size, and `"1e-400s"` is
-  0, each decided before any big-number work.
-- Some error reasons for input that was already an error read differently,
-  because the number and unit are now split as Lightbend does: e.g. `"1e3B"`
-  as a duration is `unknown unit "B"` (was `unexpected characters`), and
-  `"-ms"` is `unexpected characters` (was `no number`).
-- Periods are unchanged: integer-only, so `"1e2d"` is an error, as in
-  Lightbend. An invalid number part stays an error (`"1e3.5ms"`).
+### Fixed — **BREAKING (spec fix, E20)**: fractional durations and byte sizes are computed exactly ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 
-### Fixed — `Unmarshal` no longer turns an unresolved substitution into `nil`
+- **A fractional unit value is now multiplied as an exact decimal, read from
+  the digits as written**, then truncated toward zero: at the nanosecond for a
+  duration, at the byte for a size. Before, the product went through `float64`,
+  so `1.001s` read as `1.000999999s`, `2.3h` as `2h17m59.999999999s`, and
+  `1.001kB` as `1000` bytes. They now read as `1.001s`, `2h18m0s` and `1001`.
+  This covers strings with and without a unit (S18.2 / S18.4) and number
+  values (S18.1), through `GetDuration*`, `GetBytes*` and `Unmarshal` alike.
+  Integer values are unchanged; they were already exact.
+- **Durations: a deliberate divergence from Lightbend (E20).** Lightbend
+  1.4.6 computes `(long)(double × nanos)` and gives `1000999999` ns for
+  `1.001s`. Byte sizes match Lightbend, whose `parseBytes` already multiplies
+  with `BigDecimal`.
+- The units past int64 (`ZB`, `YB`, `Zi`, `Yi`, `Z` / `z` / `Y` / `y`) take the
+  exact path too (`0.001z` is `1180591620717411303`, was
+  `1180591620717411328`), and a fractional duration past the int64 nanosecond
+  range is now an error instead of an implementation-defined conversion.
+- **Workaround**: no config change is needed — every value within range still
+  parses, now to the exact result (an out-of-range fractional duration is the
+  E21 entry below). Code or tests that pinned the old float result (for
+  example `1.000999999s` for `1.001s`, or `1000` for `1.001kB`) must expect the
+  exact value instead.
 
-- On a config that still holds unresolved substitutions (a deferred parse, or
-  `Resolve` with `AllowUnresolved`), whole-config `Unmarshal` into
-  `map[string]any` or `any` silently decoded each unresolved value as `nil`
-  (`a = [1, ${y}]` → `[1 <nil>]`, `b = ${z}` → `b: nil`), and into a typed
-  field it failed with an internal type name (`*resolver.substPlaceholder`).
-  Reading an unresolved value is now an error wrapping `ErrNotResolved` that
-  names the key, as `UnmarshalPath` and the getters already did. Keys the
-  target does not read are unaffected, so a struct over the resolved part of
-  the config still decodes.
+### Fixed — **BREAKING (spec fix, E21)**: a duration past int64 nanoseconds is an error, not a wrapped value ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
+
+- **A whole-number duration too large for `time.Duration` used to wrap
+  silently**: `"200000d"` read as a negative duration and
+  `"9223372036854775807"` (milliseconds) as `-1ms`. It is now an error, through
+  `GetDuration*` and `Unmarshal` alike, as the fractional form already was
+  since E20. `"106752d"` and `"106752.0d"` now give the same answer.
+- The range is exactly that of `time.Duration` (about ±292 years):
+  `"9223372036854775807ns"` and `"-9223372036854775808ns"` are accepted, one
+  nanosecond further is an error.
+- **A deliberate divergence from Lightbend (E21)**: Lightbend 1.4.6 saturates
+  instead, to `Long.MAX_VALUE` / `Long.MIN_VALUE` nanoseconds
+  (`TimeUnit.toNanos` clamps, and so does the `(long)` cast on the fractional
+  path). Byte sizes already error on
+  overflow; durations now match them.
+- **Workaround**: such a value never produced the duration it named (it
+  wrapped to a negative or unrelated one). Write a value within
+  `time.Duration`'s range (about ±292 years), e.g. `106751d` at most.
 
 ### Fixed — **BREAKING (spec fix, S8.4 / E8)**: a token that starts like a number is read the way Lightbend reads it
 
@@ -74,91 +87,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is now kept on the next segment, as on every other key path (E13):
   `123foo. bar = 1` is `{"123foo":{" bar":1}}` (was `{"123foo":{"bar":1}}`).
 
-### Fixed — the error for an unregistered `include package(...)` no longer repeats itself
+### Added — exponent forms in durations and byte sizes (E20, [xx.hocon#111](https://github.com/o3co/xx.hocon/pull/111))
 
-- It named the package twice and gave the blank-import hint twice. It now
-  reads `package("github.com/acme/auth", "reference.conf"): not found in
-  registry; ensure the providing package is imported with _
-  "github.com/acme/auth" in your application`. The registry owns the hint (it
-  alone knows the lookup missed); the resolver adds only the `package(...)`
-  context.
-
-### Documentation — doc audit fixes, and a section on configuration that stays inside its module
-
-- **New README section, "Configuration that stays inside its module"**: each
-  module ships its defaults with `include package(...)`, reads only its own
-  subtree through its own struct, and leaves wiring to the application. A new
-  "Package includes" subsection documents `RegisterPackage`, `//go:embed` and
-  the blank-import pattern.
-- **Fixed statements that were no longer true**: `1KB` (spelled `kB` since
-  1.13.0), "Go 1.21" in README.ja (go.mod says 1.23; the docs test now checks
-  README.ja too), the adapters "no tag pushed yet" text (tags start at
-  `adapters/v1.11.0`), the rs.hocon crates.io link (`hocon-parser`), the
-  Lightbend exclusion wording, JSON5 missing from the adapter lists, the
-  include base directory in Security Considerations, and the S21.5 note.
-- README.ja.md is brought level with README.md (library stance, deferred
-  resolution, Performance, Comparison, Known Limitations, Security, py.hocon).
-- CONTRIBUTING says to run `make testdata` after cloning; without it the
-  conformance tests skip silently. GoDoc: every getter has a doc comment, and
-  the Config, Resolve, FromMap and GetDurationE docs are corrected. The
-  CHANGELOG gains link references for `[Unreleased]` and 1.1.0–1.13.0.
-
-### Fixed — durations read through one reader, so the getters and `Unmarshal` give the same reason ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
-
-- `GetDuration` / `GetDurationE` / `GetDurationOption` and `Unmarshal` into
-  `time.Duration` now share one internal reader, as byte sizes already did.
-  Before, the same value failed differently on the two paths: `"200000d"`
-  gave `invalid duration: 200000d` from a getter and
-  `duration "200000d" overflows int64 nanoseconds` (without the `hocon:`
-  prefix) from `Unmarshal`.
-- **Error messages change on both paths**, so that both carry the value and
-  the reason:
-  - A value that does not parse now reads
-    `invalid duration: 5 lightyears (unknown unit "lightyears")`. The getters
-    keep their `invalid duration: <value>` prefix and gain the reason in
-    parentheses. `Unmarshal` used to return only the reason
-    (`unknown duration unit "lightyears"`, `no number in duration "s"`,
-    `unexpected characters in duration "1x2"`) and now returns the same
-    message as the getters.
-  - A value past `time.Duration` (E21) reads
-    `duration overflows int64 nanoseconds: 200000d` on both paths.
-  - `Unmarshal` adds the key path as usual
-    (`hocon: field "timeout": hocon: invalid duration: …`).
-
-### Fixed — a duration past int64 nanoseconds is an error, not a wrapped value (E21, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
-
-- **A whole-number duration too large for `time.Duration` used to wrap
-  silently**: `"200000d"` read as a negative duration and
-  `"9223372036854775807"` (milliseconds) as `-1ms`. It is now an error, through
-  `GetDuration*` and `Unmarshal` alike, as the fractional form already was
-  since E20. `"106752d"` and `"106752.0d"` now give the same answer.
-- The range is exactly that of `time.Duration` (about ±292 years):
-  `"9223372036854775807ns"` and `"-9223372036854775808ns"` are accepted, one
-  nanosecond further is an error.
-- **A deliberate divergence from Lightbend (E21)**: Lightbend 1.4.6 saturates
-  instead, to `Long.MAX_VALUE` / `Long.MIN_VALUE` nanoseconds
-  (`TimeUnit.toNanos` clamps, and so does the `(long)` cast on the fractional
-  path). Byte sizes already error on
-  overflow; durations now match them.
-
-### Fixed — fractional durations and byte sizes are computed exactly (E20, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
-
-- **A fractional unit value is now multiplied as an exact decimal, read from
-  the digits as written**, then truncated toward zero: at the nanosecond for a
-  duration, at the byte for a size. Before, the product went through `float64`,
-  so `1.001s` read as `1.000999999s`, `2.3h` as `2h17m59.999999999s`, and
-  `1.001kB` as `1000` bytes. They now read as `1.001s`, `2h18m0s` and `1001`.
-  This covers strings with and without a unit (S18.2 / S18.4) and number
-  values (S18.1), through `GetDuration*`, `GetBytes*` and `Unmarshal` alike.
-  Integer values are unchanged; they were already exact.
-- **Durations: a deliberate divergence from Lightbend (E20).** Lightbend
-  1.4.6 computes `(long)(double × nanos)` and gives `1000999999` ns for
-  `1.001s`. Byte sizes match Lightbend, whose `parseBytes` already multiplies
-  with `BigDecimal`.
-- The units past int64 (`ZB`, `YB`, `Zi`, `Yi`, `Z` / `z` / `Y` / `y`) take the
-  exact path too (`0.001z` is `1180591620717411303`, was
-  `1180591620717411328`), and a fractional duration past the int64 nanosecond
-  range is now an error instead of an implementation-defined conversion.
+- **The number part of a duration or byte size may now carry an exponent**,
+  as in Lightbend: `"1e+5ms"` is 100000 ms, `"1.5e2s"` 150000 ms, `"1E3"`
+  1000 ms (no unit = ms), a number value `t = 1e3` 1000 ms, `"1e3kB"`
+  1000000 bytes, `"2E2KiB"` 204800. Before, each was an error. The grammar is
+  Java's double — `1.e3`, `.5` and `-.5` are numbers too — and the unit is the
+  trailing run of letters, so `"1E"` is still one exabyte.
+- The value stays exact (E20) and truncates the same way: `"1e-3kB"` is 1
+  byte, `"1.0005e3B"` 1000, `"1e-3s"` 1 ms.
+- A huge exponent never builds 10^N: `"1e400s"` is an overflow error (E21),
+  `"1e400B"` is an invalid (out-of-range, S21.4) byte size, and `"1e-400s"` is
+  0, each decided before any big-number work.
+- Some error reasons for input that was already an error read differently,
+  because the number and unit are now split as Lightbend does: e.g. `"1e3B"`
+  as a duration is `unknown unit "B"` (was `unexpected characters`), and
+  `"-ms"` is `unexpected characters` (was `no number`).
+- Periods are unchanged: integer-only, so `"1e2d"` is an error, as in
+  Lightbend. An invalid number part stays an error (`"1e3.5ms"`).
 
 ### Added — `Unmarshal` reads byte sizes into `hocon.ByteSize` ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 
@@ -201,6 +148,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The S20.1–S20.4 rows in `docs/spec-compliance.md` move from ➖ to ✅, and the
   `units-default` `up01`–`up05` conformance fixtures, skipped until now, are
   asserted. The spec-total compliance rate goes from 90.5% to 92.4%.
+
+### Fixed — durations read through one reader, so the getters and `Unmarshal` give the same reason ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
+
+- `GetDuration` / `GetDurationE` / `GetDurationOption` and `Unmarshal` into
+  `time.Duration` now share one internal reader, as byte sizes already did.
+  Before, the same value failed differently on the two paths: `"5 lightyears"`
+  gave `invalid duration: 5 lightyears` from a getter and only
+  `unknown duration unit "lightyears"` (without the `hocon:` prefix) from
+  `Unmarshal`.
+- **Error messages change on both paths**, so that both carry the value and
+  the reason:
+  - A value that does not parse now reads
+    `invalid duration: 5 lightyears (unknown unit "lightyears")`. The getters
+    keep their `invalid duration: <value>` prefix and gain the reason in
+    parentheses. `Unmarshal` used to return only the reason
+    (`unknown duration unit "lightyears"`, `no number in duration "s"`,
+    `unexpected characters in duration "1x2"`) and now returns the same
+    message as the getters.
+  - A value past `time.Duration` (E21) reads
+    `duration overflows int64 nanoseconds: 200000d` on both paths.
+  - `Unmarshal` adds the key path as usual
+    (`hocon: field "timeout": hocon: invalid duration: …`).
+
+### Fixed — `Unmarshal` no longer turns an unresolved substitution into `nil`
+
+- On a config that still holds unresolved substitutions (a deferred parse, or
+  `Resolve` with `AllowUnresolved`), whole-config `Unmarshal` into
+  `map[string]any` or `any` silently decoded each unresolved value as `nil`
+  (`a = [1, ${y}]` → `[1 <nil>]`, `b = ${z}` → `b: nil`), and into a typed
+  field it failed with an internal type name (`*resolver.substPlaceholder`).
+  Reading an unresolved value is now an error wrapping `ErrNotResolved` that
+  names the key, as `UnmarshalPath` and the getters already did. Keys the
+  target does not read are unaffected, so a struct over the resolved part of
+  the config still decodes.
+
+### Fixed — the error for an unregistered `include package(...)` no longer repeats itself
+
+- It named the package twice and gave the blank-import hint twice. It now
+  reads `package("github.com/acme/auth", "reference.conf"): not found in
+  registry; ensure the providing package is imported with _
+  "github.com/acme/auth" in your application`. The registry owns the hint (it
+  alone knows the lookup missed); the resolver adds only the `package(...)`
+  context.
+
+### Documentation — doc audit fixes, and a section on configuration that stays inside its module
+
+- **New README section, "Configuration that stays inside its module"**: each
+  module ships its defaults with `include package(...)`, reads only its own
+  subtree through its own struct, and leaves wiring to the application. A new
+  "Package includes" subsection documents `RegisterPackage`, `//go:embed` and
+  the blank-import pattern.
+- **Fixed statements that were no longer true**: `1KB` (spelled `kB` since
+  1.13.0), "Go 1.21" in README.ja (go.mod says 1.23; the docs test now checks
+  README.ja too), the adapters "no tag pushed yet" text (tags start at
+  `adapters/v1.11.0`), the rs.hocon crates.io link (`hocon-parser`), the
+  Lightbend exclusion wording, JSON5 missing from the adapter lists, the
+  include base directory in Security Considerations, and the S21.5 note.
+- README.ja.md is brought level with README.md (library stance, deferred
+  resolution, Performance, Comparison, Known Limitations, Security, py.hocon).
+- CONTRIBUTING says to run `make testdata` after cloning; without it the
+  conformance tests skip silently. GoDoc: every getter has a doc comment, and
+  the Config, Resolve, FromMap and GetDurationE docs are corrected. The
+  CHANGELOG gains link references for `[Unreleased]` and 1.1.0–1.13.0.
 
 ## [1.13.0] - 2026-08-19
 
@@ -1189,7 +1199,8 @@ A subset of these fixes change observable runtime behavior. The most likely user
 - README in English and Japanese.
 - Apache 2.0 LICENSE.
 
-[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/o3co/go.hocon/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/o3co/go.hocon/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/o3co/go.hocon/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/o3co/go.hocon/compare/v1.10.0...v1.11.0

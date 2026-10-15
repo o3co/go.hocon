@@ -417,9 +417,9 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 
 ### HOCON 実装
 
-[gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.3.0** と 2026-07-26 に比較。
+[gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.4.0** と 2026-10-16 に比較。
 
-| 機能 | go.hocon | gurkankaymak/hocon v1.3.0 |
+| 機能 | go.hocon | gurkankaymak/hocon v1.4.0 |
 | --- | :---: | :---: |
 | 代入（`${path}`） | ✅ | ✅ |
 | オプショナル代入（`${?path}`） | ✅ | ✅ |
@@ -438,7 +438,7 @@ Apple M4 Pro 上で `go test -bench`（Go 組み込みのベンチマーク）�
 
 ### 設定フレームワーク
 
-[viper](https://github.com/spf13/viper) **v1.21.0** と 2026-07-26 に比較。
+[viper](https://github.com/spf13/viper) **v1.21.0**（現在も最新）と 2026-10-16 に比較。
 
 | | go.hocon | viper v1.21.0 |
 | --- | :---: | :---: |

@@ -422,9 +422,9 @@ For typical application configs (loaded once at startup), the parsing cost is ne
 
 ### HOCON Implementation
 
-Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.3.0** on 2026-07-26.
+Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.4.0** on 2026-10-16.
 
-| Feature | go.hocon | gurkankaymak/hocon v1.3.0 |
+| Feature | go.hocon | gurkankaymak/hocon v1.4.0 |
 | --- | :---: | :---: |
 | Substitutions (`${path}`) | ✅ | ✅ |
 | Optional substitutions (`${?path}`) | ✅ | ✅ |
@@ -443,7 +443,7 @@ Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v
 
 ### Config Framework
 
-Compared against [viper](https://github.com/spf13/viper) **v1.21.0** on 2026-07-26.
+Compared against [viper](https://github.com/spf13/viper) **v1.21.0** (still the latest release) on 2026-10-16.
 
 | | go.hocon | viper v1.21.0 |
 | --- | :---: | :---: |
