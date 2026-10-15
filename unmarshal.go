@@ -295,14 +295,20 @@ func valToAny(v resolver.Val) (any, error) {
 	}
 }
 
-// errIfUnresolved returns an error wrapping ErrNotResolved when val is an
-// unresolved substitution — a deferred parse, or a Resolve with
-// AllowUnresolved, leaves these in the tree — and nil otherwise. It is called
-// only where a value is not of the expected kind, so a resolved config pays
-// nothing for it.
+// errIfUnresolved returns ErrNotResolved when val itself is an unresolved
+// substitution — a deferred parse, or a Resolve with AllowUnresolved, leaves
+// these in the tree — and nil otherwise. It is called only where a value is
+// not of the expected kind, so a resolved config pays nothing for it. The
+// check is shallow: an object or array that merely contains a placeholder is
+// a real type mismatch here, and its placeholders are reported when the
+// decoder reaches them inside a matching target.
 func errIfUnresolved(val resolver.Val) error {
+	switch val.(type) {
+	case *resolver.ObjectVal, *resolver.ArrayVal:
+		return nil
+	}
 	if isUnresolvedPlaceholder(val) {
-		return fmt.Errorf("hocon: %w", ErrNotResolved)
+		return ErrNotResolved
 	}
 	return nil
 }

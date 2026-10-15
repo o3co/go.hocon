@@ -18,6 +18,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	hocon "github.com/o3co/go.hocon"
 )
@@ -109,5 +110,88 @@ func TestUnmarshal_Unresolved_ResolvedPartsStillDecode(t *testing.T) {
 	}
 	if s.A.X != 1 {
 		t.Errorf("A.X = %d, want 1", s.A.X)
+	}
+}
+
+// TestUnmarshal_Unresolved_Shapes runs every target shape against both kinds
+// of unresolved config: a deferred parse never resolved, and one resolved
+// with AllowUnresolved.
+func TestUnmarshal_Unresolved_Shapes(t *testing.T) {
+	deferred := func(t *testing.T, src string) *hocon.Config {
+		t.Helper()
+		cfg, err := hocon.ParseStringWithOptions(src, hocon.DefaultParseOptions().WithResolveSubstitutions(false))
+		if err != nil {
+			t.Fatalf("ParseStringWithOptions: %v", err)
+		}
+		return cfg
+	}
+	kinds := map[string]func(*testing.T, string) *hocon.Config{
+		"deferred":         deferred,
+		"allow-unresolved": partiallyResolved,
+	}
+	type tcase struct {
+		name, src, key string
+		target         func() any
+	}
+	cases := []tcase{
+		{"pointer", "p = ${y}", `"p"`, func() any { return &struct{ P *int }{} }},
+		{"duration", "d = ${y}", `"d"`, func() any {
+			return &struct {
+				D time.Duration `hocon:"d"`
+			}{}
+		}},
+		{"bytesize", "b = ${y}", `"b"`, func() any {
+			return &struct {
+				B hocon.ByteSize `hocon:"b"`
+			}{}
+		}},
+		{"period", "p = ${y}", `"p"`, func() any {
+			return &struct {
+				P hocon.Period `hocon:"p"`
+			}{}
+		}},
+		{"concat string", "s = ${y} foo", `"s"`, func() any {
+			return &struct {
+				S string `hocon:"s"`
+			}{}
+		}},
+		{"map element", "m { a = 1, b = ${y} }", `"b"`, func() any {
+			return &struct {
+				M map[string]int `hocon:"m"`
+			}{}
+		}},
+		{"numeric object to slice", "l { 0 = 1, 1 = ${y} }", "slice element 1", func() any {
+			return &struct {
+				L []int `hocon:"l"`
+			}{}
+		}},
+		{"any in struct", "o { a = [ { b = ${y} } ] }", `"b"`, func() any {
+			return &struct {
+				O any `hocon:"o"`
+			}{}
+		}},
+	}
+	for kname, load := range kinds {
+		for _, tc := range cases {
+			t.Run(kname+"/"+tc.name, func(t *testing.T) {
+				assertNotResolved(t, load(t, tc.src).Unmarshal(tc.target()), tc.key)
+			})
+		}
+	}
+}
+
+// TestUnmarshal_Unresolved_TypeMismatchStaysTypeMismatch: an object holding a
+// placeholder, read into an int, is a type error — resolving would not help.
+func TestUnmarshal_Unresolved_TypeMismatchStaysTypeMismatch(t *testing.T) {
+	cfg := partiallyResolved(t, "s { a = ${y} }")
+	var v struct {
+		S int `hocon:"s"`
+	}
+	err := cfg.Unmarshal(&v)
+	if err == nil {
+		t.Fatal("Unmarshal: want a type-mismatch error")
+	}
+	if errors.Is(err, hocon.ErrNotResolved) {
+		t.Errorf("err = %v; a type mismatch must not be reported as not resolved", err)
 	}
 }
