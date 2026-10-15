@@ -236,7 +236,7 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 Fields without a `hocon` tag use the lowercased field name. `omitempty` preserves the pre-populated value when the key is missing.
 
-Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`.
+Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
 
 ### Error Types
 

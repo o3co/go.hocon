@@ -19,6 +19,8 @@ import (
 	"github.com/o3co/go.hocon/internal/resolver"
 )
 
+var byteSizeType = reflect.TypeOf(ByteSize(0))
+
 // Unmarshal maps the config into v using `hocon` struct tags.
 // v must be a non-nil pointer to a struct or map[string]any.
 func (c *Config) Unmarshal(v any) error {
@@ -302,7 +304,7 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 	}
 
 	// ByteSize (underlying kind is int64): same reader as GetBytes.
-	if target.Type() == reflect.TypeOf(ByteSize(0)) {
+	if target.Type() == byteSizeType {
 		n, err := readBytes(sv.Raw)
 		if err != nil {
 			return fmt.Errorf("hocon: %w", err)

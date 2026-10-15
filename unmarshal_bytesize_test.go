@@ -22,7 +22,8 @@ import (
 
 // TestUnmarshal_ByteSize_ParityWithGetBytesE asserts that Unmarshal into a
 // ByteSize field and GetBytesE agree on every input: both succeed with the same
-// count, or both fail.
+// count, or both fail. null is the one deliberate exception (Unmarshal's
+// scalar rule: field left unchanged) — see TestUnmarshal_ByteSize_Null.
 func TestUnmarshal_ByteSize_ParityWithGetBytesE(t *testing.T) {
 	inputs := []string{
 		`1024`,                  // bare number scalar → bytes
@@ -159,5 +160,25 @@ func TestUnmarshal_ByteSize_ErrorCarriesPath(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestUnmarshal_ByteSize_Null pins the one deliberate difference from GetBytesE:
+// null leaves a ByteSize field unchanged, as for every scalar in Unmarshal,
+// while the getter returns an error.
+func TestUnmarshal_ByteSize_Null(t *testing.T) {
+	type holder struct {
+		B hocon.ByteSize `hocon:"b"`
+	}
+	cfg := mustParseCfg(t, "b = null")
+	if _, err := cfg.GetBytesE("b"); err == nil {
+		t.Error("GetBytesE on null: want error")
+	}
+	h := holder{B: 7}
+	if err := cfg.Unmarshal(&h); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if h.B != 7 {
+		t.Errorf("B = %d, want 7 (unchanged)", h.B)
 	}
 }

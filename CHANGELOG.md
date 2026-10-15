@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field, a pointer, a slice element and a map value.
 - The rules are exactly those of `GetBytes`: a bare number is bytes, a
   fractional count is truncated, unit names are case-sensitive, and a negative
-  value is an error. `GetBytes`, `GetBytesE`, `GetBytesOption` and `Unmarshal`
+  value is an error. A `null` leaves the field unchanged, as for every scalar
+  in `Unmarshal` (the getters return an error on `null`). `GetBytes`,
+  `GetBytesE`, `GetBytesOption` and `Unmarshal`
   now read through one internal reader, so the two paths cannot drift. A
   failure names the key path, like `Unmarshal`'s other errors
   (`hocon: field "limits": hocon: field "max-body": hocon: byte size must not be negative`).
