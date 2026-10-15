@@ -19,6 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target does not read are unaffected, so a struct over the resolved part of
   the config still decodes.
 
+### Fixed — **BREAKING (spec fix, S8.4 / E8)**: a token that starts like a number is read the way Lightbend reads it
+
+- **The whole run of number characters `[0-9.eE+-]` decides what the token
+  is**, as in Lightbend 1.4.6's tokenizer (measured 2026-10-16). Before, go
+  took the longest JSON number prefix and let the rest concatenate as text.
+  - A run that is not a number and contains `+` is now an error, not a number
+    followed by text: `1e+5.5`, `1e+5.2`, `1e+5e5` and `1e+5-` were the strings
+    `"1e+5.5"` etc. and are now parse errors.
+  - A number may end in `.` (Java's grammar): `1.`, `-1.`, `1.e5` and `1.e+5`
+    are now numbers (`1`, `-1`, `100000`, `100000`). The first three were
+    strings, and `1.e+5` was an error.
+  - Runs that are not numbers and have no `+` stay text, as before (`1.5.`,
+    `1.e`, `1e-x`, `1e-5e5`, `.5`).
+- `RenderJSONForTest` (and `hocon-json`) quote a number whose lexeme is not a
+  JSON number (`1.` → `"1."`) instead of emitting malformed JSON.
+- **Workaround**: quote the value to keep it a string (`a = "1."`,
+  `a = "1e+5.5"`).
+
 ### Fixed — the error for an unregistered `include package(...)` no longer repeats itself
 
 - It named the package twice and gave the blank-import hint twice. It now

@@ -27,6 +27,9 @@ import (
 // Compiled once at package scope per the Lightbend isWholeNumber pattern.
 var integerRegex = regexp.MustCompile(`^[+-]?[0-9]+$`)
 
+// jsonNumberRegex is the RFC 8259 number grammar, used when rendering JSON.
+var jsonNumberRegex = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+
 // isHoconWS reports whether r is a HOCON whitespace character.
 // This is an inlined copy of internal/lexer.isHoconWhitespace (unexported).
 // Keep in sync with internal/lexer/lexer.go:isHoconWhitespace.
@@ -1296,8 +1299,11 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			// number matching Lightbend/rs.hocon (e.g. "023"->23, "-08.5"->-8.5);
 			// xx.hocon#50. Render-only: GetString/concat still see the verbatim
 			// lexeme (S10.11), so this does not affect string coercion.
+			// A HOCON number lexeme that is not a JSON number (`1.`, `1.e5` —
+			// numbers since the Lightbend number-run rule) is quoted rather
+			// than emitted as malformed JSON.
 			norm := normalizeLeadingZeroNumber(vv.Raw)
-			if _, err := strconv.ParseFloat(norm, 64); err == nil {
+			if jsonNumberRegex.MatchString(norm) {
 				sb.WriteString(norm)
 			} else {
 				sb.WriteString(strconv.Quote(vv.Raw))
