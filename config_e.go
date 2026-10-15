@@ -172,9 +172,9 @@ func (c *Config) GetDurationE(path string) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	d, perr := parseDuration(s)
+	d, perr := readDuration(s)
 	if perr != nil {
-		return 0, &ConfigError{Path: path, Message: "invalid duration: " + s}
+		return 0, &ConfigError{Path: path, Message: perr.Error()}
 	}
 	return d, nil
 }

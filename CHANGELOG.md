@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — durations read through one reader, so the getters and `Unmarshal` give the same reason ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
+
+- `GetDuration` / `GetDurationE` / `GetDurationOption` and `Unmarshal` into
+  `time.Duration` now share one internal reader, as byte sizes already did.
+  Before, the same value failed differently: `"200000d"` gave
+  `invalid duration: 200000d` from a getter and
+  `duration "200000d" overflows int64 nanoseconds` (without the `hocon:` prefix)
+  from `Unmarshal`. Both now say `duration overflows int64 nanoseconds: 200000d`
+  for a value past `time.Duration` (E21), and `invalid duration: <value>` for
+  anything that does not parse. `Unmarshal` adds the key path as usual.
+
 ### Fixed — a duration past int64 nanoseconds is an error, not a wrapped value (E21, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 
 - **A whole-number duration too large for `time.Duration` used to wrap
