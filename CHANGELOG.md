@@ -28,6 +28,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its own to name, so the path was missing before. The wrapped error is kept
   (`%w`), so `errors.Is` / `errors.As` still match.
 
+### Added — `GetPeriod` and `hocon.Period`, the HOCON period format (S20, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
+
+- **Period values (`"7d"`, `"2w"`, `"3mo"`, `"1y"`) can now be read**, at
+  parity with rs.hocon's `get_period` and py.hocon's `get_period`.
+  `GetPeriod` / `GetPeriodE` / `GetPeriodOption` return
+  `hocon.Period{Years, Months, Days int}`, the counterpart of
+  `java.time.Period`; apply it with `t.AddDate(p.Years, p.Months, p.Days)`.
+- Units: `d` / `day` / `days`, `w` / `week` / `weeks` (folded into `Days`
+  ×7), `m` / `mo` / `month` / `months`, `y` / `year` / `years`. A bare number is
+  days. Unit names are case-sensitive, values are integer-only (`"7.5"` is an
+  error) and bounded to int32 like Lightbend and the siblings, and negative
+  values are allowed.
+- `Unmarshal` / `UnmarshalPath` read a `hocon.Period` field (also as a
+  pointer, slice element or map value) through the same reader as
+  `GetPeriod`. A failure names the key path, like `Unmarshal`'s other errors.
+- The S20.1–S20.4 rows in `docs/spec-compliance.md` move from ➖ to ✅, and the
+  `units-default` `up01`–`up05` conformance fixtures, skipped until now, are
+  asserted. The spec-total compliance rate goes from 90.5% to 92.4%.
+
 ## [1.13.0] - 2026-08-19
 
 ### Behavior

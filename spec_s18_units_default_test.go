@@ -17,7 +17,7 @@
 //   - ud01-ud08: duration fixtures — asserts GetDurationOption("t")
 //   - ub01-ub06: bytes fixtures — asserts GetBytesOption("b")
 //   - un01-un03: negative-case fixtures — asserts IsNone()
-//   - up01-up05: period fixtures — skipped (GetPeriod not implemented in go.hocon)
+//   - up01-up05: period fixtures — asserts GetPeriodE("p")
 package hocon_test
 
 import (
@@ -166,21 +166,46 @@ func TestUnitsDefault_Negative(t *testing.T) {
 	}
 }
 
-// TestUnitsDefault_Period skips up01–up05 fixtures.
-// GetPeriod is not implemented in go.hocon — period fixtures are inputs-only
-// until a GetPeriod accessor is added in a future phase.
+// TestUnitsDefault_Period drives up01–up05 fixtures. Period is integer-only,
+// so the fractional up03 is an error (unlike duration/bytes), and weeks fold
+// into days (up05: 7w = 49 days).
 func TestUnitsDefault_Period(t *testing.T) {
-	periodFixtures := []string{
-		"up01-period-bare",
-		"up02-period-leading-trailing-ws",
-		"up03-period-fractional-rejected",
-		"up04-period-negative",
-		"up05-period-with-unit",
+	cases := []struct {
+		stem    string
+		want    hocon.Period
+		wantErr bool
+	}{
+		{"up01-period-bare", hocon.Period{Days: 7}, false},
+		{"up02-period-leading-trailing-ws", hocon.Period{Days: 7}, false},
+		{"up03-period-fractional-rejected", hocon.Period{}, true},
+		{"up04-period-negative", hocon.Period{Days: -7}, false},
+		{"up05-period-with-unit", hocon.Period{Days: 49}, false},
 	}
-	for _, stem := range periodFixtures {
-		stem := stem
-		t.Run(stem, func(t *testing.T) {
-			t.Skipf("S18.4 period: GetPeriod not implemented in go.hocon — fixture present at testdata/hocon/units-default/%s.conf, accessor assertion deferred", stem)
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.stem, func(t *testing.T) {
+			confPath := filepath.Join(udFixtureDir, tc.stem+".conf")
+			if _, err := os.Stat(confPath); os.IsNotExist(err) {
+				t.Skipf("fixture not found — run `make testdata` first: %s", confPath)
+			}
+			src, err := os.ReadFile(confPath)
+			if err != nil {
+				t.Fatalf("read fixture: %v", err)
+			}
+			cfg, err := hocon.ParseString(string(src))
+			if err != nil {
+				t.Fatalf("ParseString: %v", err)
+			}
+			got, err := cfg.GetPeriodE("p")
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("%s: GetPeriodE(\"p\") = %+v; want error", tc.stem, got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Errorf("%s: GetPeriodE(\"p\") = %+v, %v; want %+v", tc.stem, got, err, tc.want)
+			}
 		})
 	}
 }

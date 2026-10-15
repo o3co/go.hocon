@@ -196,6 +196,21 @@ func (c *Config) GetBytesE(path string) (int64, error) {
 	return n, nil
 }
 
+// GetPeriodE returns the value at path parsed as a HOCON period (see
+// GetPeriod), or *ConfigError on missing / non-scalar / null / unresolved /
+// invalid format.
+func (c *Config) GetPeriodE(path string) (Period, error) {
+	s, err := c.GetStringE(path)
+	if err != nil {
+		return Period{}, err
+	}
+	p, perr := readPeriod(s)
+	if perr != nil {
+		return Period{}, &ConfigError{Path: path, Message: perr.Error()}
+	}
+	return p, nil
+}
+
 // ── slice accessors ──────────────────────────────────────────────────
 
 // GetStringSliceE returns the array at path as a []string, or *ConfigError on

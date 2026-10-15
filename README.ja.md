@@ -93,6 +93,7 @@ HOCON は単なるシリアライズ形式ではなく、**プログラムに注
 - トリプルクォート文字列（`"""..."""`）
 - Duration パース（`10ms`、`2s`、`1h`、`1d`）
 - バイトサイズパース（`1KB`、`1KiB`、`1MB`、...）
+- 期間 (Period) パース（`7d`、`2w`、`3mo`、`1y`）→ `hocon.Period`
 - 安全な省略値アクセスのためのジェネリック `Option[T]`
 - `hocon` 構造体タグによる Unmarshal
 - 他プログラムが所有する設定ファイルを読むフォーマットアダプタ — Properties、env、JSONC、TOML、YAML（下記参照）
@@ -123,9 +124,10 @@ hocon.ParseFile(path string)    (*Config, error)
 | `GetBoolE` | `GetBool` | `GetBoolOption` |
 | `GetDurationE` | `GetDuration` | `GetDurationOption` |
 | `GetBytesE` | `GetBytes` | `GetBytesOption` |
+| `GetPeriodE` | `GetPeriod` | `GetPeriodOption` |
 
 `Get*E` は型付き `*ConfigError` を返します (missing / null / 型違い /
-duration・byte の不正フォーマット)。未解決 placeholder 起因の失敗は
+duration・byte・period の不正フォーマット)。未解決 placeholder 起因の失敗は
 `errors.Is(err, hocon.ErrNotResolved)` で判定できます。panic 系列は同じ
 `*ConfigError` を payload に panic し、`Get*Option` は `None` を返します。
 
@@ -199,6 +201,8 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 単位付きの値は getter と同じ規則で読む。`time.Duration` フィールドは `GetDuration` と同じ (`"30s"`、単位なしはミリ秒)、`hocon.ByteSize` フィールドは `GetBytes` と同じ (`"512MiB"`、単位なしはバイト、負の値はエラー)。値は `int64(s.MaxBody)` で取り出す。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
 
+`hocon.Period` フィールドは `GetPeriod` と同じ規則で読む: `"30d"`、`"2w"`、`"6mo"`、`"1y"`、または単位なしの整数 (日数)。週は `Days` に畳み込む。日付への適用は `t.AddDate(p.Years, p.Months, p.Days)`。
+
 ### エラー型
 
 ```go
@@ -246,7 +250,7 @@ max-size  = "512MiB"
 
 | 指標 | 状況 |
 | --- | --- |
-| 仕様全体（out-of-scope を含む） | **90.5%** |
+| 仕様全体（out-of-scope を含む） | **92.4%** |
 | In-scope のみ | **100.0%** |
 | Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 合格 |
 | [hocon2](https://github.com/o3co/hocon2) 準拠テスト（JSON/YAML/TOML/Properties 出力） | 77/77 合格 |

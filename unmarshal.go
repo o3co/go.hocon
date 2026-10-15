@@ -127,6 +127,24 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 		return nil
 	}
 
+	// Period is a struct but reads from a scalar, through the same reader as
+	// GetPeriod.
+	if t == reflect.TypeOf(Period{}) {
+		sv, ok2 := val.(*resolver.ScalarVal)
+		if !ok2 {
+			return fmt.Errorf("hocon: expected scalar for %v, got %T", t, val)
+		}
+		if sv.Type == resolver.ScalarNull {
+			return nil // null → zero value, like other scalars
+		}
+		p, err := readPeriod(sv.Raw)
+		if err != nil {
+			return fmt.Errorf("hocon: %w", err)
+		}
+		target.Set(reflect.ValueOf(p))
+		return nil
+	}
+
 	obj, ok := val.(*resolver.ObjectVal)
 	if !ok {
 		return fmt.Errorf("hocon: expected object for struct, got %T", val)
