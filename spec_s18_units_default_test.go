@@ -14,11 +14,12 @@
 // (xx.hocon accessor-time output capture deferred to S13c generator extension).
 //
 // Fixture families:
-//   - ud01-ud11: duration fixtures — asserts GetDurationOption("t")
-//   - ub01-ub08: bytes fixtures — asserts GetBytesOption("b")
+//   - ud01-ud18: duration fixtures — asserts GetDurationOption("t")
+//   - ub01-ub13: bytes fixtures — asserts GetBytesOption("b")
 //   - ud09-ud11, ub07-ub08: E20 exact-decimal unit arithmetic
+//   - ud14-ud20, ub09-ub13: E20 exponent forms (xx.hocon#111)
 //   - un01-un03: negative-case fixtures — asserts IsNone()
-//   - ud12-ud13: E21 duration overflow — asserts IsNone()
+//   - ud12-ud13, ud19-ud20: E21 overflow / invalid number — asserts IsNone()
 //   - up01-up05: period fixtures — asserts GetPeriodE("p")
 package hocon_test
 
@@ -33,7 +34,7 @@ import (
 
 const udFixtureDir = "testdata/hocon/units-default"
 
-// TestUnitsDefault_Duration drives ud01–ud11 fixtures.
+// TestUnitsDefault_Duration drives ud01–ud11 and ud14–ud18 fixtures.
 func TestUnitsDefault_Duration(t *testing.T) {
 	type dcase struct {
 		stem string
@@ -64,7 +65,7 @@ func TestUnitsDefault_Duration(t *testing.T) {
 		{"ud10-duration-fractional-exact-hours", "t", 8280000 * time.Millisecond},
 		{"ud11-duration-fractional-exact-no-unit", "t", 1001000 * time.Nanosecond},
 		// ud14–ud18 (E20 exponent forms, xx.hocon#111): the number part is a
-		// full number, exponent included. Skipped until the fixtures land.
+		// full number, exponent included.
 		{"ud14-duration-exponent-unit", "t", 100000 * time.Millisecond},
 		{"ud15-duration-exponent-fraction", "t", 150000 * time.Millisecond},
 		{"ud16-duration-exponent-no-unit", "t", 1000 * time.Millisecond},
@@ -121,8 +122,7 @@ func TestUnitsDefault_Bytes(t *testing.T) {
 		{"ub07-bytes-fractional-unit-truncated", "b", true, 1000},
 		// ub08 (E20): 1.001kB exact = 1001 (float64 gives 1000.9999999999999 → 1000)
 		{"ub08-bytes-fractional-unit-exact", "b", true, 1001},
-		// ub09–ub13 (E20 exponent forms, xx.hocon#111). Skipped until the
-		// fixtures land.
+		// ub09–ub13 (E20 exponent forms, xx.hocon#111).
 		{"ub09-bytes-exponent-unit", "b", true, 1000000},
 		{"ub10-bytes-exponent-no-unit", "b", true, 1000},
 		{"ub11-bytes-exponent-binary", "b", true, 204800},
