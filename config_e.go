@@ -174,7 +174,7 @@ func (c *Config) GetDurationE(path string) (time.Duration, error) {
 	}
 	d, perr := readDuration(s)
 	if perr != nil {
-		return 0, &ConfigError{Path: path, Message: perr.Error()}
+		return 0, &ConfigError{Path: path, Message: perr.Error(), cause: perr}
 	}
 	return d, nil
 }

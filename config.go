@@ -384,14 +384,16 @@ var errDurationOverflow = errors.New("duration overflows int64 nanoseconds")
 // readDuration is the one reader for HOCON duration values. GetDuration,
 // GetDurationE, GetDurationOption and Unmarshal into time.Duration all read
 // through it, so the accepted forms and the error reasons cannot drift
-// between the getters and Unmarshal.
+// between the getters and Unmarshal. A value that does not parse reads
+// "invalid duration: <s> (<reason>)"; one past time.Duration reads
+// "duration overflows int64 nanoseconds: <s>" (E21).
 func readDuration(s string) (time.Duration, error) {
 	d, err := parseDuration(s)
 	if errors.Is(err, errDurationOverflow) {
 		return 0, fmt.Errorf("%w: %s", errDurationOverflow, s)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("invalid duration: %s", s)
+		return 0, fmt.Errorf("invalid duration: %s (%w)", s, err)
 	}
 	return d, nil
 }
@@ -399,7 +401,7 @@ func readDuration(s string) (time.Duration, error) {
 func (c *Config) GetDuration(path string) time.Duration {
 	d, err := readDuration(c.GetString(path))
 	if err != nil {
-		panicConfig(path, err.Error())
+		panic(&ConfigError{Path: path, Message: err.Error(), cause: err})
 	}
 	return d
 }
@@ -431,7 +433,7 @@ func parseDuration(s string) (time.Duration, error) {
 		i++
 	}
 	if i == digStart {
-		return 0, fmt.Errorf("no number in duration %q", s)
+		return 0, errors.New("no number")
 	}
 	if i < len(s) && s[i] == '.' {
 		i++ // consume dot
@@ -466,7 +468,7 @@ func parseDuration(s string) (time.Duration, error) {
 		i += w
 	}
 	if i < len(s) {
-		return 0, fmt.Errorf("unexpected characters in duration %q", s)
+		return 0, errors.New("unexpected characters")
 	}
 
 	// Resolve multiplier.
@@ -489,7 +491,7 @@ func parseDuration(s string) (time.Duration, error) {
 	case "d", "day", "days":
 		mult = 24 * time.Hour
 	default:
-		return 0, fmt.Errorf("unknown duration unit %q", unit)
+		return 0, fmt.Errorf("unknown unit %q", unit)
 	}
 
 	// integer-form → int64 * mult (already exact); fractional → exact decimal

@@ -11,12 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `GetDuration` / `GetDurationE` / `GetDurationOption` and `Unmarshal` into
   `time.Duration` now share one internal reader, as byte sizes already did.
-  Before, the same value failed differently: `"200000d"` gave
-  `invalid duration: 200000d` from a getter and
-  `duration "200000d" overflows int64 nanoseconds` (without the `hocon:` prefix)
-  from `Unmarshal`. Both now say `duration overflows int64 nanoseconds: 200000d`
-  for a value past `time.Duration` (E21), and `invalid duration: <value>` for
-  anything that does not parse. `Unmarshal` adds the key path as usual.
+  Before, the same value failed differently on the two paths: `"200000d"`
+  gave `invalid duration: 200000d` from a getter and
+  `duration "200000d" overflows int64 nanoseconds` (without the `hocon:`
+  prefix) from `Unmarshal`.
+- **Error messages change on both paths**, so that both carry the value and
+  the reason:
+  - A value that does not parse now reads
+    `invalid duration: 5 lightyears (unknown unit "lightyears")`. The getters
+    keep their `invalid duration: <value>` prefix and gain the reason in
+    parentheses. `Unmarshal` used to return only the reason
+    (`unknown duration unit "lightyears"`, `no number in duration "s"`,
+    `unexpected characters in duration "1x2"`) and now returns the same
+    message as the getters.
+  - A value past `time.Duration` (E21) reads
+    `duration overflows int64 nanoseconds: 200000d` on both paths.
+  - `Unmarshal` adds the key path as usual
+    (`hocon: field "timeout": hocon: invalid duration: …`).
 
 ### Fixed — a duration past int64 nanoseconds is an error, not a wrapped value (E21, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 

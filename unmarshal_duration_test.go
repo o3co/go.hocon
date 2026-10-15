@@ -63,16 +63,35 @@ func TestUnmarshal_Duration_ParityWithGetDurationE(t *testing.T) {
 				if h.T != want {
 					t.Errorf("Unmarshal = %d ns, GetDurationE = %d ns", h.T, want)
 				}
+				if got := cfg.GetDuration("t"); got != want {
+					t.Errorf("GetDuration = %d ns, GetDurationE = %d ns", got, want)
+				}
+				if got, ok := cfg.GetDurationOption("t").Get(); !ok || got != want {
+					t.Errorf("GetDurationOption = %d ns, %v; GetDurationE = %d ns", got, ok, want)
+				}
 				return
 			}
-			// Same reason: the getter's message appears in the Unmarshal error.
+			// Same reason: the Unmarshal error ends with the getter's message.
 			var ce *hocon.ConfigError
 			if !errors.As(wantErr, &ce) {
 				t.Fatalf("GetDurationE err = %T, want *ConfigError", wantErr)
 			}
-			if !strings.Contains(gotErr.Error(), ce.Message) {
-				t.Errorf("Unmarshal err %q does not carry the getter's reason %q", gotErr, ce.Message)
+			if !strings.HasSuffix(gotErr.Error(), ce.Message) {
+				t.Errorf("Unmarshal err %q does not end with the getter's reason %q", gotErr, ce.Message)
 			}
+			// The panicking and Option getters read through the same reader.
+			if cfg.GetDurationOption("t").IsSome() {
+				t.Error("GetDurationOption = Some; want None")
+			}
+			func() {
+				defer func() {
+					pe, ok := recover().(*hocon.ConfigError)
+					if !ok || pe.Message != ce.Message {
+						t.Errorf("GetDuration panic = %v; want *ConfigError with message %q", pe, ce.Message)
+					}
+				}()
+				_ = cfg.GetDuration("t")
+			}()
 		})
 	}
 }
@@ -81,7 +100,10 @@ func TestDuration_ErrorReasons(t *testing.T) {
 	cases := []struct {
 		in, reason string
 	}{
-		{`"5 lightyears"`, "invalid duration: 5 lightyears"},
+		{`"5 lightyears"`, `invalid duration: 5 lightyears (unknown unit "lightyears")`},
+		{`"30S"`, `invalid duration: 30S (unknown unit "S")`},
+		{`"1x2"`, "invalid duration: 1x2 (unexpected characters)"},
+		{`"s"`, "invalid duration: s (no number)"},
 		{`"200000d"`, "duration overflows int64 nanoseconds: 200000d"},
 	}
 	type holder struct {
