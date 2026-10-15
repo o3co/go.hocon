@@ -35,10 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `-`, `-foo` or `-.` stays text.
   - Runs that are not numbers and have no `+` stay text, as before (`1.5.`,
     `1.e`, `1e-x`, `1e-5e5`, `.5`).
-- `RenderJSONForTest` (and `hocon-json`) quote a number whose lexeme is not a
-  JSON number (`1.` → `"1."`) instead of emitting malformed JSON.
+  - A numeric key written directly before `+=` is now an error, as in
+    Lightbend: in `1+= 2` the run `1+` is not a number and contains `+`.
+    `x.1+= 2` and `a+= 2` are unaffected.
+  - A number run past float64 is an error by go's existing float-overflow
+    rule: `1.e999` and `-.5e999` were strings and are now errors (Lightbend
+    reads ±Infinity).
+- `RenderJSONForTest` (and `hocon-json`) complete a number lexeme that JSON
+  does not spell with its missing zero (`1.` → `1.0`, `-.5` → `-0.5`, `1.e5` →
+  `1.0e5`) instead of emitting malformed JSON; quoting is only a last resort.
 - **Workaround**: quote the value to keep it a string (`a = "1."`,
-  `a = "-.5"`, `a = "1e+5.5"`).
+  `a = "-.5"`, `a = "1e+5.5"`); write a space before `+=` after a numeric key
+  (`1 += 2`).
+- Also: in a key that starts with a number, whitespace after a trailing dot
+  is now kept on the next segment, as on every other key path (E13):
+  `123foo. bar = 1` is `{"123foo":{" bar":1}}` (was `{"123foo":{"bar":1}}`).
 
 ### Fixed — the error for an unregistered `include package(...)` no longer repeats itself
 

@@ -17,6 +17,7 @@ package hocon_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	hocon "github.com/o3co/go.hocon"
@@ -120,11 +121,36 @@ func TestS8_4_NumberRun_KeyPosition(t *testing.T) {
 		{"a+b = 1", runErr},
 		{"a.1e+5 = 1", runErr},
 		{"x = [1]\nx += 2", `{"x":[1,2]}`}, // the += operator is unaffected
+		// A numeric key written directly before `+=`: the run `1+` is not a
+		// number and contains '+', so it is an error, as in Lightbend.
+		// Workaround: a space before `+=`.
+		{"1 = [1]\n1+= 2", runErr},
+		{"1 = [1]\n1 += 2", `{"1":[1,2]}`},
 	})
 }
 
-// TestS8_4_NumberRun_DigitsDotRendersAsJSON: a number lexeme that is not a
-// JSON number is never emitted as malformed JSON.
+// TestS8_4_NumberRun_FloatOverflow: a run that is a number but past float64
+// is an error, by go's existing float-overflow rule (Lightbend reads
+// ±Infinity).
+func TestS8_4_NumberRun_FloatOverflow(t *testing.T) {
+	checkRunCases(t, []runCase{
+		{"a = 1.e999", runErr},
+		{"a = -.5e999", runErr},
+	})
+}
+
+// TestS8_4_NumberRun_PlusErrorColumn: the error points at the '+'.
+func TestS8_4_NumberRun_PlusErrorColumn(t *testing.T) {
+	_, err := hocon.ParseString("a = 1e+5.5")
+	var pe *hocon.ParseError
+	if !errors.As(err, &pe) || pe.Line != 1 || pe.Col != 7 {
+		t.Errorf("err = %v; want a *ParseError at line 1, col 7", err)
+	}
+}
+
+// TestS8_4_NumberRun_DigitsDotRendersAsJSON: a number lexeme that JSON does
+// not spell is completed to a JSON number, never emitted malformed or as a
+// string.
 func TestS8_4_NumberRun_DigitsDotRendersAsJSON(t *testing.T) {
 	cfg, err := hocon.ParseString("a = 1.e5\nb = 1.")
 	if err != nil {
@@ -134,7 +160,7 @@ func TestS8_4_NumberRun_DigitsDotRendersAsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"a":"1.e5","b":"1."}`; got != want {
+	if want := `{"a":1.0e5,"b":1.0}`; got != want {
 		t.Errorf("RenderJSONForTest() = %s, want %s", got, want)
 	}
 	if !json.Valid([]byte(got)) {

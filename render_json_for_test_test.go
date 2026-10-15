@@ -65,8 +65,8 @@ func TestRenderJSONForTest_DeferredNumericFamilyUnchanged(t *testing.T) {
 
 // xx.hocon#50 review (Copilot, ts #144): a numeric lexeme that is not a valid
 // JSON number (e.g. `1.`, trailing dot) must be quoted, never emitted as invalid
-// JSON. `1.` is a number (the Lightbend number-run rule, as in ts), and the
-// renderer quotes it as `"1."` rather than emit a malformed JSON number.
+// JSON. `1.` is a number (the Lightbend number-run rule), so the renderer
+// completes it to the JSON number `1.0` rather than emit `1.` or a string.
 func TestRenderJSONForTest_InvalidNumberLexemeQuoted(t *testing.T) {
 	cfg, err := hocon.ParseString("a = 1.")
 	if err != nil {
@@ -76,7 +76,7 @@ func TestRenderJSONForTest_InvalidNumberLexemeQuoted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderJSONForTest: %v", err)
 	}
-	const want = `{"a":"1."}`
+	const want = `{"a":1.0}`
 	if got != want {
 		t.Fatalf("RenderJSONForTest() = %q, want %q", got, want)
 	}
