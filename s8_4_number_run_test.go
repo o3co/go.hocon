@@ -102,6 +102,13 @@ func TestS8_4_NumberRun_DigitsDot(t *testing.T) {
 		{"a = .5", `{"a":".5"}`},
 		{"a = -.", `{"a":"-."}`},
 		{"a = 1.e", `{"a":"1.e"}`},
+		// '-' starts a number run (Lightbend firstNumberChars).
+		{"a = -.5", `{"a":-0.5}`},
+		{"a = -.5e+3", `{"a":-500}`},
+		{"a = -", `{"a":"-"}`},
+		{"a = -foo", `{"a":"-foo"}`},
+		{"a = --1", `{"a":"--1"}`},
+		{"-foo = 1", `{"-foo":1}`},
 	})
 }
 

@@ -30,12 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A number may end in `.` (Java's grammar): `1.`, `-1.`, `1.e5` and `1.e+5`
     are now numbers (`1`, `-1`, `100000`, `100000`). The first three were
     strings, and `1.e+5` was an error.
+  - `-` starts a number run like a digit does: `-.5` and `-.5e+3` are now the
+    numbers `-0.5` and `-500` (the string `"-.5"` and an error before). A bare
+    `-`, `-foo` or `-.` stays text.
   - Runs that are not numbers and have no `+` stay text, as before (`1.5.`,
     `1.e`, `1e-x`, `1e-5e5`, `.5`).
 - `RenderJSONForTest` (and `hocon-json`) quote a number whose lexeme is not a
   JSON number (`1.` → `"1."`) instead of emitting malformed JSON.
 - **Workaround**: quote the value to keep it a string (`a = "1."`,
-  `a = "1e+5.5"`).
+  `a = "-.5"`, `a = "1e+5.5"`).
 
 ### Fixed — the error for an unregistered `include package(...)` no longer repeats itself
 
