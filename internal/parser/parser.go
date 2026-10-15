@@ -841,6 +841,15 @@ func (p *parser) parseKey() ([]string, error) {
 				// tail of the chain.
 				concatTrailingDotContinue = true
 				trailingDot = true
+				spaceConcat = false
+				// E13: whitespace after the dot is kept on the next segment,
+				// as on the main trailing-dot path above.
+				if p.current.PrecedingWhitespace != "" {
+					switch p.current.Type {
+					case lexer.TokenString, lexer.TokenInt, lexer.TokenFloat, lexer.TokenBool, lexer.TokenNull, lexer.TokenInclude:
+						postDotPrefix = p.current.PrecedingWhitespace
+					}
+				}
 				break
 			}
 		}

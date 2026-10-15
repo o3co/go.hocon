@@ -813,16 +813,30 @@ func TestSpecS8_6_MultipleAdjacentTokenInts(t *testing.T) {
 }
 
 func TestSpecS8_6_TrailingDotInTailContinuesOuterLoop(t *testing.T) {
-	// `123-456` is not a number run, so it lexes as unquoted text with
-	// `foo.` (the Lightbend number-run rule); whitespace then ends that
-	// token and `bar` starts the next path segment. Path-expression
-	// whitespace is kept verbatim (E13, pw01: `a b. c = 1` →
-	// {"a b":{" c":1}}), so the second segment is " bar".
-	obj, err := parser.Parse(`123-456foo. bar = 1`)
-	if err != nil {
-		t.Fatalf("expected `123-456foo. bar = 1` to parse, got error: %v", err)
+	// Exercises the `concatTrailingDotContinue` exit of the number-first
+	// key chain: `123` (a number token) absorbs the tail `foo.`, whose
+	// trailing dot ends the segment, and the outer parseKey loop starts
+	// `bar` as a fresh segment. Path-expression whitespace after the dot is
+	// kept verbatim (E13, pw01), as Lightbend does for any key:
+	// `123foo. bar = 1` → {"123foo":{" bar":1}}.
+	cases := []struct {
+		src  string
+		want []string
+	}{
+		{`123foo. bar = 1`, []string{"123foo", " bar"}},
+		{`1.5foo. bar = 1`, []string{"1", "5foo", " bar"}},
+		{`-1foo. bar = 1`, []string{"-1foo", " bar"}},
+		{`1e5x. bar = 1`, []string{"1e5x", " bar"}},
+		{`-.5foo. bar = 1`, []string{"-", "5foo", " bar"}},
+		{`1.e5foo. bar = 1`, []string{"1", "e5foo", " bar"}},
 	}
-	assertKeyPath(t, obj, []string{"123-456foo", " bar"})
+	for _, tc := range cases {
+		obj, err := parser.Parse(tc.src)
+		if err != nil {
+			t.Fatalf("expected %q to parse, got error: %v", tc.src, err)
+		}
+		assertKeyPath(t, obj, tc.want)
+	}
 }
 
 func TestSpecS8_6_QuotedKeyRejectsAdjacentNumeric(t *testing.T) {
