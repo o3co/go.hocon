@@ -477,16 +477,23 @@ func parseDuration(s string) (time.Duration, error) {
 	// integer-form → int64 * mult (already exact); fractional → exact decimal
 	// product truncated at the nanosecond (E20 — a deliberate divergence from
 	// Lightbend, whose double product turns 1.001s into 1000999999 ns).
+	// Either way a result past int64 ns is an error, never wrapped or
+	// saturated (E21 — Lightbend saturates, a deliberate divergence).
+	overflow := func() error { return fmt.Errorf("duration %q overflows int64 nanoseconds", s) }
 	if integerRegex.MatchString(numStr) {
 		n, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {
-			return 0, err
+			return 0, overflow() // only ErrRange: integerRegex matched
+		}
+		// Go's / truncates toward zero, so these are the exact bounds on n.
+		if n > math.MaxInt64/int64(mult) || n < math.MinInt64/int64(mult) {
+			return 0, overflow()
 		}
 		return time.Duration(n) * mult, nil
 	}
 	ns, ok := truncProduct(numStr, big.NewInt(int64(mult)))
 	if !ok {
-		return 0, fmt.Errorf("duration %q overflows int64 nanoseconds", s)
+		return 0, overflow()
 	}
 	return time.Duration(ns), nil
 }

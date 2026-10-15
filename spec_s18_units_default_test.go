@@ -18,6 +18,7 @@
 //   - ub01-ub08: bytes fixtures — asserts GetBytesOption("b")
 //   - ud09-ud11, ub07-ub08: E20 exact-decimal unit arithmetic
 //   - un01-un03: negative-case fixtures — asserts IsNone()
+//   - ud12-ud13: E21 duration overflow — asserts IsNone()
 //   - up01-up05: period fixtures — asserts GetPeriodE("p")
 package hocon_test
 
@@ -147,13 +148,17 @@ func TestUnitsDefault_Bytes(t *testing.T) {
 	}
 }
 
-// TestUnitsDefault_Negative drives un01–un03 fixtures.
+// TestUnitsDefault_Negative drives un01–un03 and the E21 ud12–ud13 fixtures.
 // All three must return None from GetDurationOption (parse error: no valid number).
 func TestUnitsDefault_Negative(t *testing.T) {
 	cases := []string{
 		"un01-empty-duration",
 		"un02-ws-only-duration",
 		"un03-unit-only-duration",
+		// E21: a duration past int64 ns is an error — integer form (ud12,
+		// Lightbend parity) and fractional form (ud13, Lightbend saturates).
+		"ud12-duration-overflow-rejected",
+		"ud13-duration-overflow-fractional-rejected",
 	}
 	for _, stem := range cases {
 		stem := stem

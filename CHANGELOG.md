@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a duration past int64 nanoseconds is an error, not a wrapped value (E21, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
+
+- **A whole-number duration too large for `time.Duration` used to wrap
+  silently**: `"200000d"` read as a negative duration and
+  `"9223372036854775807"` (milliseconds) as `-1ms`. It is now an error, through
+  `GetDuration*` and `Unmarshal` alike, as the fractional form already was
+  since E20. `"106752d"` and `"106752.0d"` now give the same answer.
+- The range is exactly that of `time.Duration` (about ±292 years):
+  `"9223372036854775807ns"` and `"-9223372036854775808ns"` are accepted, one
+  nanosecond further is an error.
+- **A deliberate divergence from Lightbend (E21)**: Lightbend 1.4.6 saturates
+  to `Long.MAX_VALUE` nanoseconds instead (`TimeUnit.toNanos` clamps, and so
+  does the `(long)` cast on the fractional path). Byte sizes already error on
+  overflow; durations now match them.
+
 ### Fixed — fractional durations and byte sizes are computed exactly (E20, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 
 - **A fractional unit value is now multiplied as an exact decimal, read from
