@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — exponent forms in durations and byte sizes (E20, [xx.hocon#111](https://github.com/o3co/xx.hocon/pull/111))
+
+- **The number part of a duration or byte size may now carry an exponent**,
+  as in Lightbend: `"1e+5ms"` is 100000 ms, `"1.5e2s"` 150000 ms, `"1E3"`
+  1000 ms (no unit = ms), a number value `t = 1e3` 1000 ms, `"1e3kB"`
+  1000000 bytes, `"2E2KiB"` 204800. Before, each was an error. The grammar is
+  Java's double — `1.e3`, `.5` and `-.5` are numbers too — and the unit is the
+  trailing run of letters, so `"1E"` is still one exabyte.
+- The value stays exact (E20) and truncates the same way: `"1e-3kB"` is 1
+  byte, `"1.0005e3B"` 1000, `"1e-3s"` 1 ms.
+- A huge exponent never builds 10^N: `"1e400s"` is an overflow error (E21),
+  `"1e400B"` is out of range (S21.4), and `"1e-400s"` is 0, each decided before
+  any big-number work.
+- Periods are unchanged: integer-only, so `"1e2d"` is an error, as in
+  Lightbend. An invalid number part stays an error (`"1e3.5ms"`).
+
 ### Fixed — `Unmarshal` no longer turns an unresolved substitution into `nil`
 
 - On a config that still holds unresolved substitutions (a deferred parse, or

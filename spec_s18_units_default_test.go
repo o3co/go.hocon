@@ -63,6 +63,13 @@ func TestUnitsDefault_Duration(t *testing.T) {
 		{"ud09-duration-fractional-exact", "t", 1001 * time.Millisecond},
 		{"ud10-duration-fractional-exact-hours", "t", 8280000 * time.Millisecond},
 		{"ud11-duration-fractional-exact-no-unit", "t", 1001000 * time.Nanosecond},
+		// ud14–ud18 (E20 exponent forms, xx.hocon#111): the number part is a
+		// full number, exponent included. Skipped until the fixtures land.
+		{"ud14-duration-exponent-unit", "t", 100000 * time.Millisecond},
+		{"ud15-duration-exponent-fraction", "t", 150000 * time.Millisecond},
+		{"ud16-duration-exponent-no-unit", "t", 1000 * time.Millisecond},
+		{"ud17-duration-exponent-number-value", "t", 1000 * time.Millisecond},
+		{"ud18-duration-negative-exponent", "t", time.Millisecond},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -114,6 +121,14 @@ func TestUnitsDefault_Bytes(t *testing.T) {
 		{"ub07-bytes-fractional-unit-truncated", "b", true, 1000},
 		// ub08 (E20): 1.001kB exact = 1001 (float64 gives 1000.9999999999999 → 1000)
 		{"ub08-bytes-fractional-unit-exact", "b", true, 1001},
+		// ub09–ub13 (E20 exponent forms, xx.hocon#111). Skipped until the
+		// fixtures land.
+		{"ub09-bytes-exponent-unit", "b", true, 1000000},
+		{"ub10-bytes-exponent-no-unit", "b", true, 1000},
+		{"ub11-bytes-exponent-binary", "b", true, 204800},
+		{"ub12-bytes-negative-exponent-truncated", "b", true, 1},
+		{"ub12-bytes-negative-exponent-truncated", "b2", true, 1000},
+		{"ub13-bytes-exponent-overflow", "b", false, 0},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -160,6 +175,10 @@ func TestUnitsDefault_Negative(t *testing.T) {
 		// Lightbend parity) and fractional form (ud13, Lightbend saturates).
 		"ud12-duration-overflow-rejected",
 		"ud13-duration-overflow-fractional-rejected",
+		// E20 exponent forms (xx.hocon#111): past int64 ns (E21), and a
+		// number part that is not a number.
+		"ud19-duration-exponent-overflow",
+		"ud20-duration-exponent-bad-mantissa",
 	}
 	for _, stem := range cases {
 		stem := stem
