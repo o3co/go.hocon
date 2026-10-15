@@ -31,15 +31,18 @@
 //
 // # Accessing values
 //
-// Typed getters retrieve values directly; use the Option variants for safe access
-// without panics:
+// Three getter families share the same path and coercion rules and differ only
+// in how a missing key, null or type mismatch comes back. Prefer the
+// error-returning Get*E family in application code:
 //
-//	host    := cfg.GetString("server.host")
-//	port    := cfg.GetInt("server.port")
-//	timeout := cfg.GetDuration("server.timeout")
+//	host, err := cfg.GetStringE("server.host")       // (string, error)
+//	timeout, err := cfg.GetDurationE("server.timeout") // (time.Duration, error)
 //
-//	// Never panics — returns Option[T]
-//	host := cfg.GetStringOption("server.host").OrElse("localhost")
+// The panicking family suits config already validated, and the Option family
+// suits optional keys with a fallback:
+//
+//	port := cfg.GetInt("server.port")                       // panics with *ConfigError
+//	user := cfg.GetStringOption("server.user").OrElse("app") // never panics
 //
 // # Unmarshaling
 //
@@ -55,8 +58,9 @@
 //	var s ServerConfig
 //	err := cfg.Unmarshal(&s)
 //
-// A time.Duration field reads like GetDuration and a ByteSize field reads like
-// GetBytes, so a unit value means the same thing through either path.
+// A time.Duration field reads like GetDuration, a ByteSize field like GetBytes
+// and a Period field like GetPeriod, so a unit value means the same thing
+// through either path.
 //
 // # Substitutions
 //
@@ -75,7 +79,7 @@
 //
 //	var pe *hocon.ParseError   // lexer/parser errors — Line, Col, FilePath
 //	var re *hocon.ResolveError // substitution/include errors — Path
-//	var ce *hocon.ConfigError  // getter panics — Path
+//	var ce *hocon.ConfigError  // Get*E errors and Get* panic payloads — Path
 //
 // [Lightbend HOCON specification]: https://github.com/lightbend/config/blob/main/HOCON.md
 package hocon

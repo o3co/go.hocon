@@ -25,8 +25,9 @@ import (
 // originDescription provides the source name for error messages when no
 // file path is associated; "" means "use default".
 //
-// Returns ErrNotResolved is never; substitutions are not parsed from FromMap
-// input.  Type-coercion errors return a fmt.Errorf wrapping the bad path.
+// FromMap input is never parsed for substitutions, so the result is always
+// resolved and never yields ErrNotResolved. A value that cannot be coerced
+// returns an error naming its path.
 func FromMap(values map[string]any, originDescription string) (*Config, error) {
 	obj, err := coerceMap(values)
 	if err != nil {

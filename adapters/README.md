@@ -1,7 +1,7 @@
 # go.hocon/adapters
 
 Read config files that belong to *other* programs — Properties, environment
-variables, JSONC, TOML, YAML — as part of a HOCON configuration.
+variables, JSONC, JSON5, TOML, YAML — as part of a HOCON configuration.
 
 ## Install
 
@@ -12,12 +12,11 @@ subpackage after `go get github.com/o3co/go.hocon` alone will not resolve:
 go get github.com/o3co/go.hocon/adapters
 ```
 
-Versions will be tagged `adapters/vX.Y.Z` — Go's form for a module in a
+Versions are tagged `adapters/vX.Y.Z` — Go's form for a module in a
 subdirectory — separately from the parser's `vX.Y.Z`, and pairing with the core
-version they were built against, so the first tag is `adapters/v1.10.x`. No
-such tag exists yet: until one is pushed, `go get` resolves a pseudo-version
-from the default branch. Either way `adapters/go.mod` names the core version
-whose API it uses, and `go get` brings that core with it.
+version they were built against; the first published tag was
+`adapters/v1.11.0`. `adapters/go.mod` names the core version whose API it uses,
+and `go get` brings that core with it.
 
 ```go
 import (
@@ -162,6 +161,6 @@ GOFLAGS=-mod=mod go test -count=1 ./...
 
 ## Status
 
-The API may still change while the remaining formats land (`json5` is the one
-outstanding). Versions pair with the core release they are built against, so
-the module's first tag is `adapters/v1.10.x` rather than a 0.x series.
+Every planned format has landed, `json5` included. Versions pair with the core
+release they are built against, so the module's tags follow the core's
+(`adapters/v1.11.0` was the first) rather than a 0.x series.

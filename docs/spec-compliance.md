@@ -907,7 +907,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S21.5** Fractional values supported (`0.5M`) — §Units format (L1281-1294) + §Size in bytes (L1335-1342)
   tests: config_test.go (TestSpec_S21_5_FractionalByteValues); e20_exact_unit_arithmetic_test.go (TestE20_Bytes_Exact); spec_s18_units_default_test.go (ub07, ub08)
-  status: ✅ — side-cleared in Phase 6 #3d. `parseBytes` truncates AFTER multiply per Lightbend `BigDecimal.toBigInteger()`; since E20 (2026-10-15) the product is exact decimal (`big.Rat`), not `float64`, so `1.001kB` is 1001, not 1000; multi-letter units (KB/KiB/MB/MiB/...) now accept fractional values. Single-letter byte abbreviations (`0.5K`, `1.5M`) remain blocked by S21.4 (#73). Closes #74.
+  status: ✅ — side-cleared in Phase 6 #3d. `parseBytes` truncates AFTER multiply per Lightbend `BigDecimal.toBigInteger()`; since E20 (2026-10-15) the product is exact decimal (`big.Rat`), not `float64`, so `1.001kB` is 1001, not 1000; every unit accepts a fractional value: the multi-letter units (`kB`/`KiB`/`MB`/`MiB`/…) and, since S21.4 landed, the single-letter abbreviations (`0.5K` = 512). Closes #74.
 
 ## S22. Config object merging API
 

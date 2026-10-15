@@ -166,7 +166,8 @@ func (c *Config) GetBoolE(path string) (bool, error) {
 }
 
 // GetDurationE returns the value at path parsed as a HOCON duration string,
-// or *ConfigError on missing / non-scalar / null / unresolved / invalid format.
+// or *ConfigError on missing / non-scalar / null / unresolved / invalid format,
+// or a value past time.Duration (E21: an error, never wrapped or saturated).
 func (c *Config) GetDurationE(path string) (time.Duration, error) {
 	s, err := c.GetStringE(path)
 	if err != nil {

@@ -54,7 +54,7 @@ if err != nil {
 
 var app App
 if err := cfg.Unmarshal(&app); err != nil {
-    log.Fatal(err) // fails fast: missing field, wrong type
+    log.Fatal(err) // fails fast: missing required field, wrong type
 }
 // app.Server.Host == "localhost", app.Server.Port == 8080
 
@@ -87,6 +87,75 @@ HOCON isn't just a serialization format — it's a **config-injection language**
 
 On top of that, HOCON combines the readability of YAML with the structure of JSON — making it a strong fit for anything beyond flat key-value config.
 
+## Configuration that stays inside its module
+
+In a large codebase, configuration tends to leak: one big file that every team edits, defaults copied into each service, and modules that read each other's keys. HOCON lets each module own its configuration the way it owns its code.
+
+- **Each module owns a namespace and ships its own defaults.** The `auth` module keeps `auth { … }` next to its code, with every default filled in. The application never copies those defaults; it brings them in with one `include`.
+- **The application overrides only what differs.** Later layers deep-merge over earlier ones, so the application states two keys, not the whole block.
+- **Each module reads only its own subtree, through its own schema.** The module asks for `auth` and validates it against the schema it defines. The shape of that section is the module's contract; nothing else in the file is visible to it.
+- **Wiring between modules lives in the application.** A module that needs a database says so with an optional substitution (`${?shared.db}`). The application decides where that value comes from. Modules never reference each other, so dependencies run one way.
+
+```hocon
+# auth/reference.conf: shipped inside the auth package, owned by the auth team
+auth {
+  session { lifetime = 30m, max-body = 64KiB }
+  db = ${?shared.db}
+}
+```
+
+```hocon
+# application.conf: owned by the application
+include package("github.com/acme/auth", "reference.conf")
+
+shared.db { host = db.internal, port = 5432 }
+auth.session.lifetime = 2h   # override what differs; the rest stays the module's default
+```
+
+```go
+// inside the auth module
+
+//go:embed reference.conf
+var reference []byte
+
+func init() {
+    // Publish the defaults under the module's identifier.
+    if err := hocon.RegisterPackage("github.com/acme/auth", "reference.conf", reference); err != nil {
+        panic(err)
+    }
+}
+
+// Config is the module's contract: the shape of the auth section.
+type Config struct {
+    Session struct {
+        Lifetime time.Duration  `hocon:"lifetime"`
+        MaxBody  hocon.ByteSize `hocon:"max-body"`
+    } `hocon:"session"`
+    DB *struct {
+        Host string `hocon:"host"`
+        Port int    `hocon:"port"`
+    } `hocon:"db,omitempty"` // absent unless the application wires shared.db
+}
+
+// Load reads the auth subtree and nothing else.
+func Load(root *hocon.Config) (Config, error) {
+    var c Config
+    sub, err := root.GetConfigE("auth")
+    if err != nil {
+        return c, err
+    }
+    if err := sub.Unmarshal(&c); err != nil {
+        return c, err
+    }
+    if c.Session.Lifetime <= 0 {
+        return c, fmt.Errorf("auth.session.lifetime must be positive, got %v", c.Session.Lifetime)
+    }
+    return c, nil
+}
+```
+
+`include package(...)` is how a module publishes its defaults without the application knowing where its files live (see [Package includes](#package-includes-include-package)). On the JVM, Lightbend's `reference.conf` convention plays the same role.
+
 ## Features
 
 - Full HOCON parsing: objects, arrays, scalars, substitutions (`${path}`, `${?path}`)
@@ -96,13 +165,13 @@ On top of that, HOCON combines the readability of YAML with the structure of JSO
 - `include "file.conf"` and `include file("file.conf")` directives
 - Triple-quoted strings (`"""..."""`)
 - Duration parsing (`10ms`, `2s`, `1h`, `1d`)
-- Byte size parsing (`1KB`, `1KiB`, `1MB`, …)
+- Byte size parsing (`1kB`, `1KiB`, `1MB`, …)
 - Period parsing (`7d`, `2w`, `3mo`, `1y`) into `hocon.Period`
 - Generic `Option[T]` for safe optional access
 - Struct unmarshalling with `hocon` struct tags
 - Deferred resolution: separate `Parse` / `WithFallback` / `Resolve` lifecycle for runtime-supplied substitution values (v1.4.0+)
 - `FromMap` / `Empty` value factories for in-memory fallback layers (v1.4.0+)
-- Format adapters for config owned by other programs — Properties, env, JSONC, TOML, YAML (see below)
+- Format adapters for config owned by other programs — Properties, env, JSONC, JSON5, TOML, YAML (see below)
 - No external runtime dependencies — `gopkg.in/yaml.v3` used only in test code (fixture scenario runner)
 
 ## API
@@ -207,10 +276,10 @@ merged := overrides.WithFallback(defaults)
 
 ```go
 opt := cfg.GetStringOption("key")
-if opt.IsSome() {
-    v, _ := opt.Get()
+if v, ok := opt.Get(); ok {
+    fmt.Println(v)
 }
-v := opt.OrElse("default")
+name := opt.OrElse("default")
 ```
 
 ### Unmarshal
@@ -236,11 +305,49 @@ var servers []ServerConfig
 err = cfg.UnmarshalPath("servers", &servers)
 ```
 
-Fields without a `hocon` tag use the lowercased field name. `omitempty` preserves the pre-populated value when the key is missing.
+Fields without a `hocon` tag use the lowercased field name; `hocon:"-"` skips a field. A missing key is an error, except for an `omitempty` field (which keeps its pre-populated value) and a slice or map field (which stays nil).
 
 Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
 
 A `hocon.Period` field reads like `GetPeriod`: `"30d"`, `"2w"`, `"6mo"`, `"1y"`, or a bare integer number of days. Weeks fold into `Days`; apply it with `t.AddDate(p.Years, p.Months, p.Days)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
+
+### Package includes (`include package(...)`)
+
+`include package("<identifier>", "<file>")` includes HOCON that a Go package has registered. A library ships its defaults inside its own module, and an application includes them without knowing where the files live on disk. This is a cross-implementation extension ([E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md)), not part of Lightbend HOCON.
+
+The providing package embeds its file and registers it in `init()`:
+
+```go
+package auth
+
+import (
+    _ "embed"
+
+    "github.com/o3co/go.hocon"
+)
+
+//go:embed reference.conf
+var reference []byte
+
+func init() {
+    if err := hocon.RegisterPackage("github.com/acme/auth", "reference.conf", reference); err != nil {
+        panic(err)
+    }
+}
+```
+
+The application imports that package so its `init()` runs before parsing — with a blank import if it uses nothing else from it:
+
+```go
+import _ "github.com/acme/auth"
+
+cfg, err := hocon.ParseString(`include package("github.com/acme/auth", "reference.conf")`)
+```
+
+- The identifier is, by convention, the providing module's path. The file is a forward-slash relative path; `.` / `..` segments are rejected (`*hocon.RegistrationError`).
+- Registering byte-identical content again is a no-op. Different content under the same identifier and file returns `*hocon.PackageCollisionError` — typically two import paths or major versions registering the same identifier.
+- Including a package nobody registered is an error, never a silently empty include. `include required(package(...))` is accepted; the one-argument form `package("id")` is a parse error.
+- Tests can isolate the global registry with `hocon.UnregisterPackage` / `hocon.ResetPackageRegistry`.
 
 ### Error Types
 
@@ -355,7 +462,7 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 | --- | --- |
 | Spec total (incl. out-of-scope) | **92.4%** |
 | In-scope only | **100.0%** |
-| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | passing (`TestLightbendEquiv` / `TestLightbendSuite`; three `*-expected.json` comparisons carry documented environment-dependent exclusions) |
+| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | passing (`TestLightbendEquiv` / `TestLightbendSuite`; three `*-expected.json` comparisons are excluded with documented reasons: `test01` is environment-dependent, `test02` and `test03` are known divergences from Lightbend 1.4.6) |
 | [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | passing |
 
 ## Format adapters
@@ -399,16 +506,16 @@ a dependency.
 | `adapters/properties` | `java.util.Properties`, sharing this parser's `include` syntax layer |
 | `adapters/env` | Bulk-mounts a prefixed namespace; also reads `.env` files |
 | `adapters/jsonc` | JSON with comments and trailing commas; no dependency |
+| `adapters/json5` | JSON5 documents; hand-rolled scanner, no dependency |
 | `adapters/toml` | via `pelletier/go-toml/v2` |
 | `adapters/yaml` | via `goccy/go-yaml` |
 
 ### Versioning
 
-The adapters module will carry its own tags, `adapters/vX.Y.Z`, pairing with
-the core version they are built against — the first will be
-`adapters/v1.10.x`. None is pushed yet, so `go get` currently resolves a
-pseudo-version from the default branch. Either way its `go.mod` names the core
-version whose API it uses, and `go get` brings that core with it.
+The adapters module carries its own tags, `adapters/vX.Y.Z`, pairing with the
+core version they are built against; the first published tag was
+`adapters/v1.11.0`. Its `go.mod` names the core version whose API it uses, and
+`go get` brings that core with it.
 
 Plain JSON needs no adapter — HOCON is a JSON superset, so `hocon.ParseFile`
 accepts a `.json` file as it stands. Reading a single environment variable needs
@@ -446,7 +553,7 @@ library or schema decodes it themselves and hands the result over. See
 | Project | Language | Registry | Description |
 |---------|----------|----------|-------------|
 | [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | [npm](https://www.npmjs.com/package/@o3co/ts.hocon) | HOCON parser for TypeScript/Node.js |
-| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/o3co-hocon) | HOCON parser for Rust |
+| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/hocon-parser) | HOCON parser for Rust |
 | [py.hocon](https://github.com/o3co/py.hocon) | Python | [PyPI](https://pypi.org/project/hocon-parser/) | HOCON parser for Python |
 | [hocon2](https://github.com/o3co/hocon2) | Go | [pkg.go.dev](https://pkg.go.dev/github.com/o3co/hocon2) | HOCON → JSON/YAML/TOML/Properties CLI |
 
@@ -514,7 +621,7 @@ For full API documentation, see [pkg.go.dev](https://pkg.go.dev/github.com/o3co/
 
 When parsing untrusted HOCON input, be aware of:
 
-- **Path traversal in includes:** `include "../../../etc/passwd.conf"` will resolve relative to `BaseDir`. Validate include paths if parsing untrusted input.
+- **Path traversal in includes:** `include "../../../etc/passwd.conf"` resolves relative to the including file's directory (the working directory for `ParseString`). Validate include paths if parsing untrusted input.
 - **Input size:** The parser has no built-in input size limit. For untrusted input, validate size before calling `ParseString()`.
 
 ## License

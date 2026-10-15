@@ -55,8 +55,9 @@ func isHoconWS(r rune) bool {
 // Config wraps a HOCON value tree.  When resolved is true, the tree contains
 // no substitution/concat placeholders and all getters succeed (modulo
 // type-mismatch panics per existing semantics).  When resolved is false, the
-// tree contains placeholders for unresolved substitutions; getters on paths
-// touching a placeholder panic with ErrNotResolved.
+// tree contains placeholders for unresolved substitutions; panicking getters on
+// paths touching a placeholder panic with a *ConfigError that wraps
+// ErrNotResolved (Get*E return it; Get*Option return None).
 // All *Config values are safe for concurrent read access.
 type Config struct {
 	root              *resolver.ObjectVal
@@ -250,11 +251,15 @@ func (c *Config) getScalar(path string) *resolver.ScalarVal {
 	return sv
 }
 
+// GetString returns the scalar at path as its string form. It panics with
+// *ConfigError on a missing, null, non-scalar or unresolved value; see
+// GetStringE for the error-returning form.
 func (c *Config) GetString(path string) string {
 	sv := c.getScalar(path)
 	return sv.Raw
 }
 
+// GetStringOption is like GetString but returns None instead of panicking.
 func (c *Config) GetStringOption(path string) Option[string] {
 	v, ok := c.lookupSoft(path)
 	if !ok {
@@ -267,6 +272,9 @@ func (c *Config) GetStringOption(path string) Option[string] {
 	return Some(sv.Raw)
 }
 
+// GetInt64 returns the value at path as an int64. It panics with *ConfigError
+// on a missing, null, non-scalar, unresolved or non-integer value; see
+// GetInt64E.
 func (c *Config) GetInt64(path string) int64 {
 	sv := c.getScalar(path)
 	parsed, err := strconv.ParseInt(sv.Raw, 10, 64)
@@ -276,6 +284,7 @@ func (c *Config) GetInt64(path string) int64 {
 	return parsed
 }
 
+// GetInt64Option is like GetInt64 but returns None instead of panicking.
 func (c *Config) GetInt64Option(path string) Option[int64] {
 	v, ok := c.lookupSoft(path)
 	if !ok {
@@ -291,7 +300,10 @@ func (c *Config) GetInt64Option(path string) Option[int64] {
 	return None[int64]()
 }
 
+// GetInt is GetInt64 narrowed to int.
 func (c *Config) GetInt(path string) int { return int(c.GetInt64(path)) }
+
+// GetIntOption is like GetInt but returns None instead of panicking.
 func (c *Config) GetIntOption(path string) Option[int] {
 	o := c.GetInt64Option(path)
 	if o.IsNone() {
@@ -301,6 +313,9 @@ func (c *Config) GetIntOption(path string) Option[int] {
 	return Some(int(v))
 }
 
+// GetFloat64 returns the value at path as a float64. It panics with
+// *ConfigError on a missing, null, non-scalar, unresolved or non-numeric
+// value; see GetFloat64E.
 func (c *Config) GetFloat64(path string) float64 {
 	sv := c.getScalar(path)
 	parsed, err := strconv.ParseFloat(sv.Raw, 64)
@@ -310,6 +325,7 @@ func (c *Config) GetFloat64(path string) float64 {
 	return parsed
 }
 
+// GetFloat64Option is like GetFloat64 but returns None instead of panicking.
 func (c *Config) GetFloat64Option(path string) Option[float64] {
 	v, ok := c.lookupSoft(path)
 	if !ok {
@@ -325,7 +341,10 @@ func (c *Config) GetFloat64Option(path string) Option[float64] {
 	return None[float64]()
 }
 
+// GetFloat32 is GetFloat64 narrowed to float32.
 func (c *Config) GetFloat32(path string) float32 { return float32(c.GetFloat64(path)) }
+
+// GetFloat32Option is like GetFloat32 but returns None instead of panicking.
 func (c *Config) GetFloat32Option(path string) Option[float32] {
 	o := c.GetFloat64Option(path)
 	if o.IsNone() {
@@ -335,6 +354,8 @@ func (c *Config) GetFloat32Option(path string) Option[float32] {
 	return Some(float32(v))
 }
 
+// GetBool returns the value at path as a bool (true/false, yes/no, on/off).
+// It panics with *ConfigError otherwise; see GetBoolE.
 func (c *Config) GetBool(path string) bool {
 	sv := c.getScalar(path)
 	parsed, ok := parseBool(sv.Raw)
@@ -344,6 +365,7 @@ func (c *Config) GetBool(path string) bool {
 	return parsed
 }
 
+// GetBoolOption is like GetBool but returns None instead of panicking.
 func (c *Config) GetBoolOption(path string) Option[bool] {
 	v, ok := c.lookupSoft(path)
 	if !ok {
@@ -398,6 +420,10 @@ func readDuration(s string) (time.Duration, error) {
 	return d, nil
 }
 
+// GetDuration returns the value at path as a HOCON duration ("30s"; a bare
+// number is milliseconds). It panics with *ConfigError on a missing, null,
+// non-scalar, unresolved or invalid value, or one past time.Duration (E21);
+// see GetDurationE.
 func (c *Config) GetDuration(path string) time.Duration {
 	d, err := readDuration(c.GetString(path))
 	if err != nil {
@@ -406,6 +432,7 @@ func (c *Config) GetDuration(path string) time.Duration {
 	return d
 }
 
+// GetDurationOption is like GetDuration but returns None instead of panicking.
 func (c *Config) GetDurationOption(path string) Option[time.Duration] {
 	opt := c.GetStringOption(path)
 	if opt.IsNone() {
@@ -544,6 +571,10 @@ func readBytes(s string) (int64, error) {
 	return n, nil
 }
 
+// GetBytes returns the value at path as a HOCON byte size ("512MiB"; a bare
+// number is bytes). It panics with *ConfigError on a missing, null,
+// non-scalar, unresolved, invalid, overflowing or negative value; see
+// GetBytesE.
 func (c *Config) GetBytes(path string) int64 {
 	n, err := readBytes(c.GetString(path))
 	if err != nil {
@@ -552,6 +583,7 @@ func (c *Config) GetBytes(path string) int64 {
 	return n
 }
 
+// GetBytesOption is like GetBytes but returns None instead of panicking.
 func (c *Config) GetBytesOption(path string) Option[int64] {
 	opt := c.GetStringOption(path)
 	if opt.IsNone() {
@@ -854,6 +886,9 @@ func (c *Config) getArray(path string) *resolver.ArrayVal {
 	return arr
 }
 
+// GetStringSlice returns the array at path as a []string. It panics with
+// *ConfigError on a missing or non-array value or a non-scalar element; see
+// GetStringSliceE.
 func (c *Config) GetStringSlice(path string) []string {
 	arr := c.getArray(path)
 	result := make([]string, len(arr.Elements))
@@ -867,6 +902,8 @@ func (c *Config) GetStringSlice(path string) []string {
 	return result
 }
 
+// GetStringSliceOption is like GetStringSlice but returns None instead of
+// panicking.
 func (c *Config) GetStringSliceOption(path string) Option[[]string] {
 	arr, ok := c.lookupArray(path)
 	if !ok {
@@ -883,6 +920,9 @@ func (c *Config) GetStringSliceOption(path string) Option[[]string] {
 	return Some(result)
 }
 
+// GetInt64Slice returns the array at path as a []int64. It panics with
+// *ConfigError on a missing or non-array value or a non-integer element; see
+// GetInt64SliceE.
 func (c *Config) GetInt64Slice(path string) []int64 {
 	arr := c.getArray(path)
 	result := make([]int64, len(arr.Elements))
@@ -900,6 +940,8 @@ func (c *Config) GetInt64Slice(path string) []int64 {
 	return result
 }
 
+// GetInt64SliceOption is like GetInt64Slice but returns None instead of
+// panicking.
 func (c *Config) GetInt64SliceOption(path string) Option[[]int64] {
 	arr, ok := c.lookupArray(path)
 	if !ok {
@@ -920,6 +962,7 @@ func (c *Config) GetInt64SliceOption(path string) Option[[]int64] {
 	return Some(result)
 }
 
+// GetIntSlice is GetInt64Slice narrowed to []int.
 func (c *Config) GetIntSlice(path string) []int {
 	s := c.GetInt64Slice(path)
 	r := make([]int, len(s))
@@ -929,6 +972,7 @@ func (c *Config) GetIntSlice(path string) []int {
 	return r
 }
 
+// GetIntSliceOption is like GetIntSlice but returns None instead of panicking.
 func (c *Config) GetIntSliceOption(path string) Option[[]int] {
 	arr, ok := c.lookupArray(path)
 	if !ok {
@@ -951,6 +995,8 @@ func (c *Config) GetIntSliceOption(path string) Option[[]int] {
 
 // ── object getters ────────────────────────────────────────────────
 
+// GetConfig returns the object at path as a *Config scoped to it. It panics
+// with *ConfigError on a missing or non-object value; see GetConfigE.
 func (c *Config) GetConfig(path string) *Config {
 	v, ok := c.lookup(path)
 	if !ok {
@@ -963,6 +1009,8 @@ func (c *Config) GetConfig(path string) *Config {
 	return newConfig(obj)
 }
 
+// GetConfigOption is like GetConfig but returns None instead of panicking,
+// including for a null value.
 func (c *Config) GetConfigOption(path string) Option[*Config] {
 	v, ok := c.lookupSoft(path)
 	if !ok {
@@ -979,6 +1027,9 @@ func (c *Config) GetConfigOption(path string) Option[*Config] {
 	return Some(newConfig(obj))
 }
 
+// GetConfigSlice returns the array at path as a []*Config. It panics with
+// *ConfigError on a missing or non-array value or a non-object element; see
+// GetConfigSliceE.
 func (c *Config) GetConfigSlice(path string) []*Config {
 	arr := c.getArray(path)
 	result := make([]*Config, len(arr.Elements))
@@ -992,6 +1043,8 @@ func (c *Config) GetConfigSlice(path string) []*Config {
 	return result
 }
 
+// GetConfigSliceOption is like GetConfigSlice but returns None instead of
+// panicking.
 func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
 	arr, ok := c.lookupArray(path)
 	if !ok {
@@ -1018,10 +1071,10 @@ func (c *Config) GetConfigSliceOption(path string) Option[[]*Config] {
 //     over the entire tree (including merged fallback layers), with transitive
 //     recursive substitution evaluation.
 //
-// opts.UseSystemEnvironment=false makes resolution hermetic (no os.Environ
-// lookup for substitutions not satisfied in-tree).
-// opts.AllowUnresolved=true leaves required-but-unsatisfied placeholders in
-// place; getter on those paths panics ErrNotResolved.
+// opts.WithUseSystemEnvironment(false) makes resolution hermetic (no
+// os.Environ lookup for substitutions not satisfied in-tree).
+// opts.WithAllowUnresolved(true) leaves required-but-unsatisfied placeholders
+// in place; getters on those paths report an error wrapping ErrNotResolved.
 func (c *Config) Resolve(opts ResolveOptions) (*Config, error) {
 	if !opts.initialized {
 		opts = DefaultResolveOptions()
