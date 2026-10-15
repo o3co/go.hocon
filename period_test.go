@@ -263,3 +263,20 @@ func TestUnmarshal_Period_Null(t *testing.T) {
 		t.Errorf("P = %+v, want {Days:5} (unchanged)", h.P)
 	}
 }
+
+// TestUnmarshalPath_Period_ErrorCarriesPath asserts that a Period decoded via
+// UnmarshalPath names the requested path in its error.
+func TestUnmarshalPath_Period_ErrorCarriesPath(t *testing.T) {
+	cfg := mustParseCfg(t, `logs { retention = "7.5" }`)
+	var p hocon.Period
+	err := cfg.UnmarshalPath("logs.retention", &p)
+	if err == nil {
+		t.Fatal("UnmarshalPath: expected error, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{`"logs.retention"`, "invalid period"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q does not contain %q", msg, want)
+		}
+	}
+}
