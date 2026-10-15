@@ -201,7 +201,7 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 単位付きの値は getter と同じ規則で読む。`time.Duration` フィールドは `GetDuration` と同じ (`"30s"`、単位なしはミリ秒)、`hocon.ByteSize` フィールドは `GetBytes` と同じ (`"512MiB"`、単位なしはバイト、負の値はエラー)。値は `int64(s.MaxBody)` で取り出す。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
 
-`hocon.Period` フィールドは `GetPeriod` と同じ規則で読む: `"30d"`、`"2w"`、`"6mo"`、`"1y"`、または単位なしの整数 (日数)。週は `Days` に畳み込む。日付への適用は `t.AddDate(p.Years, p.Months, p.Days)`。
+`hocon.Period` フィールドは `GetPeriod` と同じ規則で読む: `"30d"`、`"2w"`、`"6mo"`、`"1y"`、または単位なしの整数 (日数)。週は `Days` に畳み込む。日付への適用は `t.AddDate(p.Years, p.Months, p.Days)`。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
 
 ### エラー型
 

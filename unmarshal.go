@@ -19,7 +19,10 @@ import (
 	"github.com/o3co/go.hocon/internal/resolver"
 )
 
-var byteSizeType = reflect.TypeOf(ByteSize(0))
+var (
+	byteSizeType = reflect.TypeOf(ByteSize(0))
+	periodType   = reflect.TypeOf(Period{})
+)
 
 // Unmarshal maps the config into v using `hocon` struct tags.
 // v must be a non-nil pointer to a struct or map[string]any.
@@ -129,13 +132,13 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 
 	// Period is a struct but reads from a scalar, through the same reader as
 	// GetPeriod.
-	if t == reflect.TypeOf(Period{}) {
+	if t == periodType {
 		sv, ok2 := val.(*resolver.ScalarVal)
 		if !ok2 {
 			return fmt.Errorf("hocon: expected scalar for %v, got %T", t, val)
 		}
 		if sv.Type == resolver.ScalarNull {
-			return nil // null → zero value, like other scalars
+			return nil // null → field left unchanged, like other scalars
 		}
 		p, err := readPeriod(sv.Raw)
 		if err != nil {

@@ -727,18 +727,17 @@ func (c *Config) GetPeriodOption(path string) Option[Period] {
 //   - unit names case-sensitive, lowercase (the S19.8 rule, HOCON.md L1304);
 //   - no unit → days (S20.1, HOCON.md L1321).
 func readPeriod(s string) (Period, error) {
-	invalid := func() (Period, error) { return Period{}, fmt.Errorf("invalid period: %s", s) }
 	t := strings.TrimFunc(s, isHoconWS)
 	i := 0
 	for i < len(t) && (t[i] >= '0' && t[i] <= '9' || t[i] == '+' || t[i] == '-') {
 		i++
 	}
 	if i == 0 {
-		return invalid()
+		return Period{}, invalidPeriod(s)
 	}
 	n, err := strconv.ParseInt(t[:i], 10, 32)
 	if err != nil {
-		return invalid()
+		return Period{}, invalidPeriod(s)
 	}
 	switch strings.TrimFunc(t[i:], isHoconWS) {
 	case "", "d", "day", "days": // S20.1
@@ -746,7 +745,7 @@ func readPeriod(s string) (Period, error) {
 	case "w", "week", "weeks": // S20.2
 		days := n * 7
 		if days < math.MinInt32 || days > math.MaxInt32 {
-			return invalid()
+			return Period{}, invalidPeriod(s)
 		}
 		return Period{Days: int(days)}, nil
 	case "m", "mo", "month", "months": // S20.3
@@ -754,8 +753,12 @@ func readPeriod(s string) (Period, error) {
 	case "y", "year", "years": // S20.4
 		return Period{Years: int(n)}, nil
 	default:
-		return invalid()
+		return Period{}, invalidPeriod(s)
 	}
+}
+
+func invalidPeriod(s string) error {
+	return fmt.Errorf("invalid period: %s", s)
 }
 
 // ── slices ────────────────────────────────────────────────────────

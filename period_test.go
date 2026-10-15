@@ -53,6 +53,9 @@ func TestGetPeriodE_Forms(t *testing.T) {
 		{`"2147483647"`, hocon.Period{Days: 2147483647}},
 		{`"-2147483648"`, hocon.Period{Days: -2147483648}},
 		{`"306783378w"`, hocon.Period{Days: 306783378 * 7}},
+		{`"-306783378w"`, hocon.Period{Days: -306783378 * 7}},
+		{"\"7\uFEFFd\"", hocon.Period{Days: 7}}, // U+FEFF is HOCON whitespace
+		{"\"7\u00A0d\"", hocon.Period{Days: 7}}, // U+00A0 is HOCON whitespace
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
@@ -70,20 +73,25 @@ func TestGetPeriodE_Forms(t *testing.T) {
 
 func TestGetPeriodE_Rejects(t *testing.T) {
 	inputs := []string{
-		`"7.5"`,        // fractional (period is integer-only)
-		`"7.5d"`,       // fractional with unit
-		`7D`,           // case-sensitive: uppercase rejected
-		`7M`,           // case-sensitive
-		`7Y`,           // case-sensitive
-		`"7 ms"`,       // duration unit, not a period unit
-		`"7x"`,         // unknown unit
-		`"d"`,          // unit with no number
-		`""`,           // empty
-		`"   "`,        // whitespace only
-		`"+-7"`,        // malformed sign
-		`"2147483648"`, // past int32
-		`"306783379w"`, // weeks × 7 past int32
-		`true`,         // boolean
+		`"7.5"`,         // fractional (period is integer-only)
+		`"7.5d"`,        // fractional with unit
+		`7D`,            // case-sensitive: uppercase rejected
+		`7M`,            // case-sensitive
+		`7Y`,            // case-sensitive
+		`"7 ms"`,        // duration unit, not a period unit
+		`"7x"`,          // unknown unit
+		`"d"`,           // unit with no number
+		`""`,            // empty
+		`"   "`,         // whitespace only
+		`"+-7"`,         // malformed sign
+		`"2147483648"`,  // past int32
+		`"-2147483649"`, // past int32 (negative)
+		"\"7\u0085d\"",  // U+0085 (NEL) is not HOCON whitespace
+		"\"7\u200Bd\"",  // U+200B is not HOCON whitespace
+		"\"\uFF17\"",    // fullwidth digit
+		`"7e1"`,         // exponent
+		`"306783379w"`,  // weeks × 7 past int32
+		`true`,          // boolean
 	}
 	for _, in := range inputs {
 		t.Run(in, func(t *testing.T) {
@@ -132,7 +140,8 @@ func TestGetPeriod_Variants(t *testing.T) {
 
 // TestUnmarshal_Period_ParityWithGetPeriodE asserts that Unmarshal into a
 // Period field and GetPeriodE agree on every input: both succeed with the same
-// Period, or both fail.
+// Period, or both fail. null is the one deliberate exception (Unmarshal's
+// scalar rule: field left unchanged) — see TestUnmarshal_Period_Null.
 func TestUnmarshal_Period_ParityWithGetPeriodE(t *testing.T) {
 	inputs := []string{
 		`7`, `"7"`, `" 7 "`, `7d`, `2w`, `3mo`, `3m`, `1y`, `"-7"`, `"+7d"`,
@@ -232,5 +241,25 @@ func TestUnmarshal_Period_ErrorCarriesPath(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestUnmarshal_Period_Null pins the one deliberate difference from GetPeriodE:
+// null leaves a Period field unchanged, as for every scalar in Unmarshal, while
+// the getter returns an error.
+func TestUnmarshal_Period_Null(t *testing.T) {
+	type holder struct {
+		P hocon.Period `hocon:"p"`
+	}
+	cfg := mustParseCfg(t, "p = null")
+	if _, err := cfg.GetPeriodE("p"); err == nil {
+		t.Error("GetPeriodE on null: want error")
+	}
+	h := holder{P: hocon.Period{Days: 5}}
+	if err := cfg.Unmarshal(&h); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if h.P != (hocon.Period{Days: 5}) {
+		t.Errorf("P = %+v, want {Days:5} (unchanged)", h.P)
 	}
 }

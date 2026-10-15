@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Unmarshal` / `UnmarshalPath` read a `hocon.Period` field (also as a
   pointer, slice element or map value) through the same reader as
   `GetPeriod`. A failure names the key path, like `Unmarshal`'s other errors.
+  A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the
+  getters return an error on `null`).
 - The S20.1–S20.4 rows in `docs/spec-compliance.md` move from ➖ to ✅, and the
   `units-default` `up01`–`up05` conformance fixtures, skipped until now, are
   asserted. The spec-total compliance rate goes from 90.5% to 92.4%.

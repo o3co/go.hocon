@@ -240,7 +240,7 @@ Fields without a `hocon` tag use the lowercased field name. `omitempty` preserve
 
 Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
 
-A `hocon.Period` field reads like `GetPeriod`: `"30d"`, `"2w"`, `"6mo"`, `"1y"`, or a bare integer number of days. Weeks fold into `Days`; apply it with `t.AddDate(p.Years, p.Months, p.Days)`.
+A `hocon.Period` field reads like `GetPeriod`: `"30d"`, `"2w"`, `"6mo"`, `"1y"`, or a bare integer number of days. Weeks fold into `Days`; apply it with `t.AddDate(p.Years, p.Months, p.Days)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
 
 ### Error Types
 

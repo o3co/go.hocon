@@ -873,19 +873,19 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
 
 - **S20.1** `d` / `day` / `days` — §Period Format (L1327)
   tests: spec_s18_units_default_test.go (TestUnitsDefault_Period), period_test.go (TestGetPeriodE_Forms)
-  status: ✅
+  status: ✅ — In scope since 2026-10-15 (was ➖). `GetPeriod` / `hocon.Period` added at parity with rs.hocon and py.hocon, which already exposed a period API, so the out-of-scope rationale (no implementation exposes one) no longer held.
 
 - **S20.2** `w` / `week` / `weeks` — §Period Format (L1328)
   tests: period_test.go (TestGetPeriodE_Forms), spec_s18_units_default_test.go (TestUnitsDefault_Period up05)
-  status: ✅
+  status: ✅ — In scope since 2026-10-15 (was ➖); see S20.1.
 
 - **S20.3** `m` / `mo` / `month` / `months` — §Period Format (L1329)
   tests: period_test.go (TestGetPeriodE_Forms)
-  status: ✅
+  status: ✅ — In scope since 2026-10-15 (was ➖); see S20.1.
 
 - **S20.4** `y` / `year` / `years` — §Period Format (L1333)
   tests: period_test.go (TestGetPeriodE_Forms)
-  status: ✅
+  status: ✅ — In scope since 2026-10-15 (was ➖); see S20.1.
 
 ## S21. Size in bytes format
 
