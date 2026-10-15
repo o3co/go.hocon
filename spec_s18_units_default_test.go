@@ -14,8 +14,9 @@
 // (xx.hocon accessor-time output capture deferred to S13c generator extension).
 //
 // Fixture families:
-//   - ud01-ud08: duration fixtures — asserts GetDurationOption("t")
-//   - ub01-ub06: bytes fixtures — asserts GetBytesOption("b")
+//   - ud01-ud11: duration fixtures — asserts GetDurationOption("t")
+//   - ub01-ub08: bytes fixtures — asserts GetBytesOption("b")
+//   - ud09-ud11, ub07-ub08: E20 exact-decimal unit arithmetic
 //   - un01-un03: negative-case fixtures — asserts IsNone()
 //   - up01-up05: period fixtures — asserts GetPeriodE("p")
 package hocon_test
@@ -31,7 +32,7 @@ import (
 
 const udFixtureDir = "testdata/hocon/units-default"
 
-// TestUnitsDefault_Duration drives ud01–ud08 fixtures.
+// TestUnitsDefault_Duration drives ud01–ud11 fixtures.
 func TestUnitsDefault_Duration(t *testing.T) {
 	type dcase struct {
 		stem string
@@ -55,6 +56,12 @@ func TestUnitsDefault_Duration(t *testing.T) {
 		{"ud07-duration-with-unit", "t", 500 * time.Millisecond},
 		// ud08: whitespace between number and unit (regression guard — S18.2)
 		{"ud08-duration-ws-between", "t", 500 * time.Millisecond},
+		// ud09–ud11 (E20): exact decimal × unit, then truncate at the ns.
+		// Lightbend's double path gives 1000999999 ns / 8279999999999 ns /
+		// 1000999 ns — a deliberate divergence.
+		{"ud09-duration-fractional-exact", "t", 1001 * time.Millisecond},
+		{"ud10-duration-fractional-exact-hours", "t", 8280000 * time.Millisecond},
+		{"ud11-duration-fractional-exact-no-unit", "t", 1001000 * time.Nanosecond},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -80,7 +87,7 @@ func TestUnitsDefault_Duration(t *testing.T) {
 	}
 }
 
-// TestUnitsDefault_Bytes drives ub01–ub06 fixtures.
+// TestUnitsDefault_Bytes drives ub01–ub08 fixtures.
 func TestUnitsDefault_Bytes(t *testing.T) {
 	type bcase struct {
 		stem      string
@@ -102,6 +109,10 @@ func TestUnitsDefault_Bytes(t *testing.T) {
 		{"ub05-bytes-with-unit", "b", true, 1024 * 1024},
 		// ub06: empty string — parse error → None
 		{"ub06-bytes-empty-rejected", "b", false, 0},
+		// ub07 (E20): 1.0009kB = 1000.9 bytes → truncate (not round) → 1000
+		{"ub07-bytes-fractional-unit-truncated", "b", true, 1000},
+		// ub08 (E20): 1.001kB exact = 1001 (float64 gives 1000.9999999999999 → 1000)
+		{"ub08-bytes-fractional-unit-exact", "b", true, 1001},
 	}
 	for _, tc := range cases {
 		tc := tc

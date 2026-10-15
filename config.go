@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -473,8 +474,9 @@ func parseDuration(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("unknown duration unit %q", unit)
 	}
 
-	// Lightbend-faithful per-family fractional handling:
-	// integer-form → int64 * mult; fractional → float64 * float64(mult).
+	// integer-form → int64 * mult (already exact); fractional → exact decimal
+	// product truncated at the nanosecond (E20 — a deliberate divergence from
+	// Lightbend, whose double product turns 1.001s into 1000999999 ns).
 	if integerRegex.MatchString(numStr) {
 		n, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {
@@ -482,11 +484,11 @@ func parseDuration(s string) (time.Duration, error) {
 		}
 		return time.Duration(n) * mult, nil
 	}
-	f, err := strconv.ParseFloat(numStr, 64)
-	if err != nil {
-		return 0, err
+	ns, ok := truncProduct(numStr, big.NewInt(int64(mult)))
+	if !ok {
+		return 0, fmt.Errorf("duration %q overflows int64 nanoseconds", s)
 	}
-	return time.Duration(f * float64(mult)), nil
+	return time.Duration(ns), nil
 }
 
 // ── bytes ─────────────────────────────────────────────────────────
@@ -617,37 +619,22 @@ func parseBytes(s string) (int64, error) {
 		"EB": 1_000_000_000_000_000_000, "exabyte": 1_000_000_000_000_000_000, "exabytes": 1_000_000_000_000_000_000,
 		"Ei": 1 << 60, "EiB": 1 << 60, "exbibyte": 1 << 60, "exbibytes": 1 << 60,
 	}
-	// Units whose multiplier exceeds int64 (ZB=10^21, YB=10^24, Zi=2^70,
-	// Yi=2^80). Lightbend recognises them and range-errors on any result past
-	// the long ceiling, so an integer count ≥1 can never survive — every
-	// valid use is fractional, and those route through the float path with
-	// its overflow guard.
-	bigMultipliers := map[string]float64{
-		"ZB": 1e21, "zettabyte": 1e21, "zettabytes": 1e21,
-		"Zi": math.Exp2(70), "ZiB": math.Exp2(70), "zebibyte": math.Exp2(70), "zebibytes": math.Exp2(70),
-		"Z": math.Exp2(70), "z": math.Exp2(70),
-		"YB": 1e24, "yottabyte": 1e24, "yottabytes": 1e24,
-		"Yi": math.Exp2(80), "YiB": math.Exp2(80), "yobibyte": math.Exp2(80), "yobibytes": math.Exp2(80),
-		"Y": math.Exp2(80), "y": math.Exp2(80),
-	}
 	mult, ok := multipliers[unit]
 	if !ok {
-		if bigMult, bigOK := bigMultipliers[unit]; bigOK {
-			f, err := strconv.ParseFloat(numStr, 64)
-			if err != nil {
-				return 0, err
-			}
-			prod := f * bigMult
-			if math.IsInf(prod, 0) || math.IsNaN(prod) || prod >= math.Exp2(63) || prod < math.MinInt64 {
-				return 0, fmt.Errorf("byte size %q overflows int64 representable range", s)
-			}
-			return int64(prod), nil
+		bigMult, bigOK := bigByteMultipliers[unit]
+		if !bigOK {
+			return 0, fmt.Errorf("unknown byte unit %q", unit)
 		}
-		return 0, fmt.Errorf("unknown byte unit %q", unit)
+		n, fits := truncProduct(numStr, bigMult)
+		if !fits {
+			return 0, fmt.Errorf("byte size %q overflows int64 representable range", s)
+		}
+		return n, nil
 	}
 
-	// Lightbend-faithful per-family fractional handling:
-	// integer-form → int64 * mult; fractional → int64(f * float64(mult)) (truncate AFTER multiply).
+	// integer-form → int64 * mult (exact, overflow-checked); fractional →
+	// exact decimal product, then truncate toward zero (E20, Lightbend
+	// BigDecimal.toBigInteger parity: 1.001kB is 1001, 1.0009kB is 1000).
 	if !hasFrac && integerRegex.MatchString(numStr) {
 		n, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {
@@ -663,20 +650,49 @@ func parseBytes(s string) (int64, error) {
 		}
 		return n * mult, nil
 	}
-	f, err := strconv.ParseFloat(numStr, 64)
-	if err != nil {
-		return 0, err
-	}
-	prod := f * float64(mult)
-	// float64(math.MaxInt64) rounds UP to 2^63 (9223372036854775808.0), so
-	// "prod > math.MaxInt64" is equivalent to "prod > 2^63" — it passes 2^63
-	// itself (e.g. "8.0E" = 8×2^60 = 2^63) and then int64(prod) traps in
-	// implementation-defined behaviour.  Use math.Exp2(63) (which IS exactly
-	// representable as float64) so the boundary is caught correctly.
-	if math.IsInf(prod, 0) || math.IsNaN(prod) || prod >= math.Exp2(63) || prod < math.MinInt64 {
+	n, fits := truncProduct(numStr, big.NewInt(mult))
+	if !fits {
 		return 0, fmt.Errorf("byte size %q overflows int64 representable range", s)
 	}
-	return int64(prod), nil
+	return n, nil
+}
+
+// bigByteMultipliers holds the byte units whose multiplier exceeds int64
+// (ZB=10^21, YB=10^24, Zi=2^70, Yi=2^80). Lightbend recognises them and
+// range-errors on any result past the long ceiling, so an integer count ≥1
+// never survives — every valid use is fractional, and goes through the exact
+// path like every other unit (E20).
+var bigByteMultipliers = func() map[string]*big.Int {
+	zb := new(big.Int).Exp(big.NewInt(10), big.NewInt(21), nil)
+	yb := new(big.Int).Exp(big.NewInt(10), big.NewInt(24), nil)
+	zi := new(big.Int).Lsh(big.NewInt(1), 70)
+	yi := new(big.Int).Lsh(big.NewInt(1), 80)
+	return map[string]*big.Int{
+		"ZB": zb, "zettabyte": zb, "zettabytes": zb,
+		"Zi": zi, "ZiB": zi, "zebibyte": zi, "zebibytes": zi,
+		"Z": zi, "z": zi,
+		"YB": yb, "yottabyte": yb, "yottabytes": yb,
+		"Yi": yi, "YiB": yi, "yobibyte": yi, "yobibytes": yi,
+		"Y": yi, "y": yi,
+	}
+}()
+
+// truncProduct returns num × mult truncated toward zero, computed exactly from
+// the decimal numeral num ([+-]digits[.digits], as the duration and byte-size
+// scanners produce it) — never through float64, whose binary rounding turns
+// 1.001 × 1000 into 1000.9999999999999 (E20). fits is false when the result
+// does not fit in int64.
+func truncProduct(num string, mult *big.Int) (n int64, fits bool) {
+	r, ok := new(big.Rat).SetString(num)
+	if !ok {
+		return 0, false
+	}
+	r.Mul(r, new(big.Rat).SetInt(mult))
+	q := new(big.Int).Quo(r.Num(), r.Denom()) // Quo truncates toward zero
+	if !q.IsInt64() {
+		return 0, false
+	}
+	return q.Int64(), true
 }
 
 // ── period ────────────────────────────────────────────────────────

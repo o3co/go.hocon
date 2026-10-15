@@ -117,8 +117,10 @@ func TestS21_4_Overflow(t *testing.T) {
 		// 7E = 7 * 2^60
 		const exp2_60 = int64(1) << 60
 		cases := []tc{
-			{`v: "7E"`, 7 * exp2_60},                              // = 8070450532247928832
-			{`v: "7.999E"`, int64(7.999 * float64(int64(1)<<60))}, // below 2^63
+			{`v: "7E"`, 7 * exp2_60}, // = 8070450532247928832
+			// below 2^63; exact (E20): 7.999 × 2^60 = 9222219115350168961.024 → truncate.
+			// The float64 product gave 9222219115350168576.
+			{`v: "7.999E"`, 9222219115350168961},
 		}
 		for _, c := range cases {
 			c := c
