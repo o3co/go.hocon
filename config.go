@@ -599,7 +599,7 @@ func parseBytes(s string) (int64, error) {
 		"":  1, // S18.4: no unit → bytes (HOCON.md L1341)
 		"B": 1, "b": 1, "byte": 1, "bytes": 1,
 		// S21.4: single-letter abbreviations → powers of two (HOCON.md L1385,
-		// java -Xmx convention). Z/z/Y/y live in bigMultipliers below.
+		// java -Xmx convention). Z/z/Y/y live in bigByteMultipliers.
 		"K": 1 << 10, "k": 1 << 10,
 		"M": 1 << 20, "m": 1 << 20,
 		"G": 1 << 30, "g": 1 << 30,
@@ -685,6 +685,7 @@ var bigByteMultipliers = func() map[string]*big.Int {
 func truncProduct(num string, mult *big.Int) (n int64, fits bool) {
 	r, ok := new(big.Rat).SetString(num)
 	if !ok {
+		// Unreachable: the scanners only hand over [+-]digits[.digits].
 		return 0, false
 	}
 	r.Mul(r, new(big.Rat).SetInt(mult))

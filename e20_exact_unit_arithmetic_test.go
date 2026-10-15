@@ -17,6 +17,7 @@
 package hocon_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -122,5 +123,57 @@ func TestE20_Unmarshal_SameReader(t *testing.T) {
 	}
 	if h.B != 1001 {
 		t.Errorf("B = %d, want 1001", h.B)
+	}
+}
+
+// TestE20_Duration_Int64Boundary pins the exact boundary of the fractional
+// path at both ends of int64 nanoseconds.
+func TestE20_Duration_Int64Boundary(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+		ok   bool
+	}{
+		{`"9223372036.854775807s"`, time.Duration(math.MaxInt64), true},
+		{`"9223372036.854775808s"`, 0, false},
+		{`"-9223372036.854775808s"`, time.Duration(math.MinInt64), true},
+		{`"-9223372036.854775809s"`, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			cfg := mustParseCfg(t, "t = "+tc.in)
+			got, err := cfg.GetDurationE("t")
+			if !tc.ok {
+				if err == nil {
+					t.Errorf("GetDurationE = %d; want overflow error", got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Errorf("GetDurationE = %d, %v; want %d", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// TestE20_NumeralForms covers numeral spellings the scanners accept: a
+// trailing dot and an explicit plus sign.
+func TestE20_NumeralForms(t *testing.T) {
+	cfg := mustParseCfg(t, "t = \"1.s\"\nb = \"+1.5kB\"")
+	if d, err := cfg.GetDurationE("t"); err != nil || d != time.Second {
+		t.Errorf("GetDurationE(1.s) = %v, %v; want 1s", d, err)
+	}
+	if n, err := cfg.GetBytesE("b"); err != nil || n != 1500 {
+		t.Errorf("GetBytesE(+1.5kB) = %d, %v; want 1500", n, err)
+	}
+}
+
+// TestE20_Bytes_TruncatesTowardZero: -0.5B truncates to 0 (accepted), as
+// Lightbend's BigDecimal.toBigInteger does. Flooring would give -1, which the
+// non-negative check would then reject.
+func TestE20_Bytes_TruncatesTowardZero(t *testing.T) {
+	cfg := mustParseCfg(t, `b = "-0.5B"`)
+	if n, err := cfg.GetBytesE("b"); err != nil || n != 0 {
+		t.Errorf("GetBytesE(-0.5B) = %d, %v; want 0", n, err)
 	}
 }
