@@ -223,6 +223,15 @@ func TestDocs_ReadmeGoVersionMatchesGoMod(t *testing.T) {
 	if claimed != declared {
 		t.Errorf("README says Go %s+, go.mod requires go %s — a user on %s cannot build this module", claimed, declared, claimed)
 	}
+
+	ja, err := os.ReadFile("README.ja.md")
+	if err != nil {
+		t.Fatalf("read README.ja.md: %v", err)
+	}
+	claimedJa := findOne(t, "README.ja.md", string(ja), regexp.MustCompile(`Go (\d+\.\d+) 以上`), "minimum Go version (ja)")
+	if claimedJa != declared {
+		t.Errorf("README.ja says Go %s 以上, go.mod requires go %s", claimedJa, declared)
+	}
 }
 
 func TestDocs_ReadmeHasNoUnreleasedMarkers(t *testing.T) {

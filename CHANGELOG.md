@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alone knows the lookup missed); the resolver adds only the `package(...)`
   context.
 
+### Documentation — doc audit fixes, and a section on configuration that stays inside its module
+
+- **New README section, "Configuration that stays inside its module"**: each
+  module ships its defaults with `include package(...)`, reads only its own
+  subtree through its own struct, and leaves wiring to the application. A new
+  "Package includes" subsection documents `RegisterPackage`, `//go:embed` and
+  the blank-import pattern.
+- **Fixed statements that were no longer true**: `1KB` (spelled `kB` since
+  1.13.0), "Go 1.21" in README.ja (go.mod says 1.23; the docs test now checks
+  README.ja too), the adapters "no tag pushed yet" text (tags start at
+  `adapters/v1.11.0`), the rs.hocon crates.io link (`hocon-parser`), the
+  Lightbend exclusion wording, JSON5 missing from the adapter lists, the
+  include base directory in Security Considerations, and the S21.5 note.
+- README.ja.md is brought level with README.md (library stance, deferred
+  resolution, Performance, Comparison, Known Limitations, Security, py.hocon).
+- CONTRIBUTING says to run `make testdata` after cloning; without it the
+  conformance tests skip silently. GoDoc: every getter has a doc comment, and
+  the Config, Resolve, FromMap and GetDurationE docs are corrected. The
+  CHANGELOG gains link references for `[Unreleased]` and 1.1.0–1.13.0.
+
 ### Fixed — durations read through one reader, so the getters and `Unmarshal` give the same reason ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 
 - `GetDuration` / `GetDurationE` / `GetDurationOption` and `Unmarshal` into
@@ -1102,6 +1122,28 @@ A subset of these fixes change observable runtime behavior. The most likely user
 - README in English and Japanese.
 - Apache 2.0 LICENSE.
 
+[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/o3co/go.hocon/compare/v1.12.0...v1.13.0
+[1.12.0]: https://github.com/o3co/go.hocon/compare/v1.11.0...v1.12.0
+[1.11.0]: https://github.com/o3co/go.hocon/compare/v1.10.0...v1.11.0
+[1.10.0]: https://github.com/o3co/go.hocon/compare/v1.9.0...v1.10.0
+[1.9.0]: https://github.com/o3co/go.hocon/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/o3co/go.hocon/compare/v1.7.1...v1.8.0
+[1.7.1]: https://github.com/o3co/go.hocon/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/o3co/go.hocon/compare/v1.6.1...v1.7.0
+[1.6.1]: https://github.com/o3co/go.hocon/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/o3co/go.hocon/compare/v1.5.3...v1.6.0
+[1.5.3]: https://github.com/o3co/go.hocon/compare/v1.5.2...v1.5.3
+[1.5.2]: https://github.com/o3co/go.hocon/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/o3co/go.hocon/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/o3co/go.hocon/compare/v1.4.1...v1.5.0
+[1.4.1]: https://github.com/o3co/go.hocon/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/o3co/go.hocon/compare/v1.3.1...v1.4.0
+[1.3.1]: https://github.com/o3co/go.hocon/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/o3co/go.hocon/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/o3co/go.hocon/compare/v1.1.1...v1.2.0
+[1.1.1]: https://github.com/o3co/go.hocon/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/o3co/go.hocon/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/o3co/go.hocon/compare/v0.3.2...v1.0.0
 [0.3.0]: https://github.com/o3co/go.hocon/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/o3co/go.hocon/compare/v0.2.0...v0.2.1

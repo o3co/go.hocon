@@ -20,10 +20,15 @@ Open an issue first to discuss the proposal before sending a PR. This avoids was
 ```bash
 git clone https://github.com/o3co/go.hocon.git
 cd go.hocon
+make testdata   # fetch the xx.hocon conformance fixtures (CI does the same)
 go test ./...
 ```
 
-No external dependencies — standard library only.
+The library itself has no external dependencies. `gopkg.in/yaml.v3` is a
+test-only dependency (the fixture scenario runner).
+
+Run `make testdata` after cloning and again when the fixtures move: without
+the fetched fixtures the conformance tests skip silently instead of failing.
 
 ## Running Tests
 
@@ -92,7 +97,7 @@ resolvable.
 ## Code Style
 
 - Follow standard Go conventions (`gofmt`, `go vet`)
-- Keep public API consistent with the existing panic / `Option[T]` dual pattern
+- Keep public API consistent with the existing getter families: error-returning `GetXxxE`, panicking `GetXxx`, and `GetXxxOption`
 - New features must include tests
 - Internal packages (`internal/`) are not part of the public API — do not add exported symbols there unless necessary
 
@@ -150,9 +155,9 @@ and the parent genuinely does not contain that package because `adapters/` is a
 nested module. For `adapters/v1.12.0` it cleared about six minutes after the
 tag.
 
-The adapters version tracks the core version it pairs with (the first tag will
-be `adapters/v1.10.x`), so a reader can tell at a glance which parser a given
-adapters release was built against.
+The adapters version tracks the core version it pairs with (the first published
+tag was `adapters/v1.11.0`), so a reader can tell at a glance which parser a
+given adapters release was built against.
 
 ## License
 

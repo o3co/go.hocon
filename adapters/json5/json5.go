@@ -19,7 +19,7 @@
 // and trailing decimal points, an explicit plus sign), so this package is a
 // hand-rolled scanner and recursive-descent parser. The Go JSON5 libraries
 // are unmaintained, and text-normalising JSON5 into JSON would need the same
-// tokenizer anyway. Zero dependencies, like every adapter in this module.
+// tokenizer anyway. It has no dependencies (unlike the toml and yaml adapters).
 //
 // The accepted grammar is JSON5 1.0.0 as defined by the reference
 // implementation (the json5 npm package), the dialect owner this spec item

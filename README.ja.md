@@ -14,6 +14,10 @@
 
 [English](README.md)
 
+**ライブラリの立ち位置** — go.hocon は低レベルのパーサー API ではなく、HOCON の設定ローダーです。目的は `.hocon` ファイルを読み、Config API（`GetString`、`GetInt`、`GetFloat64`、`GetBool`、`GetDuration`、`GetBytes`、`Unmarshal`）で型付きにアクセスできるようにすることです。`ScalarVal` などの内部型はマイナーバージョン間で変わることがあります。
+
+**言語横断の準拠テスト** — この実装は [o3co/xx.hocon](https://github.com/o3co/xx.hocon) の共有期待値 JSON フィクスチャで、[ts.hocon](https://github.com/o3co/ts.hocon)、[rs.hocon](https://github.com/o3co/rs.hocon)、[py.hocon](https://github.com/o3co/py.hocon) と並べてテストされており、4 実装すべてが同じ Lightbend HOCON 仕様を満たすことを確認しています。
+
 ---
 
 ## クイックスタート
@@ -24,7 +28,7 @@
 go get github.com/o3co/go.hocon
 ```
 
-Go 1.21 以上が必要。
+Go 1.23 以上が必要です。
 
 ### 2. 使い方
 
@@ -50,7 +54,7 @@ if err != nil {
 
 var app App
 if err := cfg.Unmarshal(&app); err != nil {
-    log.Fatal(err) // フィールド欠落・型違いは起動時に fail する
+    log.Fatal(err) // 必須フィールドの欠落・型違いは起動時に fail する
 }
 // app.Server.Host == "localhost", app.Server.Port == 8080
 
@@ -83,6 +87,75 @@ HOCON は単なるシリアライズ形式ではなく、**プログラムに注
 
 加えて HOCON は YAML の可読性と JSON の構造性を兼ね備えるため、フラットなキーバリュー設定を超えるユースケースには強い選択肢になります。
 
+## モジュールの中に閉じる設定
+
+大規模なコードベースでは、設定が漏れ出しがちです。全チームが編集する巨大な 1 ファイル、サービスごとにコピーされたデフォルト値、互いのキーを読み合うモジュール。HOCON では、各モジュールがコードと同じように自分の設定を所有できます。
+
+- **各モジュールが名前空間を所有し、自分のデフォルトを同梱する。** `auth` モジュールは `auth { … }` を自分のコードの隣に置き、すべてのデフォルト値を埋めておきます。アプリケーションはそのデフォルトをコピーせず、`include` 1 行で取り込みます。
+- **アプリケーションは違う部分だけを上書きする。** 後のレイヤーが前のレイヤーにディープマージされるので、アプリケーションが書くのはブロック全体ではなく 2 キーだけです。
+- **各モジュールは自分の subtree だけを、自分のスキーマで読む。** モジュールは `auth` を要求し、自分が定義したスキーマで検証します。そのセクションの形がモジュールの契約で、ファイルの他の部分はモジュールから見えません。
+- **モジュール間の配線はアプリケーションに置く。** データベースが必要なモジュールは、オプショナル代入（`${?shared.db}`）でそれを表明します。値をどこから持ってくるかはアプリケーションが決めます。モジュール同士は互いを参照しないので、依存は一方向になります。
+
+```hocon
+# auth/reference.conf: auth パッケージに同梱、auth チームが所有
+auth {
+  session { lifetime = 30m, max-body = 64KiB }
+  db = ${?shared.db}
+}
+```
+
+```hocon
+# application.conf: アプリケーションが所有
+include package("github.com/acme/auth", "reference.conf")
+
+shared.db { host = db.internal, port = 5432 }
+auth.session.lifetime = 2h   # 違う部分だけ上書きし、残りはモジュールのデフォルトのまま
+```
+
+```go
+// auth モジュールの中
+
+//go:embed reference.conf
+var reference []byte
+
+func init() {
+    // デフォルトをモジュールの識別子で公開する
+    if err := hocon.RegisterPackage("github.com/acme/auth", "reference.conf", reference); err != nil {
+        panic(err)
+    }
+}
+
+// Config はモジュールの契約: auth セクションの形
+type Config struct {
+    Session struct {
+        Lifetime time.Duration  `hocon:"lifetime"`
+        MaxBody  hocon.ByteSize `hocon:"max-body"`
+    } `hocon:"session"`
+    DB *struct {
+        Host string `hocon:"host"`
+        Port int    `hocon:"port"`
+    } `hocon:"db,omitempty"` // アプリケーションが shared.db を配線しない限り存在しない
+}
+
+// Load は auth の subtree だけを読む
+func Load(root *hocon.Config) (Config, error) {
+    var c Config
+    sub, err := root.GetConfigE("auth")
+    if err != nil {
+        return c, err
+    }
+    if err := sub.Unmarshal(&c); err != nil {
+        return c, err
+    }
+    if c.Session.Lifetime <= 0 {
+        return c, fmt.Errorf("auth.session.lifetime must be positive, got %v", c.Session.Lifetime)
+    }
+    return c, nil
+}
+```
+
+`include package(...)` は、アプリケーションにファイルの置き場所を知らせずにモジュールがデフォルトを公開する仕組みです（[パッケージ include](#パッケージ-include-include-package) を参照）。JVM では Lightbend の `reference.conf` 規約が同じ役割を担います。
+
 ## 特徴
 
 - HOCON の全構文をサポート：オブジェクト、配列、スカラー、代入（`${path}`、`${?path}`）
@@ -92,12 +165,14 @@ HOCON は単なるシリアライズ形式ではなく、**プログラムに注
 - `include "file.conf"` および `include file("file.conf")` ディレクティブ
 - トリプルクォート文字列（`"""..."""`）
 - Duration パース（`10ms`、`2s`、`1h`、`1d`）
-- バイトサイズパース（`1KB`、`1KiB`、`1MB`、...）
+- バイトサイズパース（`1kB`、`1KiB`、`1MB`、...）
 - 期間 (Period) パース（`7d`、`2w`、`3mo`、`1y`）→ `hocon.Period`
 - 安全な省略値アクセスのためのジェネリック `Option[T]`
 - `hocon` 構造体タグによる Unmarshal
-- 他プログラムが所有する設定ファイルを読むフォーマットアダプタ — Properties、env、JSONC、TOML、YAML（下記参照）
-- 外部依存ゼロ — 標準ライブラリのみ
+- 遅延解決: 実行時に渡す代入値のための `Parse` / `WithFallback` / `Resolve` の分離されたライフサイクル（v1.4.0+）
+- インメモリのフォールバック層を作る `FromMap` / `Empty`（v1.4.0+）
+- 他プログラムが所有する設定ファイルを読むフォーマットアダプタ — Properties、env、JSONC、JSON5、TOML、YAML（下記参照）
+- 実行時の外部依存なし — `gopkg.in/yaml.v3` はテストコード（フィクスチャのシナリオランナー）でのみ使用
 
 ## API
 
@@ -106,7 +181,35 @@ HOCON は単なるシリアライズ形式ではなく、**プログラムに注
 ```go
 hocon.ParseString(input string) (*Config, error)
 hocon.ParseFile(path string)    (*Config, error)
+
+// 遅延パース (v1.4.0+): 入力に `${...}` があり、解決前に WithFallback で
+// フォールバック値を重ねたいときは、未解決の Config を返す。
+hocon.ParseStringWithOptions(input string, opts hocon.ParseOptions) (*Config, error)
+hocon.ParseFileWithOptions(path string,    opts hocon.ParseOptions) (*Config, error)
+hocon.FromMap(values map[string]any, originDescription string)     (*Config, error)
+hocon.Empty(originDescription string)                              *Config
 ```
+
+#### 遅延解決の例 (v1.4.0+)
+
+代入が実行時にしか得られない値（CI のビルド番号など）を参照するときに使います — [#99](https://github.com/o3co/go.hocon/issues/99) を参照。
+
+```go
+cfg, _ := hocon.ParseStringWithOptions(
+    `version = ${shortversion}-${CI_RUN_NUMBER}
+     variables { shortversion = "1.2.3" }`,
+    hocon.DefaultParseOptions().WithResolveSubstitutions(false),
+)
+runtime, _ := hocon.FromMap(map[string]any{"CI_RUN_NUMBER": "42"}, "")
+vars := cfg.GetConfig("variables")
+resolved, _ := cfg.
+    WithFallback(runtime).
+    WithFallback(vars).
+    Resolve(hocon.DefaultResolveOptions())
+fmt.Println(resolved.GetString("version")) // "1.2.3-42"
+```
+
+`ResolveOptions.WithUseSystemEnvironment(false)` で環境変数を参照しない閉じた解決（`os.Environ` へのフォールバックなし）に、`.WithAllowUnresolved(true)` で部分解決（未解決のパスは placeholder のまま残り、そこへの getter は `hocon.ErrNotResolved` を返す）になります。
 
 ### スカラーゲッター
 
@@ -168,10 +271,10 @@ merged := overrides.WithFallback(defaults)
 
 ```go
 opt := cfg.GetStringOption("key")
-if opt.IsSome() {
-    v, _ := opt.Get()
+if v, ok := opt.Get(); ok {
+    fmt.Println(v)
 }
-v := opt.OrElse("default")
+name := opt.OrElse("default")
 ```
 
 ### Unmarshal
@@ -197,11 +300,49 @@ var servers []ServerConfig
 err = cfg.UnmarshalPath("servers", &servers)
 ```
 
-`hocon` タグがないフィールドはフィールド名を小文字化したキーで検索する。`omitempty` はキーが存在しないとき、フィールドの既存値を保持する。
+`hocon` タグがないフィールドはフィールド名を小文字化したキーで検索し、`hocon:"-"` でフィールドをスキップする。キーがないとエラーになるが、`omitempty` のフィールド（既存値を保持）と、スライス・マップのフィールド（nil のまま）は例外。
 
 単位付きの値は getter と同じ規則で読む。`time.Duration` フィールドは `GetDuration` と同じ (`"30s"`、単位なしはミリ秒)、`hocon.ByteSize` フィールドは `GetBytes` と同じ (`"512MiB"`、単位なしはバイト、負の値はエラー)。値は `int64(s.MaxBody)` で取り出す。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
 
 `hocon.Period` フィールドは `GetPeriod` と同じ規則で読む: `"30d"`、`"2w"`、`"6mo"`、`"1y"`、または単位なしの整数 (日数)。週は `Days` に畳み込む。日付への適用は `t.AddDate(p.Years, p.Months, p.Days)`。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
+
+### パッケージ include (`include package(...)`)
+
+`include package("<identifier>", "<file>")` は、Go パッケージが登録した HOCON を取り込みます。ライブラリは自分のモジュールの中にデフォルトを同梱し、アプリケーションはそのファイルがディスクのどこにあるかを知らずに取り込めます。これは実装横断の拡張（[E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md)）で、Lightbend HOCON の一部ではありません。
+
+提供側のパッケージは、ファイルを埋め込んで `init()` で登録します:
+
+```go
+package auth
+
+import (
+    _ "embed"
+
+    "github.com/o3co/go.hocon"
+)
+
+//go:embed reference.conf
+var reference []byte
+
+func init() {
+    if err := hocon.RegisterPackage("github.com/acme/auth", "reference.conf", reference); err != nil {
+        panic(err)
+    }
+}
+```
+
+アプリケーションはそのパッケージを import して、パースより前に `init()` を走らせます。そのパッケージの他の機能を使わない場合は blank import にします:
+
+```go
+import _ "github.com/acme/auth"
+
+cfg, err := hocon.ParseString(`include package("github.com/acme/auth", "reference.conf")`)
+```
+
+- identifier は慣例として提供側モジュールのパスです。file はスラッシュ区切りの相対パスで、`.` / `..` のセグメントは拒否されます（`*hocon.RegistrationError`）。
+- バイト単位で同じ内容の再登録は何もしません。同じ identifier と file に違う内容を登録すると `*hocon.PackageCollisionError` になります（典型的には、2 つの import パスやメジャーバージョンが同じ identifier を登録したとき）。
+- 誰も登録していないパッケージの include はエラーで、黙って空になることはありません。`include required(package(...))` は使えます。引数 1 つの `package("id")` はパースエラーです。
+- テストでは `hocon.UnregisterPackage` / `hocon.ResetPackageRegistry` でグローバルレジストリを分離できます。
 
 ### エラー型
 
@@ -244,16 +385,80 @@ cache-ttl = "5m"
 max-size  = "512MiB"
 ```
 
+## パフォーマンス
+
+Apple M4 Pro で `go test -bench`（Go 組み込みのベンチマーク）で計測。各イテレーションはパースと `GetString` 1 回を含みます。再現は `go test -bench=. -benchmem ./...`。
+
+| シナリオ | ops/sec | 1 回あたり |
+| --- | --- | --- |
+| 小さい設定（10 キー） | ~173,000 | ~5.8 µs |
+| 中くらいの設定（100 キー） | ~27,000 | ~38 µs |
+| 大きい設定（1,000 キー） | ~2,000 | ~422 µs |
+| 代入 10 個 | ~70,000 | ~14 µs |
+| 代入 50 個 | ~16,000 | ~61 µs |
+| 代入 100 個 | ~8,000 | ~121 µs |
+| ネスト深さ 5 | ~168,000 | ~6.0 µs |
+| ネスト深さ 10 | ~108,000 | ~9.3 µs |
+| ネスト深さ 20 | ~64,000 | ~15.6 µs |
+
+一般的なアプリケーション設定（起動時に 1 回読む）では、パースのコストは無視できます。1,000 キーの設定でも 1 ms 未満でパースできます。
+
+## 比較
+
+✅ 完全サポート / ⚠️ 部分的 / ❌ 非対応
+
+### HOCON 実装
+
+[gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v1.3.0** と 2026-07-26 に比較。
+
+| 機能 | go.hocon | gurkankaymak/hocon v1.3.0 |
+| --- | :---: | :---: |
+| 代入（`${path}`） | ✅ | ✅ |
+| オプショナル代入（`${?path}`） | ✅ | ✅ |
+| Include | ✅ | ✅ |
+| `include required(...)` / `file(...)` | ✅ | ✅ |
+| オブジェクト / 配列の連結 | ✅ | ✅ |
+| 型変換 | ✅ | ✅ |
+| Duration パース（`30s`、`5m`） | ✅ | ✅ |
+| バイトサイズパース（`512MB`） | ✅ | ❌（文字列としてパース） |
+| `+=` 追記 | ✅ | ✅ |
+| 構造体 Unmarshal | ✅ | ❌ |
+| panic しないアクセス | ✅（`GetXxxE` + `Option[T]`） | ✅（`GetXxxE`） |
+| 環境変数フォールバック | ✅ | ✅ |
+| 遅延解決（parse / withFallback / resolve） | ✅（v1.4.0） | ✅（v1.3.0） |
+| `FromMap` / `Empty` | ✅（v1.4.0） | ❌ |
+
+### 設定フレームワーク
+
+[viper](https://github.com/spf13/viper) **v1.21.0** と 2026-07-26 に比較。
+
+| | go.hocon | viper v1.21.0 |
+| --- | :---: | :---: |
+| **フォーマット** | | |
+| HOCON | ✅ | ❌ |
+| JSON | ✅ | ✅ |
+| YAML | ✅（`adapters/yaml`） | ✅ |
+| TOML | ✅（`adapters/toml`） | ✅ |
+| 環境変数 | ✅（フォールバック + `adapters/env`） | ✅ |
+| .properties | ✅（include + `adapters/properties`） | ✅ |
+| **機能** | | |
+| 代入 | ✅ | ❌ |
+| ファイル include | ✅ | ❌ |
+| 型変換 | ✅ | ✅ |
+| 構造体 Unmarshal | ✅ | ✅ |
+| 監視 / リロード | ❌ | ✅ |
+| リモート設定 | ❌ | ✅ |
+
 ## 仕様準拠
 
-[Lightbend HOCON 仕様](https://github.com/lightbend/config/blob/main/HOCON.md) への準拠状況は [`docs/spec-compliance.md`](docs/spec-compliance.md) に項目単位で記載しており、以下の表はそこから計算されます — `docs_test.go` が再計算し、表がずれるとビルドが fail します。実装横断のロールアップは [`xx.hocon/docs/compliance-matrix.md`](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) を参照してください。
+[Lightbend HOCON 仕様](https://github.com/lightbend/config/blob/main/HOCON.md) への準拠状況は [`docs/spec-compliance.md`](docs/spec-compliance.md) に項目単位で記載しており、以下の表はそこから計算されます — `TestDocs_ReadmeComplianceRates` が再計算し、表がずれるとビルドが fail します。実装横断のロールアップは [`xx.hocon/docs/compliance-matrix.md`](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) を参照してください。
 
 | 指標 | 状況 |
 | --- | --- |
 | 仕様全体（out-of-scope を含む） | **92.4%** |
 | In-scope のみ | **100.0%** |
-| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 13/13 合格 |
-| [hocon2](https://github.com/o3co/hocon2) 準拠テスト（JSON/YAML/TOML/Properties 出力） | 77/77 合格 |
+| Lightbend `equiv01`–`equiv05` + `test01`–`test13` | 合格（`TestLightbendEquiv` / `TestLightbendSuite`。`*-expected.json` の比較のうち 3 つは理由を明記して除外: `test01` は環境依存、`test02` と `test03` は Lightbend 1.4.6 との既知の差異） |
+| [hocon2](https://github.com/o3co/hocon2) 準拠テスト（JSON/YAML/TOML/Properties 出力） | 合格 |
 
 ## フォーマットアダプタ
 
@@ -293,12 +498,13 @@ url = "postgres://"${db.host}":"${db.port}
 | `adapters/properties` | `java.util.Properties`。パーサー本体の `include` と構文層を共有 |
 | `adapters/env` | prefix 付き名前空間の一括マウント。`.env` ファイルの読み込みにも対応 |
 | `adapters/jsonc` | コメントと末尾カンマ付き JSON。依存なし |
+| `adapters/json5` | JSON5。自前のスキャナで、依存なし |
 | `adapters/toml` | `pelletier/go-toml/v2` を使用 |
 | `adapters/yaml` | `goccy/go-yaml` を使用 |
 
 ### バージョニング
 
-adapters モジュールは `adapters/vX.Y.Z` という独自のタグを持つ予定です。タグはビルド対象のコアのバージョンと対になり、最初のタグは `adapters/v1.10.x` になります。まだタグは打たれていないため、現時点の `go get` はデフォルトブランチの pseudo-version を解決します。いずれの場合も `go.mod` が使用する API に対応するコアのバージョンを require しているので、`go get` を実行すれば必要なコアも一緒に入ります。
+adapters モジュールは `adapters/vX.Y.Z` という独自のタグを持ちます。タグはビルド対象のコアのバージョンと対になり、最初に公開されたタグは `adapters/v1.11.0` です。`go.mod` が使用する API に対応するコアのバージョンを require しているので、`go get` を実行すれば必要なコアも一緒に入ります。
 
 プレーンな JSON にアダプタは不要です — HOCON は JSON のスーパーセットなので、`hocon.ParseFile` がそのまま `.json` を受け付けます。環境変数を 1 つ読むだけの場合も不要で、それは `${?VAR}` の役目です。
 
@@ -320,10 +526,11 @@ YAML のスカラー解決はこのモジュールではなくライブラリの
 | プロジェクト | 言語 | レジストリ | 説明 |
 |---------|----------|----------|-------------|
 | [ts.hocon](https://github.com/o3co/ts.hocon) | TypeScript | [npm](https://www.npmjs.com/package/@o3co/ts.hocon) | TypeScript/Node.js 向け HOCON パーサー |
-| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/o3co-hocon) | Rust 向け HOCON パーサー |
+| [rs.hocon](https://github.com/o3co/rs.hocon) | Rust | [crates.io](https://crates.io/crates/hocon-parser) | Rust 向け HOCON パーサー |
+| [py.hocon](https://github.com/o3co/py.hocon) | Python | [PyPI](https://pypi.org/project/hocon-parser/) | Python 向け HOCON パーサー |
 | [hocon2](https://github.com/o3co/hocon2) | Go | [pkg.go.dev](https://pkg.go.dev/github.com/o3co/hocon2) | HOCON → JSON/YAML/TOML/Properties 変換 CLI |
 
-3 つのパーサー実装（[ts.hocon](https://github.com/o3co/ts.hocon)、[rs.hocon](https://github.com/o3co/rs.hocon)、[go.hocon](https://github.com/o3co/go.hocon)）はすべて同じ Lightbend HOCON 仕様で追跡されています — 実装ごとの準拠率は [横断ロールアップ](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) を参照してください。
+4 つのパーサー実装（[ts.hocon](https://github.com/o3co/ts.hocon)、[rs.hocon](https://github.com/o3co/rs.hocon)、[go.hocon](https://github.com/o3co/go.hocon)、[py.hocon](https://github.com/o3co/py.hocon)）はすべて同じ Lightbend HOCON 仕様で追跡されています — 実装ごとの準拠率は [横断ロールアップ](https://github.com/o3co/xx.hocon/blob/main/docs/compliance-matrix.md) を参照してください。
 
 ## ベストプラクティス
 
@@ -373,6 +580,22 @@ if err := conf.Unmarshal(&app); err != nil {
     log.Fatal(err) // 起動時に即座に失敗
 }
 ```
+
+## 既知の制限
+
+- **`include url(...)`** は非対応です。リモート設定の取得はこのパーサーの対象外です。アプリケーションの HTTP クライアントで取得し、内容を `ParseString()` に渡してください。
+- **`include classpath(...)`** は非対応です。JVM 固有の include 形式で、Java ランタイム以外に相当するものがありません。
+- **監視 / リロードなし** — 設定はロード時にパースします。ライブリロードが必要なら、変更時に `ParseString()` / `ParseFile()` を呼び直してください。
+- **ストリーミングパーサーなし** — 入力全体をメモリに読み込みます。
+
+API の詳細は [pkg.go.dev](https://pkg.go.dev/github.com/o3co/go.hocon) を参照してください。
+
+## セキュリティ上の注意
+
+信頼できない HOCON 入力をパースするときは、次の点に注意してください:
+
+- **include のパストラバーサル:** `include "../../../etc/passwd.conf"` は include 元ファイルのディレクトリ（`ParseString` では作業ディレクトリ）を基準に解決されます。信頼できない入力をパースするなら include パスを検証してください。
+- **入力サイズ:** パーサーに入力サイズの上限はありません。信頼できない入力は、`ParseString()` を呼ぶ前にサイズを検証してください。
 
 ## ライセンス
 
