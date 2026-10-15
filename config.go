@@ -377,11 +377,31 @@ func parseBool(s string) (bool, bool) {
 
 // ── duration ──────────────────────────────────────────────────────
 
-func (c *Config) GetDuration(path string) time.Duration {
-	s := c.GetString(path)
+// errDurationOverflow marks a duration that parses but does not fit
+// time.Duration (E21).
+var errDurationOverflow = errors.New("duration overflows int64 nanoseconds")
+
+// readDuration is the one reader for HOCON duration values. GetDuration,
+// GetDurationE, GetDurationOption and Unmarshal into time.Duration all read
+// through it, so the accepted forms and the error reasons cannot drift
+// between the getters and Unmarshal. A value that does not parse reads
+// "invalid duration: <s> (<reason>)"; one past time.Duration reads
+// "duration overflows int64 nanoseconds: <s>" (E21).
+func readDuration(s string) (time.Duration, error) {
 	d, err := parseDuration(s)
+	if errors.Is(err, errDurationOverflow) {
+		return 0, fmt.Errorf("%w: %s", errDurationOverflow, s)
+	}
 	if err != nil {
-		panicConfig(path, "invalid duration: "+s)
+		return 0, fmt.Errorf("invalid duration: %s (%w)", s, err)
+	}
+	return d, nil
+}
+
+func (c *Config) GetDuration(path string) time.Duration {
+	d, err := readDuration(c.GetString(path))
+	if err != nil {
+		panic(&ConfigError{Path: path, Message: err.Error(), cause: err})
 	}
 	return d
 }
@@ -392,7 +412,7 @@ func (c *Config) GetDurationOption(path string) Option[time.Duration] {
 		return None[time.Duration]()
 	}
 	s, _ := opt.Get()
-	d, err := parseDuration(s)
+	d, err := readDuration(s)
 	if err != nil {
 		return None[time.Duration]()
 	}
@@ -413,7 +433,7 @@ func parseDuration(s string) (time.Duration, error) {
 		i++
 	}
 	if i == digStart {
-		return 0, fmt.Errorf("no number in duration %q", s)
+		return 0, errors.New("no number")
 	}
 	if i < len(s) && s[i] == '.' {
 		i++ // consume dot
@@ -448,7 +468,7 @@ func parseDuration(s string) (time.Duration, error) {
 		i += w
 	}
 	if i < len(s) {
-		return 0, fmt.Errorf("unexpected characters in duration %q", s)
+		return 0, errors.New("unexpected characters")
 	}
 
 	// Resolve multiplier.
@@ -471,7 +491,7 @@ func parseDuration(s string) (time.Duration, error) {
 	case "d", "day", "days":
 		mult = 24 * time.Hour
 	default:
-		return 0, fmt.Errorf("unknown duration unit %q", unit)
+		return 0, fmt.Errorf("unknown unit %q", unit)
 	}
 
 	// integer-form → int64 * mult (already exact); fractional → exact decimal
@@ -479,7 +499,7 @@ func parseDuration(s string) (time.Duration, error) {
 	// Lightbend, whose double product turns 1.001s into 1000999999 ns).
 	// Either way a result past int64 ns is an error, never wrapped or
 	// saturated (E21 — Lightbend saturates, a deliberate divergence).
-	overflow := func() error { return fmt.Errorf("duration %q overflows int64 nanoseconds", s) }
+	overflow := func() error { return errDurationOverflow }
 	if integerRegex.MatchString(numStr) {
 		n, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {

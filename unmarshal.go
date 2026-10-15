@@ -20,6 +20,7 @@ import (
 )
 
 var (
+	durationType = reflect.TypeOf(time.Duration(0))
 	byteSizeType = reflect.TypeOf(ByteSize(0))
 	periodType   = reflect.TypeOf(Period{})
 )
@@ -113,22 +114,6 @@ func unmarshalVal(val resolver.Val, target reflect.Value) error {
 
 func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 	t := target.Type()
-
-	// special case: time.Duration (underlying kind is int64, not struct,
-	// so this branch is only reached if someone wraps Duration in a struct embedding;
-	// kept for defensive completeness)
-	if t == reflect.TypeOf(time.Duration(0)) {
-		sv, ok2 := val.(*resolver.ScalarVal)
-		if !ok2 {
-			return fmt.Errorf("hocon: expected string for duration")
-		}
-		d, err := parseDuration(sv.Raw)
-		if err != nil {
-			return err
-		}
-		target.Set(reflect.ValueOf(d))
-		return nil
-	}
 
 	// Period is a struct but reads from a scalar, through the same reader as
 	// GetPeriod.
@@ -319,11 +304,11 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 		return nil // null → zero value
 	}
 
-	// time.Duration special case (underlying kind is int64)
-	if target.Type() == reflect.TypeOf(time.Duration(0)) {
-		d, err := parseDuration(sv.Raw)
+	// time.Duration (underlying kind is int64): same reader as GetDuration.
+	if target.Type() == durationType {
+		d, err := readDuration(sv.Raw)
 		if err != nil {
-			return err
+			return fmt.Errorf("hocon: %w", err)
 		}
 		target.Set(reflect.ValueOf(d))
 		return nil

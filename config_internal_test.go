@@ -8,7 +8,11 @@
 
 package hocon
 
-import "testing"
+import (
+	"errors"
+	"testing"
+	"time"
+)
 
 // TestIsHoconWS exhaustively exercises every branch of the HOCON_WS predicate
 // inlined in config.go (kept in sync with internal/lexer.isHoconWhitespace).
@@ -43,6 +47,26 @@ func TestIsHoconWS(t *testing.T) {
 	for _, r := range no {
 		if isHoconWS(r) {
 			t.Errorf("isHoconWS(U+%04X) = true, want false", r)
+		}
+	}
+}
+
+// TestReadDuration_OverflowChain: the overflow sentinel survives on both the
+// getter path (ConfigError.cause) and the Unmarshal path (%w), so the two
+// cannot answer errors.Is differently.
+func TestReadDuration_OverflowChain(t *testing.T) {
+	cfg, err := ParseString(`t = "200000d"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, gerr := cfg.GetDurationE("t")
+	var h struct {
+		T time.Duration `hocon:"t"`
+	}
+	uerr := cfg.Unmarshal(&h)
+	for name, e := range map[string]error{"GetDurationE": gerr, "Unmarshal": uerr} {
+		if !errors.Is(e, errDurationOverflow) {
+			t.Errorf("%s err = %v; want errors.Is(err, errDurationOverflow)", name, e)
 		}
 	}
 }
