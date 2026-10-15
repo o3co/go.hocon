@@ -679,6 +679,88 @@ func parseBytes(s string) (int64, error) {
 	return int64(prod), nil
 }
 
+// ── period ────────────────────────────────────────────────────────
+
+// Period is a calendar period read from a HOCON period value (S20) — HOCON's
+// counterpart of java.time.Period, matching rs.hocon's and py.hocon's Period.
+// Weeks fold into Days (1w = 7 days). Any field may be negative.
+//
+// Apply it to a date with t.AddDate(p.Years, p.Months, p.Days).
+type Period struct {
+	Years, Months, Days int
+}
+
+// GetPeriod returns the value at path as a calendar Period. It accepts a
+// period string ("7d", "2w", "3mo", "1y") or a bare integer, which is taken as
+// days (HOCON.md L1321). Panics with *ConfigError on missing / non-scalar /
+// null / unresolved / invalid format.
+func (c *Config) GetPeriod(path string) Period {
+	p, err := readPeriod(c.GetString(path))
+	if err != nil {
+		panicConfig(path, err.Error())
+	}
+	return p
+}
+
+// GetPeriodOption is like GetPeriod but returns None instead of panicking.
+func (c *Config) GetPeriodOption(path string) Option[Period] {
+	opt := c.GetStringOption(path)
+	if opt.IsNone() {
+		return None[Period]()
+	}
+	s, _ := opt.Get()
+	p, err := readPeriod(s)
+	if err != nil {
+		return None[Period]()
+	}
+	return Some(p)
+}
+
+// readPeriod is the one reader for HOCON period values. GetPeriod,
+// GetPeriodE, GetPeriodOption and Unmarshal into Period all read through it.
+//
+// Accepts `[ws] integer [ws] [unit] [ws]`, byte-identical to rs.hocon's
+// parse_period and py.hocon's parse_period:
+//   - integer only (Lightbend Integer.parseInt): "7.5" is an error (up03);
+//   - values bounded to int32 like Lightbend and the siblings, so a period
+//     that overflows there is an error here too, not silently widened;
+//   - unit names case-sensitive, lowercase (the S19.8 rule, HOCON.md L1304);
+//   - no unit → days (S20.1, HOCON.md L1321).
+func readPeriod(s string) (Period, error) {
+	t := strings.TrimFunc(s, isHoconWS)
+	i := 0
+	for i < len(t) && (t[i] >= '0' && t[i] <= '9' || t[i] == '+' || t[i] == '-') {
+		i++
+	}
+	if i == 0 {
+		return Period{}, invalidPeriod(s)
+	}
+	n, err := strconv.ParseInt(t[:i], 10, 32)
+	if err != nil {
+		return Period{}, invalidPeriod(s)
+	}
+	switch strings.TrimFunc(t[i:], isHoconWS) {
+	case "", "d", "day", "days": // S20.1
+		return Period{Days: int(n)}, nil
+	case "w", "week", "weeks": // S20.2
+		days := n * 7
+		if days < math.MinInt32 || days > math.MaxInt32 {
+			return Period{}, invalidPeriod(s)
+		}
+		return Period{Days: int(days)}, nil
+	case "m", "mo", "month", "months": // S20.3
+		return Period{Months: int(n)}, nil
+	case "y", "year", "years": // S20.4
+		return Period{Years: int(n)}, nil
+	default:
+		return Period{}, invalidPeriod(s)
+	}
+}
+
+func invalidPeriod(s string) error {
+	return fmt.Errorf("invalid period: %s", s)
+}
+
 // ── slices ────────────────────────────────────────────────────────
 
 // lookupArray resolves path and returns an *ArrayVal, applying S15 numeric-object

@@ -97,6 +97,7 @@ On top of that, HOCON combines the readability of YAML with the structure of JSO
 - Triple-quoted strings (`"""..."""`)
 - Duration parsing (`10ms`, `2s`, `1h`, `1d`)
 - Byte size parsing (`1KB`, `1KiB`, `1MB`, …)
+- Period parsing (`7d`, `2w`, `3mo`, `1y`) into `hocon.Period`
 - Generic `Option[T]` for safe optional access
 - Struct unmarshalling with `hocon` struct tags
 - Deferred resolution: separate `Parse` / `WithFallback` / `Resolve` lifecycle for runtime-supplied substitution values (v1.4.0+)
@@ -162,9 +163,10 @@ suits config already validated (e.g. right after `Unmarshal` in `main`); the
 | `GetBoolE` | `GetBool` | `GetBoolOption` |
 | `GetDurationE` | `GetDuration` | `GetDurationOption` |
 | `GetBytesE` | `GetBytes` | `GetBytesOption` |
+| `GetPeriodE` | `GetPeriod` | `GetPeriodOption` |
 
 `Get*E` returns a typed `*ConfigError` (missing path, null, wrong type, or
-invalid duration/byte format); unresolved-placeholder failures satisfy
+invalid duration/byte/period format); unresolved-placeholder failures satisfy
 `errors.Is(err, hocon.ErrNotResolved)`. The panicking getters panic with the
 same `*ConfigError` as payload. `Get*Option` returns `None` instead.
 
@@ -237,6 +239,8 @@ err = cfg.UnmarshalPath("servers", &servers)
 Fields without a `hocon` tag use the lowercased field name. `omitempty` preserves the pre-populated value when the key is missing.
 
 Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
+
+A `hocon.Period` field reads like `GetPeriod`: `"30d"`, `"2w"`, `"6mo"`, `"1y"`, or a bare integer number of days. Weeks fold into `Days`; apply it with `t.AddDate(p.Years, p.Months, p.Days)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
 
 ### Error Types
 
@@ -349,7 +353,7 @@ Conformance against the [Lightbend HOCON specification](https://github.com/light
 
 | Metric | Status |
 | --- | --- |
-| Spec total (incl. out-of-scope) | **90.5%** |
+| Spec total (incl. out-of-scope) | **92.4%** |
 | In-scope only | **100.0%** |
 | Lightbend `equiv01`–`equiv05` + `test01`–`test13` | passing (`TestLightbendEquiv` / `TestLightbendSuite`; three `*-expected.json` comparisons carry documented environment-dependent exclusions) |
 | [hocon2](https://github.com/o3co/hocon2) conformance (JSON/YAML/TOML/Properties output) | passing |
