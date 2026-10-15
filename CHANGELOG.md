@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `Unmarshal` reads byte sizes into `hocon.ByteSize` ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
+
+- **A new named type `hocon.ByteSize` (`int64`) lets `Unmarshal` /
+  `UnmarshalPath` read HOCON size-in-bytes values** such as `"512MiB"` or
+  `64k`. Before, only `time.Duration` had unit support, so a byte size had to be
+  stored as a bare number or read separately with `GetBytes`. It works as a
+  field, a pointer, a slice element and a map value.
+- The rules are exactly those of `GetBytes`: a bare number is bytes, a
+  fractional count is truncated, unit names are case-sensitive, and a negative
+  value is an error. A `null` leaves the field unchanged, as for every scalar
+  in `Unmarshal` (the getters return an error on `null`). `GetBytes`,
+  `GetBytesE`, `GetBytesOption` and `Unmarshal`
+  now read through one internal reader, so the two paths cannot drift. A
+  failure names the key path, like `Unmarshal`'s other errors
+  (`hocon: field "limits": hocon: field "max-body": hocon: byte size must not be negative`).
+- `GetBytes` still returns `int64`; nothing existing changes.
+- `UnmarshalPath` errors now name the requested path
+  (`hocon: path "server.max-body": …`). A scalar target has no field or key of
+  its own to name, so the path was missing before. The wrapped error is kept
+  (`%w`), so `errors.Is` / `errors.As` still match.
+
 ## [1.13.0] - 2026-08-19
 
 ### Behavior

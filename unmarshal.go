@@ -19,6 +19,8 @@ import (
 	"github.com/o3co/go.hocon/internal/resolver"
 )
 
+var byteSizeType = reflect.TypeOf(ByteSize(0))
+
 // Unmarshal maps the config into v using `hocon` struct tags.
 // v must be a non-nil pointer to a struct or map[string]any.
 func (c *Config) Unmarshal(v any) error {
@@ -52,7 +54,12 @@ func (c *Config) UnmarshalPath(path string, v any) error {
 	if !c.resolved && isUnresolvedPlaceholder(node) {
 		return fmt.Errorf("hocon: path %q is not resolved: %w", path, ErrNotResolved)
 	}
-	return unmarshalVal(node, rv.Elem())
+	// Name the requested path: nested failures already name their field /
+	// key / index, but a scalar target (int, Duration, ByteSize) has none.
+	if err := unmarshalVal(node, rv.Elem()); err != nil {
+		return fmt.Errorf("hocon: path %q: %w", path, err)
+	}
+	return nil
 }
 
 func unmarshalVal(val resolver.Val, target reflect.Value) error {
@@ -298,6 +305,16 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 			return err
 		}
 		target.Set(reflect.ValueOf(d))
+		return nil
+	}
+
+	// ByteSize (underlying kind is int64): same reader as GetBytes.
+	if target.Type() == byteSizeType {
+		n, err := readBytes(sv.Raw)
+		if err != nil {
+			return fmt.Errorf("hocon: %w", err)
+		}
+		target.SetInt(n)
 		return nil
 	}
 

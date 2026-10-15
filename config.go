@@ -9,6 +9,7 @@
 package hocon
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -490,15 +491,31 @@ func parseDuration(s string) (time.Duration, error) {
 
 // ── bytes ─────────────────────────────────────────────────────────
 
-func (c *Config) GetBytes(path string) int64 {
-	s := c.GetString(path)
+// ByteSize is a byte count read from a HOCON size-in-bytes value ("512MiB",
+// "64k", or a bare number of bytes). Use it as a field type to have Unmarshal
+// read the value with the same rules as GetBytes: non-negative, a fractional
+// count truncated, unit names case-sensitive.
+type ByteSize int64
+
+// readBytes is the one reader for HOCON byte-size values. GetBytes,
+// GetBytesE, GetBytesOption and Unmarshal into ByteSize all read through it,
+// so the accepted forms cannot drift between the getters and Unmarshal.
+func readBytes(s string) (int64, error) {
 	n, err := parseBytes(s)
 	if err != nil {
-		panicConfig(path, "invalid byte size: "+s)
+		return 0, fmt.Errorf("invalid byte size: %s", s)
 	}
 	// S18.4 accessor invariant: byte sizes must be non-negative (Lightbend getBytesBigInteger).
 	if n < 0 {
-		panicConfig(path, "byte size must not be negative")
+		return 0, errors.New("byte size must not be negative")
+	}
+	return n, nil
+}
+
+func (c *Config) GetBytes(path string) int64 {
+	n, err := readBytes(c.GetString(path))
+	if err != nil {
+		panicConfig(path, err.Error())
 	}
 	return n
 }
@@ -509,9 +526,9 @@ func (c *Config) GetBytesOption(path string) Option[int64] {
 		return None[int64]()
 	}
 	s, _ := opt.Get()
-	n, err := parseBytes(s)
+	n, err := readBytes(s)
 	// S18.4 accessor invariant: negative byte sizes return None (not panic).
-	if err != nil || n < 0 {
+	if err != nil {
 		return None[int64]()
 	}
 	return Some(n)

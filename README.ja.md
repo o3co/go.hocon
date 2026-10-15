@@ -176,10 +176,11 @@ v := opt.OrElse("default")
 
 ```go
 type ServerConfig struct {
-    Host    string        `hocon:"host"`
-    Port    int           `hocon:"port"`
-    Timeout time.Duration `hocon:"timeout,omitempty"`
-    Tags    []string      `hocon:"tags"`
+    Host    string         `hocon:"host"`
+    Port    int            `hocon:"port"`
+    Timeout time.Duration  `hocon:"timeout,omitempty"`
+    MaxBody hocon.ByteSize `hocon:"max-body,omitempty"`
+    Tags    []string       `hocon:"tags"`
 }
 
 var s ServerConfig
@@ -195,6 +196,8 @@ err = cfg.UnmarshalPath("servers", &servers)
 ```
 
 `hocon` タグがないフィールドはフィールド名を小文字化したキーで検索する。`omitempty` はキーが存在しないとき、フィールドの既存値を保持する。
+
+単位付きの値は getter と同じ規則で読む。`time.Duration` フィールドは `GetDuration` と同じ (`"30s"`、単位なしはミリ秒)、`hocon.ByteSize` フィールドは `GetBytes` と同じ (`"512MiB"`、単位なしはバイト、負の値はエラー)。値は `int64(s.MaxBody)` で取り出す。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
 
 ### エラー型
 
