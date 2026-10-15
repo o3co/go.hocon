@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — fractional durations and byte sizes are computed exactly (E20, [xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
+
+- **A fractional unit value is now multiplied as an exact decimal, read from
+  the digits as written**, then truncated toward zero: at the nanosecond for a
+  duration, at the byte for a size. Before, the product went through `float64`,
+  so `1.001s` read as `1.000999999s`, `2.3h` as `2h17m59.999999999s`, and
+  `1.001kB` as `1000` bytes. They now read as `1.001s`, `2h18m0s` and `1001`.
+  This covers strings with and without a unit (S18.2 / S18.4) and number
+  values (S18.1), through `GetDuration*`, `GetBytes*` and `Unmarshal` alike.
+  Integer values are unchanged; they were already exact.
+- **Durations: a deliberate divergence from Lightbend (E20).** Lightbend
+  1.4.6 computes `(long)(double × nanos)` and gives `1000999999` ns for
+  `1.001s`. Byte sizes match Lightbend, whose `parseBytes` already multiplies
+  with `BigDecimal`.
+- The units past int64 (`ZB`, `YB`, `Zi`, `Yi`, `Z` / `z` / `Y` / `y`) take the
+  exact path too (`0.001z` is `1180591620717411303`, was
+  `1180591620717411328`), and a fractional duration past the int64 nanosecond
+  range is now an error instead of an implementation-defined conversion.
+
 ### Added — `Unmarshal` reads byte sizes into `hocon.ByteSize` ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 
 - **A new named type `hocon.ByteSize` (`int64`) lets `Unmarshal` /

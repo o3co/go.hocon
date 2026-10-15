@@ -906,8 +906,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅ — Fixed in cluster 3h (Phase 6); the four-impl units audit (2026-08-18) completed the ladder with Z/z/Y/y (multipliers past int64 route through the float path; count ≥1 overflows exactly as in Lightbend, pinned in spec_s21_lightbend_units_test.go). Overflow-checked multiplication for the integer path, float guard at 2^63.
 
 - **S21.5** Fractional values supported (`0.5M`) — §Units format (L1281-1294) + §Size in bytes (L1335-1342)
-  tests: config_test.go (TestSpec_S21_5_FractionalByteValues)
-  status: ✅ — side-cleared in Phase 6 #3d. `parseBytes` rewritten to truncate AFTER multiply (`int64(f * float64(mult))`) per Lightbend `BigDecimal.toBigInteger()`; multi-letter units (KB/KiB/MB/MiB/...) now accept fractional values. Single-letter byte abbreviations (`0.5K`, `1.5M`) remain blocked by S21.4 (#73). Closes #74.
+  tests: config_test.go (TestSpec_S21_5_FractionalByteValues); e20_exact_unit_arithmetic_test.go (TestE20_Bytes_Exact); spec_s18_units_default_test.go (ub07, ub08)
+  status: ✅ — side-cleared in Phase 6 #3d. `parseBytes` truncates AFTER multiply per Lightbend `BigDecimal.toBigInteger()`; since E20 (2026-10-15) the product is exact decimal (`big.Rat`), not `float64`, so `1.001kB` is 1001, not 1000; multi-letter units (KB/KiB/MB/MiB/...) now accept fractional values. Single-letter byte abbreviations (`0.5K`, `1.5M`) remain blocked by S21.4 (#73). Closes #74.
 
 ## S22. Config object merging API
 
