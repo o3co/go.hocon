@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `Unmarshal` no longer turns an unresolved substitution into `nil`
+
+- On a config that still holds unresolved substitutions (a deferred parse, or
+  `Resolve` with `AllowUnresolved`), whole-config `Unmarshal` into
+  `map[string]any` or `any` silently decoded each unresolved value as `nil`
+  (`a = [1, ${y}]` → `[1 <nil>]`, `b = ${z}` → `b: nil`), and into a typed
+  field it failed with an internal type name (`*resolver.substPlaceholder`).
+  Reading an unresolved value is now an error wrapping `ErrNotResolved` that
+  names the key, as `UnmarshalPath` and the getters already did. Keys the
+  target does not read are unaffected, so a struct over the resolved part of
+  the config still decodes.
+
 ### Fixed — the error for an unregistered `include package(...)` no longer repeats itself
 
 - It named the package twice and gave the blank-import hint twice. It now

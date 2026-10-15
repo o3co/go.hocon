@@ -96,7 +96,10 @@ func unmarshalVal(val resolver.Val, target reflect.Value) error {
 		if target.NumMethod() != 0 {
 			return fmt.Errorf("hocon: cannot unmarshal into non-empty interface %s", target.Type())
 		}
-		a := valToAny(val)
+		a, err := valToAny(val)
+		if err != nil {
+			return err
+		}
 		if a == nil {
 			// null / nil node → reset the interface to its typed zero (nil),
 			// so an explicit null overwrites any pre-populated value.
@@ -120,6 +123,9 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 	if t == periodType {
 		sv, ok2 := val.(*resolver.ScalarVal)
 		if !ok2 {
+			if err := errIfUnresolved(val); err != nil {
+				return err
+			}
 			return fmt.Errorf("hocon: expected scalar for %v, got %T", t, val)
 		}
 		if sv.Type == resolver.ScalarNull {
@@ -135,6 +141,9 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 
 	obj, ok := val.(*resolver.ObjectVal)
 	if !ok {
+		if err := errIfUnresolved(val); err != nil {
+			return err
+		}
 		return fmt.Errorf("hocon: expected object for struct, got %T", val)
 	}
 
@@ -192,6 +201,9 @@ func parseTag(f reflect.StructField) (key string, omitempty bool, skip bool) {
 func unmarshalMap(val resolver.Val, target reflect.Value) error {
 	obj, ok := val.(*resolver.ObjectVal)
 	if !ok {
+		if err := errIfUnresolved(val); err != nil {
+			return err
+		}
 		return fmt.Errorf("hocon: expected object for map, got %T", val)
 	}
 	if target.IsNil() {
@@ -210,7 +222,10 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 			// is an invalid Value, and SetMapIndex with an invalid value deletes the
 			// entry rather than storing key→nil. Use a typed zero of the interface
 			// element so explicit nulls remain visible keys (go.hocon#131).
-			av := valToAny(v)
+			av, err := valToAny(v)
+			if err != nil {
+				return fmt.Errorf("hocon: map key %q: %w", k, err)
+			}
 			rval := reflect.Zero(elemType)
 			if av != nil {
 				rval = reflect.ValueOf(av)
@@ -227,44 +242,69 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 	return nil
 }
 
-func valToAny(v resolver.Val) any {
+// valToAny decodes a node into its natural Go value. An unresolved
+// substitution is an error wrapping ErrNotResolved, never a silent nil.
+func valToAny(v resolver.Val) (any, error) {
 	switch vv := v.(type) {
 	case *resolver.ScalarVal:
 		switch vv.Type {
 		case resolver.ScalarNull:
-			return nil
+			return nil, nil
 		case resolver.ScalarBoolean:
-			return vv.Raw == "true"
+			return vv.Raw == "true", nil
 		case resolver.ScalarNumber:
 			// Try int first (no dot/exponent), then float
 			if !strings.ContainsAny(vv.Raw, ".eE") {
 				if n, err := strconv.ParseInt(vv.Raw, 10, 64); err == nil {
-					return n
+					return n, nil
 				}
 			}
 			if f, err := strconv.ParseFloat(vv.Raw, 64); err == nil {
-				return f
+				return f, nil
 			}
-			return vv.Raw
+			return vv.Raw, nil
 		default:
-			return vv.Raw
+			return vv.Raw, nil
 		}
 	case *resolver.ArrayVal:
 		r := make([]any, len(vv.Elements))
 		for i, e := range vv.Elements {
-			r[i] = valToAny(e)
+			a, err := valToAny(e)
+			if err != nil {
+				return nil, fmt.Errorf("hocon: slice element %d: %w", i, err)
+			}
+			r[i] = a
 		}
-		return r
+		return r, nil
 	case *resolver.ObjectVal:
 		m := make(map[string]any)
 		for _, k := range vv.Keys() {
 			cv, _ := vv.Get(k)
-			m[k] = valToAny(cv)
+			a, err := valToAny(cv)
+			if err != nil {
+				return nil, fmt.Errorf("hocon: map key %q: %w", k, err)
+			}
+			m[k] = a
 		}
-		return m
+		return m, nil
 	default:
-		return nil
+		if err := errIfUnresolved(v); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	}
+}
+
+// errIfUnresolved returns an error wrapping ErrNotResolved when val is an
+// unresolved substitution — a deferred parse, or a Resolve with
+// AllowUnresolved, leaves these in the tree — and nil otherwise. It is called
+// only where a value is not of the expected kind, so a resolved config pays
+// nothing for it.
+func errIfUnresolved(val resolver.Val) error {
+	if isUnresolvedPlaceholder(val) {
+		return fmt.Errorf("hocon: %w", ErrNotResolved)
+	}
+	return nil
 }
 
 func unmarshalSlice(val resolver.Val, target reflect.Value) error {
@@ -279,6 +319,9 @@ func unmarshalSlice(val resolver.Val, target reflect.Value) error {
 				return fmt.Errorf("hocon: expected array for slice, got %T", val)
 			}
 		} else {
+			if err := errIfUnresolved(val); err != nil {
+				return err
+			}
 			return fmt.Errorf("hocon: expected array for slice, got %T", val)
 		}
 	}
@@ -298,6 +341,9 @@ func unmarshalSlice(val resolver.Val, target reflect.Value) error {
 func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 	sv, ok := val.(*resolver.ScalarVal)
 	if !ok {
+		if err := errIfUnresolved(val); err != nil {
+			return err
+		}
 		return fmt.Errorf("hocon: expected scalar for %v, got %T", target.Type(), val)
 	}
 	if sv.Type == resolver.ScalarNull {
