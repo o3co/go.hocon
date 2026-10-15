@@ -27,7 +27,7 @@ func makeLookup(pkgs map[string]string) func(id, file string) ([]byte, error) {
 		if content, ok := pkgs[key]; ok {
 			return []byte(content), nil
 		}
-		return nil, fmt.Errorf("package(%q, %q) not found in registry", id, file)
+		return nil, fmt.Errorf("not found in registry")
 	}
 }
 
