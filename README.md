@@ -438,8 +438,8 @@ Verified against [gurkankaymak/hocon](https://github.com/gurkankaymak/hocon) **v
 | Struct unmarshal | ✅ | ❌ |
 | Non-panicking access | ✅ (`GetXxxE` + `Option[T]`) | ✅ (`GetXxxE`) |
 | Env variable fallback | ✅ | ✅ |
-| Deferred resolution (parse / withFallback / resolve) | ✅ (v1.4.0) | ✅ (v1.3.0) |
-| `FromMap` / `Empty` value factories | ✅ (v1.4.0) | ❌ |
+| Deferred resolution (parse / withFallback / resolve) | ✅ (since v1.4.0) | ✅ (since v1.3.0) |
+| `FromMap` / `Empty` value factories | ✅ (since v1.4.0) | ⚠️ (typed `Object{…}.ToConfig()`, no `map[string]any`) |
 
 ### Config Framework
 
