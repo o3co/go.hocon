@@ -1874,11 +1874,11 @@ func (r *resolver) loadPackageInclude(identifier, file string) (*ObjectVal, erro
 		if lookupErr != nil {
 			// Preserve the original error cause so callers can distinguish a registry miss
 			// from other lookup failures (I/O error, permission denied, etc.) via errors.Is/As.
+			// The lookup's own error says why (a registry miss carries its import hint),
+			// so only the package(...) context is added here.
 			return nil, &ResolveError{
-				Message: fmt.Sprintf("package(%q, %q): %s; "+
-					"if this is a missing registration, ensure the providing package is imported with _ %q in your application",
-					identifier, file, lookupErr.Error(), identifier),
-				Cause: lookupErr,
+				Message: fmt.Sprintf("package(%q, %q): %s", identifier, file, lookupErr.Error()),
+				Cause:   lookupErr,
 			}
 		}
 	} else {

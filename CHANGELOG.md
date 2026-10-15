@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the error for an unregistered `include package(...)` no longer repeats itself
+
+- It named the package twice and gave the blank-import hint twice. It now
+  reads `package("github.com/acme/auth", "reference.conf"): not found in
+  registry; ensure the providing package is imported with _
+  "github.com/acme/auth" in your application`. The registry owns the hint (it
+  alone knows the lookup missed); the resolver adds only the `package(...)`
+  context.
+
 ### Fixed — durations read through one reader, so the getters and `Unmarshal` give the same reason ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
 
 - `GetDuration` / `GetDurationE` / `GetDurationOption` and `Unmarshal` into
