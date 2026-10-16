@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-10-17
+
+**Patch.** An opt-in `requireunit` struct tag option makes a `time.Duration`,
+`hocon.ByteSize` or `hocon.Period` field refuse a value that does not name its
+unit (xx.hocon E22). Without the option nothing decodes differently, except one
+tag-parsing fix: an option after `omitempty` (`x,omitempty,foo`) no longer
+disables it (see below). The adapters module is unchanged and stays at
+`adapters/v1.14.0`.
+
 ### Added — the `requireunit` tag option for unit fields (ts.hocon#233 parity)
 
 - **`hocon:"ttl,requireunit"` makes a `time.Duration`, `hocon.ByteSize` or
@@ -1263,7 +1272,8 @@ A subset of these fixes change observable runtime behavior. The most likely user
 - README in English and Japanese.
 - Apache 2.0 LICENSE.
 
-[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.14.1...HEAD
+[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.14.2...HEAD
+[1.14.2]: https://github.com/o3co/go.hocon/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/o3co/go.hocon/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/o3co/go.hocon/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/o3co/go.hocon/compare/v1.12.0...v1.13.0
