@@ -25,6 +25,36 @@ var (
 	periodType   = reflect.TypeOf(Period{})
 )
 
+// unitField describes a field type the requireunit tag option applies to: the
+// noun its errors use, and the unit module's check whether a value names its
+// unit.
+type unitField struct {
+	noun      string
+	namesUnit func(string) bool
+}
+
+var unitFields = map[reflect.Type]unitField{
+	durationType: {"duration", namesMagnitudeUnit},
+	byteSizeType: {"byte size", namesMagnitudeUnit},
+	periodType:   {"period", namesPeriodUnit},
+}
+
+// checkNamesUnit returns an error when val, which the field's reader has
+// already accepted, does not name its unit: a number never does, and a
+// string does as the reader splits it. The message leaves the value out,
+// since a value can be a secret set under the wrong key. null, which leaves
+// the field unchanged, is not checked.
+func (u unitField) checkNamesUnit(val resolver.Val) error {
+	sv, ok := val.(*resolver.ScalarVal)
+	if !ok || sv.Type == resolver.ScalarNull {
+		return nil
+	}
+	if sv.Type == resolver.ScalarNumber || !u.namesUnit(sv.Raw) {
+		return fmt.Errorf("%s must name its unit", u.noun)
+	}
+	return nil
+}
+
 // Unmarshal maps the config into v using `hocon` struct tags.
 // v must be a non-nil pointer to a struct or map[string]any.
 func (c *Config) Unmarshal(v any) error {
@@ -153,13 +183,23 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 		if !fval.CanSet() {
 			continue
 		}
-		key, omitempty, skip := parseTag(field)
+		key, opts, skip := parseTag(field)
 		if skip {
 			continue
 		}
+		// requireunit is checked against the field type before the key is
+		// looked up, so a misplaced option is reported even when the key is
+		// absent rather than silently ignored.
+		var unit unitField
+		if opts.requireUnit {
+			var isUnit bool
+			if unit, isUnit = unitFields[derefType(field.Type)]; !isUnit {
+				return fmt.Errorf("hocon: field %q: requireunit applies to a duration, byte size or period field", key)
+			}
+		}
 		v, ok2 := obj.Get(key)
 		if !ok2 {
-			if omitempty {
+			if opts.omitempty {
 				continue // preserve pre-populated value
 			}
 			// slices and maps default to nil when absent (not an error)
@@ -169,33 +209,67 @@ func unmarshalStruct(val resolver.Val, target reflect.Value) error {
 			return fmt.Errorf("hocon: missing required field %q", key)
 		}
 		// null + omitempty: preserve
-		if sv, isSc := v.(*resolver.ScalarVal); isSc && sv.Type == resolver.ScalarNull && omitempty {
+		if sv, isSc := v.(*resolver.ScalarVal); isSc && sv.Type == resolver.ScalarNull && opts.omitempty {
 			continue
 		}
 		if err := unmarshalVal(v, fval); err != nil {
 			return fmt.Errorf("hocon: field %q: %w", key, err)
 		}
+		// The reader ran first: a value that does not read keeps its own
+		// error, and only one that reads is checked for its unit.
+		if opts.requireUnit {
+			if err := unit.checkNamesUnit(v); err != nil {
+				return fmt.Errorf("hocon: field %q: %w", key, err)
+			}
+		}
 	}
 	return nil
 }
 
-func parseTag(f reflect.StructField) (key string, omitempty bool, skip bool) {
+// derefType strips pointer levels from t, as unmarshalVal does from a target.
+// A recursive pointer type (`type Loop *Loop`) stops at the first repeat and
+// comes back as a pointer, which no unit check accepts.
+func derefType(t reflect.Type) reflect.Type {
+	seen := map[reflect.Type]bool{}
+	for t.Kind() == reflect.Pointer && !seen[t] {
+		seen[t] = true
+		t = t.Elem()
+	}
+	return t
+}
+
+// tagOptions are the options of a hocon struct tag, after the key.
+type tagOptions struct {
+	omitempty   bool // absent key or null keeps the pre-populated value
+	requireUnit bool // a unit value must name its unit
+}
+
+// parseTag reads a field's hocon tag: `hocon:"key,opt,opt"`. The options
+// (omitempty, requireunit) may come in any order; an unknown option is
+// ignored, as encoding/json does.
+func parseTag(f reflect.StructField) (key string, opts tagOptions, skip bool) {
 	tag := f.Tag.Get("hocon")
 	if tag == "" {
-		return strings.ToLower(f.Name), false, false
+		return strings.ToLower(f.Name), opts, false
 	}
 	if tag == "-" {
-		return "", false, true
+		return "", opts, true
 	}
-	parts := strings.SplitN(tag, ",", 2)
-	key = parts[0]
+	key, rest, _ := strings.Cut(tag, ",")
 	if key == "" {
 		key = strings.ToLower(f.Name)
 	}
-	if len(parts) > 1 && parts[1] == "omitempty" {
-		omitempty = true
+	for rest != "" {
+		var opt string
+		opt, rest, _ = strings.Cut(rest, ",")
+		switch opt {
+		case "omitempty":
+			opts.omitempty = true
+		case "requireunit":
+			opts.requireUnit = true
+		}
 	}
-	return
+	return key, opts, false
 }
 
 func unmarshalMap(val resolver.Val, target reflect.Value) error {

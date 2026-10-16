@@ -672,6 +672,15 @@ func splitUnitValue(s string) (num, unit string, err error) {
 	return num, unit, nil
 }
 
+// namesMagnitudeUnit reports whether a duration or byte-size value names its
+// unit ("30s", "64 KiB", "1E"), as splitUnitValue splits it: a bare number
+// ("30", "1e3") does not, and reads in the default unit. Only meaningful for
+// a value the reader accepts.
+func namesMagnitudeUnit(s string) bool {
+	_, unit, err := splitUnitValue(s)
+	return err == nil && unit != ""
+}
+
 // truncProduct returns num × mult truncated toward zero, computed exactly from
 // the decimal numeral num (unitNumberRegex: sign, digits, fraction,
 // exponent) — never through float64, whose binary rounding turns
@@ -799,19 +808,15 @@ func (c *Config) GetPeriodOption(path string) Option[Period] {
 //   - unit names case-sensitive, lowercase (the S19.8 rule, HOCON.md L1304);
 //   - no unit → days (S20.1, HOCON.md L1321).
 func readPeriod(s string) (Period, error) {
-	t := strings.TrimFunc(s, isHoconWS)
-	i := 0
-	for i < len(t) && (t[i] >= '0' && t[i] <= '9' || t[i] == '+' || t[i] == '-') {
-		i++
-	}
-	if i == 0 {
+	digits, unit := splitPeriod(s)
+	if digits == "" {
 		return Period{}, invalidPeriod(s)
 	}
-	n, err := strconv.ParseInt(t[:i], 10, 32)
+	n, err := strconv.ParseInt(digits, 10, 32)
 	if err != nil {
 		return Period{}, invalidPeriod(s)
 	}
-	switch strings.TrimFunc(t[i:], isHoconWS) {
+	switch unit {
 	case "", "d", "day", "days": // S20.1
 		return Period{Days: int(n)}, nil
 	case "w", "week", "weeks": // S20.2
@@ -827,6 +832,26 @@ func readPeriod(s string) (Period, error) {
 	default:
 		return Period{}, invalidPeriod(s)
 	}
+}
+
+// splitPeriod splits a period value into its leading sign-and-digit run and
+// its unit text, both with HOCON whitespace trimmed. readPeriod and
+// namesPeriodUnit both go through it, so the split has one owner.
+func splitPeriod(s string) (digits, unit string) {
+	t := strings.TrimFunc(s, isHoconWS)
+	i := 0
+	for i < len(t) && (t[i] >= '0' && t[i] <= '9' || t[i] == '+' || t[i] == '-') {
+		i++
+	}
+	return t[:i], strings.TrimFunc(t[i:], isHoconWS)
+}
+
+// namesPeriodUnit reports whether a period value names its unit ("7d",
+// "2 w"): a bare integer, which is days, does not. Only meaningful for a
+// value readPeriod accepts.
+func namesPeriodUnit(s string) bool {
+	_, unit := splitPeriod(s)
+	return unit != ""
 }
 
 func invalidPeriod(s string) error {

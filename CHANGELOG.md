@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the `requireunit` tag option for unit fields (ts.hocon#233 parity)
+
+- **`hocon:"ttl,requireunit"` makes a `time.Duration`, `hocon.ByteSize` or
+  `hocon.Period` field refuse a value that does not name its unit**: a number
+  (`ttl = 30`), a string of the number alone (`"30"`, which is what an
+  environment variable gives) or `"1e3"`. Without the option those read in the
+  default unit (milliseconds, bytes, days), so a key migrated from
+  `ttl-seconds = 30` to `ttl = 30` silently became 30 ms. The error names the
+  field and leaves the value out: `hocon: field "ttl": duration must name its
+  unit` (`byte size` / `period` for the others).
+- A value with a unit (`30s`, `"30 s"`, `"1e3ms"`, `64KiB`, `2w`) reads as
+  before. A value that does not read keeps its own error (invalid, negative,
+  overflow): the reader runs first, then the unit check. `null` leaves the
+  field unchanged, as before. A pointer to one of the three types takes the
+  option too.
+- `requireunit` on a field of any other type is an error, even when the key
+  is absent: `hocon: field "x": requireunit applies to a duration, byte size
+  or period field`.
+- The options after the key may come in any order (`omitempty,requireunit`
+  or `requireunit,omitempty`). An unknown option is ignored, as in
+  `encoding/json`; before, any text after `omitempty` (`x,omitempty,foo`)
+  turned `omitempty` off.
+- The default is off: no existing field, config or getter reads differently.
+
 ## [1.14.1] - 2026-10-16
 
 **Patch.** `Unmarshal` decodes maps keyed by a non-string type instead of
