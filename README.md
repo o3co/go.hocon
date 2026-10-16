@@ -315,6 +315,8 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 Fields without a `hocon` tag use the lowercased field name; `hocon:"-"` skips a field. A missing key is an error, except for an `omitempty` field (which keeps its pre-populated value) and a slice or map field (which stays nil).
 
+Integer fields may be any signed or unsigned kind (`int`…`int64`, `uint`…`uint64`, `uintptr`). Every one reads a number or a numeric string (such as a value substituted from an environment variable), and a whole-number float or exponent (`5.0`, `1e2`); a value past the type's range, a negative value for an unsigned field, or a fractional value is an error. A float or exponent spelling is read within the int64 range, as for the signed kinds (and in rs.hocon); write a `uint64` value above it as a plain integer (`"10000000000000000000"`, not `1e19`).
+
 A map's key type may be a string type (including a named one such as `type Key string`), a signed or unsigned integer type, or `bool`. An integer key parses strictly as a base-10 integer of the key type's size (`"80"` is a `map[uint16]` key, `"1.0"` is not), and a `bool` key accepts the spellings a bool value accepts (`true`/`false`, `yes`/`no`, `on`/`off`). A key that does not parse, or any other key type, is an error naming the key.
 
 Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).

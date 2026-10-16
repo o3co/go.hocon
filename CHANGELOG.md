@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hocon: map key "k": unsupported map key type main.Point`, and no longer a
   panic. Maps keyed by `string` or `any` decode as before, and an empty object
   still decodes to an empty map whatever the key type.
+- **`Unmarshal` did not support unsigned integers**: a `uint`, `uint8`,
+  `uint16`, `uint32`, `uint64` or `uintptr` field failed with
+  `unsupported target type uint16` even for a literal `5`, and so did a
+  pointer, slice element or map value of one. They now read exactly as the
+  signed kinds do: a number or a numeric string (`"5"` from an environment
+  variable works), a whole-number float or exponent spelling (`5.0`, `1e2`),
+  and `-0` as `0`. A value past the type's range is an error naming the
+  field, `hocon: field "a": hocon: uint 300 overflows uint8`, and so is a
+  negative one, `hocon: int -1 overflows uint16`. A float or exponent
+  spelling is read within the int64 range, as for the signed kinds and in
+  rs.hocon; write a `uint64` value above it as a plain integer.
 
 ## [1.14.0] - 2026-10-16
 

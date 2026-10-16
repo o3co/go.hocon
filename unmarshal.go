@@ -441,6 +441,32 @@ func unmarshalScalar(val resolver.Val, target reflect.Value) error {
 			return fmt.Errorf("hocon: int %d overflows %s", n, target.Type())
 		}
 		target.SetInt(n)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		// ParseUint takes no sign; a leading "+" is stripped so "+N" keeps the
+		// whole uint64 range rather than stopping at the int64 fallback's.
+		u, err := strconv.ParseUint(strings.TrimPrefix(sv.Raw, "+"), 10, 64)
+		if err != nil {
+			// Otherwise read it exactly as the int case does — ParseInt, then
+			// the whole-number float/exponent fallback — and refuse a negative
+			// result. This is what reads "-0" (as 0), matching rs.hocon's
+			// parse_int_from_scalar.
+			n, ierr := strconv.ParseInt(sv.Raw, 10, 64)
+			if ierr != nil {
+				var ok bool
+				n, ok = wholeFloatToInt64(sv.Raw)
+				if !ok {
+					return fmt.Errorf("hocon: expected uint, got %q", sv.Raw)
+				}
+			}
+			if n < 0 {
+				return fmt.Errorf("hocon: int %d overflows %s", n, target.Type())
+			}
+			u = uint64(n)
+		}
+		if target.OverflowUint(u) {
+			return fmt.Errorf("hocon: uint %d overflows %s", u, target.Type())
+		}
+		target.SetUint(u)
 	case reflect.Float32, reflect.Float64:
 		parsed, err := strconv.ParseFloat(sv.Raw, 64)
 		if err != nil {
