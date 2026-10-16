@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-10-16
+
+**Patch.** `Unmarshal` decodes maps keyed by a non-string type instead of
+panicking, and decodes unsigned integer fields. No value that decoded on
+1.14.0 changes; only panics and errors become results. The adapters module
+is unchanged and stays at `adapters/v1.14.0`.
+
 ### Fixed
 
 - **`Unmarshal` panicked on a map whose key type is not `string`**: any key
@@ -1232,7 +1239,8 @@ A subset of these fixes change observable runtime behavior. The most likely user
 - README in English and Japanese.
 - Apache 2.0 LICENSE.
 
-[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.14.1...HEAD
+[1.14.1]: https://github.com/o3co/go.hocon/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/o3co/go.hocon/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/o3co/go.hocon/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/o3co/go.hocon/compare/v1.11.0...v1.12.0
