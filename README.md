@@ -323,6 +323,17 @@ Unit values read with the getters' rules: a `time.Duration` field reads like `Ge
 
 A `hocon.Period` field reads like `GetPeriod`: `"30d"`, `"2w"`, `"6mo"`, `"1y"`, or a bare integer number of days. Weeks fold into `Days`; apply it with `t.AddDate(p.Years, p.Months, p.Days)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
 
+The `requireunit` tag option makes one of these fields (or a pointer to one) refuse a value that does not name its unit: a number (`ttl = 30`), or a string of the number alone (`"30"`, which is what an environment variable gives) or `"1e3"`. Without it those read in the default unit, so a key migrated from `ttl-seconds = 30` to `ttl = 30` silently becomes 30 ms. Values with a unit (`30s`, `"30 s"`, `64KiB`, `2w`) read as before, and a value that does not read keeps its own error. The error names the field but not the value:
+
+```go
+type CacheConfig struct {
+    TTL time.Duration  `hocon:"ttl,requireunit"`           // ttl = 30 → hocon: field "ttl": duration must name its unit
+    Max hocon.ByteSize `hocon:"max,omitempty,requireunit"` // options in any order
+}
+```
+
+`requireunit` on a field of any other type is an error. The getters are unaffected.
+
 ### Package includes (`include package(...)`)
 
 `include package("<identifier>", "<file>")` includes HOCON that a Go package has registered. A library ships its defaults inside its own module, and an application includes them without knowing where the files live on disk. This is a cross-implementation extension ([E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md#e11)), not part of Lightbend HOCON.

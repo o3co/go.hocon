@@ -60,7 +60,10 @@
 //
 // A time.Duration field reads like GetDuration, a ByteSize field like GetBytes
 // and a Period field like GetPeriod, so a unit value means the same thing
-// through either path.
+// through either path. The requireunit tag option (`hocon:"ttl,requireunit"`)
+// makes such a field refuse a value that does not name its unit — a number,
+// or a string of the number alone such as an environment variable gives —
+// which would otherwise read in the default unit (milliseconds, bytes, days).
 //
 // # Substitutions
 //

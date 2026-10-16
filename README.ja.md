@@ -318,6 +318,17 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 `hocon.Period` フィールドは `GetPeriod` と同じ規則で読む: `"30d"`、`"2w"`、`"6mo"`、`"1y"`、または単位なしの整数 (日数)。週は `Days` に畳み込む。日付への適用は `t.AddDate(p.Years, p.Months, p.Days)`。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
 
+タグオプション `requireunit` を付けると、これらのフィールド (またはそのポインタ) は単位を書いていない値を拒否する: 数値 (`ttl = 30`)、数字だけの文字列 (環境変数から来る `"30"`)、`"1e3"`。付けなければこれらは既定の単位で読むので、`ttl-seconds = 30` から `ttl = 30` に移したキーが黙って 30 ms になる。単位付きの値 (`30s`、`"30 s"`、`64KiB`、`2w`) はこれまでどおり読み、読めない値はそれ自身のエラーのまま。エラーはフィールドを名指しするが、値は含めない:
+
+```go
+type CacheConfig struct {
+    TTL time.Duration  `hocon:"ttl,requireunit"`           // ttl = 30 → hocon: field "ttl": duration must name its unit
+    Max hocon.ByteSize `hocon:"max,omitempty,requireunit"` // オプションの順序は自由
+}
+```
+
+ほかの型のフィールドに `requireunit` を付けるとエラーになる。getter は影響を受けない。
+
 ### パッケージ include (`include package(...)`)
 
 `include package("<identifier>", "<file>")` は、Go パッケージが登録した HOCON を取り込みます。ライブラリは自分のモジュールの中にデフォルトを同梱し、アプリケーションはそのファイルがディスクのどこにあるかを知らずに取り込めます。これは実装横断の拡張（[E11](https://github.com/o3co/xx.hocon/blob/main/docs/extra-spec-conventions.md#e11)）で、Lightbend HOCON の一部ではありません。
