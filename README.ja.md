@@ -310,6 +310,8 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 `hocon` タグがないフィールドはフィールド名を小文字化したキーで検索し、`hocon:"-"` でフィールドをスキップする。キーがないとエラーになるが、`omitempty` のフィールド（既存値を保持）と、スライス・マップのフィールド（nil のまま）は例外。
 
+マップのキー型は string 型 (`type Key string` のような名前付きの型を含む)、符号付き・符号なしの整数型、`bool` のいずれか。整数のキーはキー型のサイズの 10 進整数として厳密に読み (`"80"` は `map[uint16]` のキーになるが、`"1.0"` はならない)、`bool` のキーは bool の値と同じ表記 (`true`/`false`、`yes`/`no`、`on`/`off`) を受け付ける。読めないキーや、それ以外のキー型は、キーを名指しするエラーになる。
+
 単位付きの値は getter と同じ規則で読む。`time.Duration` フィールドは `GetDuration` と同じ (`"30s"`、単位なしはミリ秒)、`hocon.ByteSize` フィールドは `GetBytes` と同じ (`"512MiB"`、単位なしはバイト、負の値はエラー)。値は `int64(s.MaxBody)` で取り出す。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。
 
 `hocon.Period` フィールドは `GetPeriod` と同じ規則で読む: `"30d"`、`"2w"`、`"6mo"`、`"1y"`、または単位なしの整数 (日数)。週は `Days` に畳み込む。日付への適用は `t.AddDate(p.Years, p.Months, p.Days)`。`null` はフィールドを変更しない (`Unmarshal` の他のスカラーと同じ。getter は `null` をエラーにする)。

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Unmarshal` panicked on a map whose key type is not `string`**: any key
+  type that a string is not assignable to, such as `map[int]string` or
+  `map[Key]int` with `type Key string`, panicked with
+  `reflect.Value.SetMapIndex: value of type string is not assignable to type …`.
+  The key, which HOCON always spells as a string, now converts to the map's
+  key type:
+  - a string type, named or not, takes the key as written;
+  - a signed or unsigned integer type parses it as a base-10 integer of the
+    type's size, strictly, as `encoding/json` does: `80` is a
+    `map[uint16]string` key, while `1.0`, `x` and `65536` are not;
+  - `bool` accepts the spellings a bool value accepts (`true` / `false`,
+    `yes` / `no`, `on` / `off`).
+
+  A key that does not convert is an error that names it, with the usual path:
+  `hocon: field "a": hocon: map key "x": cannot parse as int`. Any other key
+  type (a struct, a float, a non-empty interface) is an error too,
+  `hocon: map key "k": unsupported map key type main.Point`, and no longer a
+  panic. Maps keyed by `string` or `any` decode as before, and an empty object
+  still decodes to an empty map whatever the key type.
+
 ## [1.14.0] - 2026-10-16
 
 ### Fixed — **BREAKING (spec fix, E20)**: fractional durations and byte sizes are computed exactly ([xx.hocon#102](https://github.com/o3co/xx.hocon/issues/102))
