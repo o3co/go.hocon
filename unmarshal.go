@@ -209,6 +209,7 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 	if target.IsNil() {
 		target.Set(reflect.MakeMap(target.Type()))
 	}
+	keyType := target.Type().Key()
 	elemType := target.Type().Elem()
 	// anyType is true for map[string]any (and any other map with an interface element type).
 	// In that case we bypass reflection-based unmarshalling and use valToAny, which preserves
@@ -217,6 +218,10 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 	anyType := elemType.Kind() == reflect.Interface
 	for _, k := range obj.Keys() {
 		v, _ := obj.Get(k)
+		kv, kerr := mapKey(k, keyType)
+		if kerr != nil {
+			return kerr
+		}
 		if anyType {
 			// valToAny returns an untyped nil for an explicit null; reflect.ValueOf(nil)
 			// is an invalid Value, and SetMapIndex with an invalid value deletes the
@@ -230,16 +235,54 @@ func unmarshalMap(val resolver.Val, target reflect.Value) error {
 			if av != nil {
 				rval = reflect.ValueOf(av)
 			}
-			target.SetMapIndex(reflect.ValueOf(k), rval)
+			target.SetMapIndex(kv, rval)
 		} else {
 			ev := reflect.New(elemType).Elem()
 			if err := unmarshalVal(v, ev); err != nil {
 				return fmt.Errorf("hocon: map key %q: %w", k, err)
 			}
-			target.SetMapIndex(reflect.ValueOf(k), ev)
+			target.SetMapIndex(kv, ev)
 		}
 	}
 	return nil
+}
+
+// mapKey converts an object key, which HOCON always spells as a string, to the
+// map's key type. A key type that a string is assignable to (string itself, or
+// an empty interface as in map[any]T) takes the key unchanged. A string kind
+// (e.g. `type Key string`) converts. An integer kind parses the key as a
+// base-10 integer of the type's size, strictly as encoding/json does: "1" is a
+// map[int] key, "1.0" and "x" are errors. A bool kind accepts the spellings a
+// bool value accepts (true/false, yes/no, on/off). Any other key type is an
+// error naming the key.
+func mapKey(k string, keyType reflect.Type) (reflect.Value, error) {
+	kv := reflect.ValueOf(k)
+	if kv.Type().AssignableTo(keyType) {
+		return kv, nil
+	}
+	switch keyType.Kind() {
+	case reflect.String:
+		return kv.Convert(keyType), nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(k, 10, keyType.Bits())
+		if err != nil {
+			return reflect.Value{}, fmt.Errorf("hocon: map key %q: cannot parse as %v", k, keyType)
+		}
+		return reflect.ValueOf(n).Convert(keyType), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		u, err := strconv.ParseUint(k, 10, keyType.Bits())
+		if err != nil {
+			return reflect.Value{}, fmt.Errorf("hocon: map key %q: cannot parse as %v", k, keyType)
+		}
+		return reflect.ValueOf(u).Convert(keyType), nil
+	case reflect.Bool:
+		b, ok := parseBool(k)
+		if !ok {
+			return reflect.Value{}, fmt.Errorf("hocon: map key %q: cannot parse as %v", k, keyType)
+		}
+		return reflect.ValueOf(b).Convert(keyType), nil
+	}
+	return reflect.Value{}, fmt.Errorf("hocon: map key %q: unsupported map key type %v", k, keyType)
 }
 
 // valToAny decodes a node into its natural Go value. An unresolved

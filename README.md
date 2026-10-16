@@ -315,6 +315,8 @@ err = cfg.UnmarshalPath("servers", &servers)
 
 Fields without a `hocon` tag use the lowercased field name; `hocon:"-"` skips a field. A missing key is an error, except for an `omitempty` field (which keeps its pre-populated value) and a slice or map field (which stays nil).
 
+A map's key type may be a string type (including a named one such as `type Key string`), a signed or unsigned integer type, or `bool`. An integer key parses strictly as a base-10 integer of the key type's size (`"80"` is a `map[uint16]` key, `"1.0"` is not), and a `bool` key accepts the spellings a bool value accepts (`true`/`false`, `yes`/`no`, `on`/`off`). A key that does not parse, or any other key type, is an error naming the key.
+
 Unit values read with the getters' rules: a `time.Duration` field reads like `GetDuration` (`"30s"`, a bare number is milliseconds), and a `hocon.ByteSize` field reads like `GetBytes` (`"512MiB"`, a bare number is bytes, negative values are rejected). Convert with `int64(s.MaxBody)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
 
 A `hocon.Period` field reads like `GetPeriod`: `"30d"`, `"2w"`, `"6mo"`, `"1y"`, or a bare integer number of days. Weeks fold into `Days`; apply it with `t.AddDate(p.Years, p.Months, p.Days)`. A `null` leaves the field unchanged, as for every scalar in `Unmarshal` (the getters return an error on `null`).
