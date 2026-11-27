@@ -17,11 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `unescaped control character U+0009 in quoted string; use a backslash
   escape (\u0009)`.
 - **Workaround**: write the character as an escape (`\t`, `\r`, `\b`, `\f`
-  or `\u0001`), or use a triple-quoted string (`"""..."""`), which keeps
-  control characters verbatim. Unquoted strings, DEL (U+007F) and C1
+  or `\u0001`). For a value, a triple-quoted string (`"""..."""`) also works,
+  because it keeps control characters verbatim; a `${...}` path has no
+  triple-quoted form, so use the escape there. Unquoted strings, DEL (U+007F) and C1
   (U+0080–U+009F) are unchanged and still accepted.
-- An error inside an `include` argument is now reported as that error. Before,
-  `include "x<tab>y"` gave a misleading "'include' is reserved as a key name".
+- **A lexer error is now always reported as itself.** Some key and include
+  paths in the parser read the next token without checking for an error, so
+  the error came out as a different, misleading one: `include "x<tab>y"` gave
+  "'include' is reserved as a key name", and an unterminated string in a key
+  segment (`a."b = 1`) gave "path has a trailing period". These inputs were
+  already rejected; they now report the lexer's error (`unterminated string`,
+  or the control-character error above), as ts, rs and py already did.
 - **`RenderHOCON` escapes every C0 control** (xx.hocon E18 decision 5): `\b`
   and `\f` as short forms, the others as `\u00xx` (lowercase hex), in values
   and keys. Before, they were written raw, which the parser now rejects. A

@@ -86,7 +86,16 @@ func Parse(src string) (*ObjectNode, error) {
 	}
 	p := &parser{lex: lexer.New(src)}
 	p.advance()
-	return p.parseRoot()
+	root, err := p.parseRoot()
+	// A lexer error always wins over whatever the parse made of the error
+	// token. Several parse paths read p.current without checking its type
+	// (key continuations, include arguments), so without this an error such
+	// as a raw control character in a quoted string (S1.2.4) could surface as
+	// a misleading message or be skipped over.
+	if p.lexErr != nil {
+		return nil, p.lexErr
+	}
+	return root, err
 }
 
 // invalidUTF8Position returns the 1-based line/col of the first invalid UTF-8
@@ -118,10 +127,14 @@ func ParseBytes(src []byte) (*ObjectNode, error) {
 type parser struct {
 	lex     *lexer.Lexer
 	current lexer.Token
+	lexErr  error // first TokenError the lexer produced; see Parse
 }
 
 func (p *parser) advance() {
 	p.current = p.lex.Next()
+	if p.current.Type == lexer.TokenError && p.lexErr == nil {
+		p.lexErr = newError(p.current.Line, p.current.Col, "%s", p.current.Value)
+	}
 }
 
 func (p *parser) skipNewlines() {
@@ -322,9 +335,6 @@ func (p *parser) skipToIncludePath(directiveLine, directiveCol int, directiveLab
 		if p.current.Type == lexer.TokenString && p.current.IsQuoted {
 			return sawFile, nil
 		}
-		if p.current.Type == lexer.TokenError {
-			return false, newError(p.current.Line, p.current.Col, "%s", p.current.Value)
-		}
 		if p.current.Type == lexer.TokenEOF || p.current.Type == lexer.TokenNewline {
 			return false, newError(directiveLine, directiveCol,
 				"expected include path string in include %s directive", directiveLabel)
@@ -361,11 +371,6 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 	isFile := false
 
 	switch {
-	case cur.Type == lexer.TokenError:
-		// A lexer error in the argument (e.g. a raw control character inside
-		// the quoted path, S1.2.4) is reported as is, not as a key misuse.
-		return nil, newError(cur.Line, cur.Col, "%s", cur.Value)
-
 	case cur.Type == lexer.TokenString && cur.IsQuoted:
 		// include "path"
 		path = cur.Value
