@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/o3co/go.hocon/internal/resolver"
 )
@@ -1290,6 +1291,46 @@ func completeJSONFraction(s string) string {
 	return head + "." + tail
 }
 
+// writeJSONString writes s as a JSON string literal (RFC 8259 §7): `"` and
+// `\` are escaped, control characters U+0000–U+001F become `\b`, `\f`, `\n`,
+// `\r`, `\t` or `\u00XX`, and every other rune is written as-is. A byte that
+// is not valid UTF-8 becomes U+FFFD, as encoding/json does. strconv.Quote is
+// not a substitute: it writes Go syntax (`\x01`, `\U0001xxxx`), which is not
+// JSON (go.hocon#215).
+func writeJSONString(sb *strings.Builder, s string) {
+	const hex = "0123456789abcdef"
+	sb.WriteByte('"')
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		switch {
+		case r == '"':
+			sb.WriteString(`\"`)
+		case r == '\\':
+			sb.WriteString(`\\`)
+		case r == '\b':
+			sb.WriteString(`\b`)
+		case r == '\f':
+			sb.WriteString(`\f`)
+		case r == '\n':
+			sb.WriteString(`\n`)
+		case r == '\r':
+			sb.WriteString(`\r`)
+		case r == '\t':
+			sb.WriteString(`\t`)
+		case r < 0x20:
+			sb.WriteString(`\u00`)
+			sb.WriteByte(hex[r>>4])
+			sb.WriteByte(hex[r&0xf])
+		case r == utf8.RuneError && size == 1:
+			sb.WriteString(`\ufffd`)
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	sb.WriteByte('"')
+}
+
 func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 	switch vv := v.(type) {
 	case nil:
@@ -1302,7 +1343,7 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			sb.WriteString(strconv.Quote(k))
+			writeJSONString(sb, k)
 			sb.WriteByte(':')
 			sub, _ := vv.Get(k)
 			if err := writeValJSON(sb, sub); err != nil {
@@ -1340,12 +1381,12 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			if jsonNumberRegex.MatchString(norm) {
 				sb.WriteString(norm)
 			} else {
-				sb.WriteString(strconv.Quote(vv.Raw))
+				writeJSONString(sb, vv.Raw)
 			}
 		case resolver.ScalarString:
-			sb.WriteString(strconv.Quote(vv.Raw))
+			writeJSONString(sb, vv.Raw)
 		default:
-			sb.WriteString(strconv.Quote(vv.Raw))
+			writeJSONString(sb, vv.Raw)
 		}
 	default:
 		return fmt.Errorf("renderJSON: unsupported value type %T (contains unresolved placeholder?)", v)

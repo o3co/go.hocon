@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `RenderJSONForTest` now writes keys and strings as RFC 8259 JSON. It used
+  `strconv.Quote`, which writes Go syntax: a control character came out as
+  `\x01`, which no JSON parser accepts. Control characters are now `\b`,
+  `\f`, `\n`, `\r`, `\t` or `\u00XX`, and every other character is written
+  as-is (#215). Parsing is unchanged; only this conformance-tooling renderer
+  and the `cmd/hocon-json` adapter built on it are affected.
+
 ## [1.14.2] - 2026-10-17
 
 **Patch.** An opt-in `requireunit` struct tag option makes a `time.Duration`,

@@ -1,6 +1,7 @@
 package hocon_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	hocon "github.com/o3co/go.hocon"
@@ -79,5 +80,45 @@ func TestRenderJSONForTest_InvalidNumberLexemeQuoted(t *testing.T) {
 	const want = `{"a":1.0}`
 	if got != want {
 		t.Fatalf("RenderJSONForTest() = %q, want %q", got, want)
+	}
+}
+
+// go.hocon#215: strings and keys render as RFC 8259 JSON, not Go syntax.
+// strconv.Quote wrote a control character as `\x01` (invalid JSON) and a
+// non-printable astral rune as `\U…`. Every control character must come out
+// as a JSON escape, everything else verbatim, and the result must decode back
+// to the same strings.
+func TestRenderJSONForTest_StringsAreJSONEscaped(t *testing.T) {
+	src := `a = "x\u0001y"
+b = "q\"b\\s/"
+c = "\b\f\n\r\t\u0000\u001f"
+d = "héllo 日本 😀"
+"k\u0002ey" = 1
+e = "\u007f\u0085 "
+`
+	cfg, err := hocon.ParseString(src)
+	if err != nil {
+		t.Fatalf("ParseString: %v", err)
+	}
+	got, err := cfg.RenderJSONForTest()
+	if err != nil {
+		t.Fatalf("RenderJSONForTest: %v", err)
+	}
+	const want = `{"a":"x\u0001y","b":"q\"b\\s/","c":"\b\f\n\r\t\u0000\u001f","d":"héllo 日本 😀","e":"` +
+		"\u007f\u0085 " + `","k\u0002ey":1}`
+	if got != want {
+		t.Fatalf("RenderJSONForTest()\n got %q\nwant %q", got, want)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, got)
+	}
+	for key, wantVal := range map[string]any{
+		"a": "x\x01y", "b": `q"b\s/`, "c": "\b\f\n\r\t\x00\x1f",
+		"d": "héllo 日本 😀", "e": "\u007f\u0085 ", "k\x02ey": float64(1),
+	} {
+		if decoded[key] != wantVal {
+			t.Errorf("decoded[%q] = %q, want %q", key, decoded[key], wantVal)
+		}
 	}
 }
