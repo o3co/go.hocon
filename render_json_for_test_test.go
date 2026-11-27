@@ -2,6 +2,7 @@ package hocon_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	hocon "github.com/o3co/go.hocon"
@@ -127,27 +128,31 @@ e = "\u007f\u0085\u2028\u2029"
 // go.hocon#215: a string that is not valid UTF-8 cannot be written as JSON
 // without changing it, so rendering fails instead of writing U+FFFD. The
 // parser rejects such bytes in source (S1.1), but environment substitution
-// and FromMap can still carry them.
+// and FromMap can still carry them. FromMap is used here rather than the
+// environment: on Windows the environment is UTF-16, so an invalid byte is
+// already U+FFFD by the time it is read.
 func TestRenderJSONForTest_InvalidUTF8IsAnError(t *testing.T) {
-	t.Run("value from environment substitution", func(t *testing.T) {
-		t.Setenv("HOCON_TEST_215_BAD_UTF8", "a\xffb")
-		cfg, err := hocon.ParseString(`v = ${HOCON_TEST_215_BAD_UTF8}`)
-		if err != nil {
-			t.Fatalf("ParseString: %v", err)
-		}
-		if got, err := cfg.RenderJSONForTest(); err == nil {
-			t.Fatalf("RenderJSONForTest() = %q, want an error", got)
-		}
-	})
-	// With U+FFFD substitution these two distinct keys would render as the
-	// same JSON member, and a JSON reader would silently keep only one.
-	t.Run("keys that U+FFFD would merge", func(t *testing.T) {
-		cfg, err := hocon.FromMap(map[string]any{"\xff": 1, "\uFFFD": 2}, "")
-		if err != nil {
-			t.Fatalf("FromMap: %v", err)
-		}
-		if got, err := cfg.RenderJSONForTest(); err == nil {
-			t.Fatalf("RenderJSONForTest() = %q, want an error", got)
-		}
-	})
+	for name, values := range map[string]map[string]any{
+		"value": {"v": "secret-a\xffb"},
+		// With U+FFFD substitution these two distinct keys would render as the
+		// same JSON member, and a JSON reader would silently keep only one.
+		"keys that U+FFFD would merge": {"\xff": 1, "\uFFFD": 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := hocon.FromMap(values, "")
+			if err != nil {
+				t.Fatalf("FromMap: %v", err)
+			}
+			got, err := cfg.RenderJSONForTest()
+			if err == nil {
+				t.Fatalf("RenderJSONForTest() = %q, want an error", got)
+			}
+			if !strings.Contains(err.Error(), "not valid UTF-8") {
+				t.Fatalf("RenderJSONForTest() error = %q, want the UTF-8 error", err)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatalf("error %q carries the value; it must not", err)
+			}
+		})
+	}
 }

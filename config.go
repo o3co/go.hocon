@@ -1305,7 +1305,9 @@ func completeJSONFraction(s string) string {
 // `\U000e0001`), which is not JSON (go.hocon#215).
 func writeJSONString(sb *strings.Builder, s string) error {
 	if !utf8.ValidString(s) {
-		return fmt.Errorf("renderJSON: string is not valid UTF-8: %q", s)
+		// The value itself stays out of the message: it may come from the
+		// environment and hold a secret (see xx.hocon#119).
+		return fmt.Errorf("renderJSON: string is not valid UTF-8 (first invalid byte at offset %d)", firstInvalidUTF8(s))
 	}
 	const hex = "0123456789abcdef"
 	sb.WriteByte('"')
@@ -1337,6 +1339,19 @@ func writeJSONString(sb *strings.Builder, s string) error {
 	}
 	sb.WriteByte('"')
 	return nil
+}
+
+// firstInvalidUTF8 returns the byte offset of the first byte in s that does
+// not start a valid UTF-8 sequence, or -1 if s is valid.
+func firstInvalidUTF8(s string) int {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			return i
+		}
+		i += size
+	}
+	return -1
 }
 
 func writeValJSON(sb *strings.Builder, v resolver.Val) error {
