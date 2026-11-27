@@ -1293,11 +1293,20 @@ func completeJSONFraction(s string) string {
 
 // writeJSONString writes s as a JSON string literal (RFC 8259 §7): `"` and
 // `\` are escaped, control characters U+0000–U+001F become `\b`, `\f`, `\n`,
-// `\r`, `\t` or `\u00XX`, and every other rune is written as-is. A byte that
-// is not valid UTF-8 becomes U+FFFD, as encoding/json does. strconv.Quote is
-// not a substitute: it writes Go syntax (`\x01`, `\U0001xxxx`), which is not
-// JSON (go.hocon#215).
-func writeJSONString(sb *strings.Builder, s string) {
+// `\r`, `\t` or `\u00XX`, and every other rune is written as-is.
+//
+// A string that is not valid UTF-8 is an error, not U+FFFD as encoding/json
+// writes: silently replacing it is the plausible-but-wrong output F3.5 rules
+// out, and for keys it would merge two distinct keys into one JSON member.
+// The parser rejects invalid UTF-8 in source (S1.1), but values from
+// environment substitution and FromMap can still carry it.
+//
+// strconv.Quote is not a substitute: it writes Go syntax (`\x01`,
+// `\U000e0001`), which is not JSON (go.hocon#215).
+func writeJSONString(sb *strings.Builder, s string) error {
+	if !utf8.ValidString(s) {
+		return fmt.Errorf("renderJSON: string is not valid UTF-8: %q", s)
+	}
 	const hex = "0123456789abcdef"
 	sb.WriteByte('"')
 	for i := 0; i < len(s); {
@@ -1322,13 +1331,12 @@ func writeJSONString(sb *strings.Builder, s string) {
 			sb.WriteString(`\u00`)
 			sb.WriteByte(hex[r>>4])
 			sb.WriteByte(hex[r&0xf])
-		case r == utf8.RuneError && size == 1:
-			sb.WriteString(`\ufffd`)
 		default:
 			sb.WriteRune(r)
 		}
 	}
 	sb.WriteByte('"')
+	return nil
 }
 
 func writeValJSON(sb *strings.Builder, v resolver.Val) error {
@@ -1343,7 +1351,9 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			writeJSONString(sb, k)
+			if err := writeJSONString(sb, k); err != nil {
+				return err
+			}
 			sb.WriteByte(':')
 			sub, _ := vv.Get(k)
 			if err := writeValJSON(sb, sub); err != nil {
@@ -1380,13 +1390,17 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			norm := completeJSONFraction(normalizeLeadingZeroNumber(vv.Raw))
 			if jsonNumberRegex.MatchString(norm) {
 				sb.WriteString(norm)
-			} else {
-				writeJSONString(sb, vv.Raw)
+			} else if err := writeJSONString(sb, vv.Raw); err != nil {
+				return err
 			}
 		case resolver.ScalarString:
-			writeJSONString(sb, vv.Raw)
+			if err := writeJSONString(sb, vv.Raw); err != nil {
+				return err
+			}
 		default:
-			writeJSONString(sb, vv.Raw)
+			if err := writeJSONString(sb, vv.Raw); err != nil {
+				return err
+			}
 		}
 	default:
 		return fmt.Errorf("renderJSON: unsupported value type %T (contains unresolved placeholder?)", v)

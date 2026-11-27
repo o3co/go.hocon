@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `\f`, `\n`, `\r`, `\t` or `\u00XX`, and every other character is written
   as-is (#215). Parsing is unchanged; only this conformance-tooling renderer
   and the `cmd/hocon-json` adapter built on it are affected.
+  - A string that is not valid UTF-8 (reachable through environment
+    substitution or `FromMap`) is now a rendering error. It used to come out
+    as `\xNN`; writing U+FFFD instead would change the value, and two keys
+    could become one.
+  - The output bytes change for some valid characters too, for example
+    U+0085 and U+2028, which `strconv.Quote` wrote as `\uXXXX` and which are
+    now written as-is. A JSON parser reads the same string either way.
 
 ## [1.14.2] - 2026-10-17
 

@@ -85,16 +85,16 @@ func TestRenderJSONForTest_InvalidNumberLexemeQuoted(t *testing.T) {
 
 // go.hocon#215: strings and keys render as RFC 8259 JSON, not Go syntax.
 // strconv.Quote wrote a control character as `\x01` (invalid JSON) and a
-// non-printable astral rune as `\U…`. Every control character must come out
-// as a JSON escape, everything else verbatim, and the result must decode back
-// to the same strings.
+// non-printable astral rune such as U+E0001 as `\U000e0001` (also invalid).
+// Every control character must come out as a JSON escape, everything else
+// verbatim, and the result must decode back to the same strings.
 func TestRenderJSONForTest_StringsAreJSONEscaped(t *testing.T) {
 	src := `a = "x\u0001y"
 b = "q\"b\\s/"
 c = "\b\f\n\r\t\u0000\u001f"
-d = "héllo 日本 😀"
+d = "héllo 日本 😀 ` + "\U000E0001" + `"
 "k\u0002ey" = 1
-e = "\u007f\u0085 "
+e = "\u007f\u0085\u2028\u2029"
 `
 	cfg, err := hocon.ParseString(src)
 	if err != nil {
@@ -104,8 +104,9 @@ e = "\u007f\u0085 "
 	if err != nil {
 		t.Fatalf("RenderJSONForTest: %v", err)
 	}
-	const want = `{"a":"x\u0001y","b":"q\"b\\s/","c":"\b\f\n\r\t\u0000\u001f","d":"héllo 日本 😀","e":"` +
-		"\u007f\u0085 " + `","k\u0002ey":1}`
+	want := `{"a":"x\u0001y","b":"q\"b\\s/","c":"\b\f\n\r\t\u0000\u001f",` +
+		`"d":"héllo 日本 😀 ` + "\U000E0001" + `",` +
+		`"e":"` + "\u007f\u0085\u2028\u2029" + `","k\u0002ey":1}`
 	if got != want {
 		t.Fatalf("RenderJSONForTest()\n got %q\nwant %q", got, want)
 	}
@@ -115,10 +116,38 @@ e = "\u007f\u0085 "
 	}
 	for key, wantVal := range map[string]any{
 		"a": "x\x01y", "b": `q"b\s/`, "c": "\b\f\n\r\t\x00\x1f",
-		"d": "héllo 日本 😀", "e": "\u007f\u0085 ", "k\x02ey": float64(1),
+		"d": "héllo 日本 😀 \U000E0001", "e": "\u007f\u0085\u2028\u2029", "k\x02ey": float64(1),
 	} {
 		if decoded[key] != wantVal {
 			t.Errorf("decoded[%q] = %q, want %q", key, decoded[key], wantVal)
 		}
 	}
+}
+
+// go.hocon#215: a string that is not valid UTF-8 cannot be written as JSON
+// without changing it, so rendering fails instead of writing U+FFFD. The
+// parser rejects such bytes in source (S1.1), but environment substitution
+// and FromMap can still carry them.
+func TestRenderJSONForTest_InvalidUTF8IsAnError(t *testing.T) {
+	t.Run("value from environment substitution", func(t *testing.T) {
+		t.Setenv("HOCON_TEST_215_BAD_UTF8", "a\xffb")
+		cfg, err := hocon.ParseString(`v = ${HOCON_TEST_215_BAD_UTF8}`)
+		if err != nil {
+			t.Fatalf("ParseString: %v", err)
+		}
+		if got, err := cfg.RenderJSONForTest(); err == nil {
+			t.Fatalf("RenderJSONForTest() = %q, want an error", got)
+		}
+	})
+	// With U+FFFD substitution these two distinct keys would render as the
+	// same JSON member, and a JSON reader would silently keep only one.
+	t.Run("keys that U+FFFD would merge", func(t *testing.T) {
+		cfg, err := hocon.FromMap(map[string]any{"\xff": 1, "\uFFFD": 2}, "")
+		if err != nil {
+			t.Fatalf("FromMap: %v", err)
+		}
+		if got, err := cfg.RenderJSONForTest(); err == nil {
+			t.Fatalf("RenderJSONForTest() = %q, want an error", got)
+		}
+	})
 }
