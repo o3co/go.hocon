@@ -428,8 +428,8 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S13.10** Required substitution undefined → error — §Substitutions (L627)
-  tests: spec_phase5_test.go (TestSpec_S13_10_RequiredSubstUndefined)
-  status: ✅
+  tests: spec_phase5_test.go (TestSpec_S13_10_RequiredSubstUndefined); issue123_subst_removed_target_test.go (target field removed by an undefined optional — every position, optional cycles / self-refs, include fix-up, deferred / AllowUnresolved, hidden-reference guards); testdata/hocon/subst-removed-target/rq01–rq29 (fixtures; rq30–rq33 pending xx.hocon#125)
+  status: ✅ (a required substitution whose target field exists but was removed by an undefined optional was silently dropped until xx.hocon#123 — the ✅ predating that fix covered only a path missing from the document)
 
 - **S13.11** Optional undefined in field value → field not created — §Substitutions (L632)
   tests: internal/resolver/resolver_test.go:60 (TestResolver_OptionalSubstitutionMissing); config_test.go:274 (TestUnsetEnvVarOptional); issue45_test.go (TestIssue45_* nested-include regression suite)

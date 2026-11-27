@@ -110,6 +110,10 @@ testdata:
 	  mkdir -p testdata/hocon/quoted-control && \
 	  cp "$$tmpdir/testdata/hocon/quoted-control/"*.conf testdata/hocon/quoted-control/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/subst-removed-target" ]; then \
+	  mkdir -p testdata/hocon/subst-removed-target && \
+	  cp "$$tmpdir/testdata/hocon/subst-removed-target/"*.conf testdata/hocon/subst-removed-target/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 

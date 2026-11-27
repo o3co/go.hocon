@@ -959,7 +959,9 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// test here would not improve coverage (same code path, same branch).
 		if prior := r.findPrior(root, segStrs, key); prior != nil {
 			// Resolve the prior value (it may itself contain placeholders).
-			return r.resolveVal(prior, root, key)
+			// A prior removed by an undefined optional leaves nothing to look
+			// back to (xx.hocon#123).
+			return r.resolvePriorOrRemoved(s, prior, root, key)
 		}
 		if !n.Optional {
 			return nil, &ResolveError{Message: "circular reference detected", Path: key, Line: n.Line(), Col: n.Col()}
@@ -999,7 +1001,7 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		isSelfRef := containsSubstByIdentity(val, s)
 		if isSelfRef {
 			if prior := r.findPrior(root, segStrs, key); prior != nil {
-				return r.resolveVal(prior, root, key)
+				return r.resolvePriorOrRemoved(s, prior, root, key)
 			}
 			// Spec HOCON.md L841: no prior + self-ref → short-circuit.
 			// Do NOT resolve the found current value (which is the concat-in-progress);
@@ -1024,23 +1026,8 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		}
 		if resolved == nil {
 			// The looked-up value resolved to nil (e.g. optional substitution with
-			// missing env var). Check the target path's per-object priorValues for a
-			// fallback — this mirrors the fallback logic in resolveSubstitutions but
-			// applies when accessing the value via a substitution lookup.
-			if len(segStrs) > 0 {
-				var parentObj *ObjectVal
-				if len(segStrs) == 1 {
-					parentObj = root
-				} else {
-					parentObj, _ = r.lookupPathObj(root, segStrs[:len(segStrs)-1])
-				}
-				if parentObj != nil {
-					lastKey := segStrs[len(segStrs)-1]
-					if prior, pOk := parentObj.priorValues[lastKey]; pOk {
-						return r.resolveVal(prior, root, key)
-					}
-				}
-			}
+			// missing env var): fall back to the target's prior, else it is removed.
+			return r.removedTargetFallback(s, root, segStrs, key)
 		}
 		// Delayed merge (site 2): after resolving a substitution lookup, if the
 		// result is an object and there is a prior value that also resolves to an
@@ -1084,6 +1071,9 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 			resolved, err := r.resolveVal(origVal, root, originalKey)
 			if err != nil {
 				return nil, err
+			}
+			if resolved == nil {
+				return r.removedTargetFallback(s, root, originalStrs, originalKey)
 			}
 			return resolved, nil
 		}
@@ -1149,6 +1139,66 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		return s, nil
 	}
 	return nil, &ResolveError{Message: "unresolved substitution", Path: key, Line: n.Line(), Col: n.Col()}
+}
+
+// removedTargetFallback handles a looked-up target (at segs) whose value
+// resolved to nil: the target's per-object prior is the fallback — this
+// mirrors the fallback logic in finishField but applies when accessing the
+// value via a substitution lookup. With no usable prior the target is removed.
+func (r *resolver) removedTargetFallback(s *substPlaceholder, root *ObjectVal, segs []string, key string) (Val, error) {
+	if len(segs) > 0 {
+		var parentObj *ObjectVal
+		if len(segs) == 1 {
+			parentObj = root
+		} else {
+			parentObj, _ = r.lookupPathObj(root, segs[:len(segs)-1])
+		}
+		if parentObj != nil {
+			if prior, ok := parentObj.priorValues[segs[len(segs)-1]]; ok {
+				return r.resolvePriorOrRemoved(s, prior, root, key)
+			}
+		}
+	}
+	return r.removedTarget(s)
+}
+
+// resolvePriorOrRemoved resolves the prior value s falls back to; a prior that
+// is itself undefined leaves the target removed (see removedTarget).
+func (r *resolver) resolvePriorOrRemoved(s *substPlaceholder, prior Val, root *ObjectVal, key string) (Val, error) {
+	resolved, err := r.resolveVal(prior, root, key)
+	if err != nil {
+		return nil, err
+	}
+	if resolved == nil {
+		return r.removedTarget(s)
+	}
+	return resolved, nil
+}
+
+// removedTarget decides the outcome of a substitution whose target field IS in
+// the document but resolved to undefined — removed by an undefined optional
+// (S13.11), by an optional cycle, or by an optional self-reference with no
+// prior (S13a.4), after the target's own prior has been tried. The lookup is
+// final: the field exists, so no further fallback is tried — not the
+// environment, and not the include fix-up's original path when it was the
+// fixed-up field that was found (S14c.2 falls back only on a missing field).
+//
+// S13.10 (xx.hocon#123): only an optional ${?x} may itself become undefined.
+// A required ${x} is unresolved — the same error as a path missing from the
+// document — and under AllowUnresolved it stays a placeholder like any other.
+func (r *resolver) removedTarget(s *substPlaceholder) (Val, error) {
+	if s.node.Optional {
+		return nil, nil
+	}
+	if r.lenient {
+		return s, nil
+	}
+	return nil, &ResolveError{
+		Message: "unresolved substitution",
+		Path:    segmentsToKey(segTexts(s.segments)),
+		Line:    s.node.Line(),
+		Col:     s.node.Col(),
+	}
 }
 
 // resolveEnvList implements S13c env-var list expansion for ${X[]} / ${?X[]}.

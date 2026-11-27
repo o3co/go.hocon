@@ -77,6 +77,11 @@ func runSidecarFixtures(t *testing.T, label, confDir, expectedDir string) {
 			continue
 		}
 		stem := strings.TrimSuffix(name, ".conf")
+		// `<id>-inner.conf` is the xx.hocon convention for a file that another
+		// fixture includes: it is not a fixture of its own and has no sidecar.
+		if strings.HasSuffix(stem, "-inner") {
+			continue
+		}
 		confPath := filepath.Join(confDir, name)
 		errorSidecar := filepath.Join(expectedDir, stem+".error")
 		jsonSidecar := filepath.Join(expectedDir, stem+"-expected.json")
@@ -85,6 +90,7 @@ func runSidecarFixtures(t *testing.T, label, confDir, expectedDir string) {
 		case fileExists(errorSidecar):
 			ran++
 			t.Run(stem+"/must-error", func(t *testing.T) {
+				skipIfPending(t, stem)
 				if _, parseErr := hocon.ParseFile(confPath); parseErr == nil {
 					t.Errorf("%s: expected a parse error (per %s), got success", stem, errorSidecar)
 				}
@@ -92,6 +98,7 @@ func runSidecarFixtures(t *testing.T, label, confDir, expectedDir string) {
 		case fileExists(jsonSidecar):
 			ran++
 			t.Run(stem+"/must-parse-ok", func(t *testing.T) {
+				skipIfPending(t, stem)
 				cfg, parseErr := hocon.ParseFile(confPath)
 				if parseErr != nil {
 					t.Fatalf("ParseFile(%s): %v (fixture has %s, so it must parse)", confPath, parseErr, jsonSidecar)
@@ -123,6 +130,19 @@ func runSidecarFixtures(t *testing.T, label, confDir, expectedDir string) {
 	if ran == 0 {
 		t.Errorf("no %s fixtures were tested; check %s and %s", label, confDir, expectedDir)
 	}
+}
+
+// skipIfPending skips a fixture whose stem ends in `-pending-<N>`: the
+// xx.hocon convention for a Lightbend expectation that waits on the fix for
+// o3co/xx.hocon#<N>. The sidecar still holds the Lightbend value, so dropping
+// the suffix (when #<N> lands) makes the same subtest assert it.
+func skipIfPending(t *testing.T, stem string) {
+	t.Helper()
+	i := strings.LastIndex(stem, "-pending-")
+	if i < 0 {
+		return
+	}
+	t.Skipf("pending o3co/xx.hocon#%s: %s expects the Lightbend value", stem[i+len("-pending-"):], stem)
 }
 
 func fileExists(path string) bool {

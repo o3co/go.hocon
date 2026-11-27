@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — **BREAKING (spec fix, S13.10)**: a required substitution of a field removed by an undefined optional is an error ([xx.hocon#123](https://github.com/o3co/xx.hocon/issues/123))
+
+**Release-blocked: ships with the fix for
+[xx.hocon#125](https://github.com/o3co/xx.hocon/issues/125) /
+[#67](https://github.com/o3co/xx.hocon/issues/67).** The resolver keeps a
+single-level prior per key, so a value two layers down is lost: on its own,
+this fix turns `host = localhost` / `host = ${?HOST}` / `host = ${?APP_HOST}` /
+`url = "http://"${host}` (which Lightbend loads) into an error instead of the
+former silent `url = "http://"`. A reference hidden by a later object merge
+(`b { c = ${a} }` then `b { c = 5 }`) is still evaluated
+([xx.hocon#126](https://github.com/o3co/xx.hocon/issues/126), which already
+errors for `${nope}` there); with this fix a removed target errors there too.
+
+- **`a = ${?nope}` then `b = ${a}` now fails with the ordinary
+  `unresolved substitution` error (path `a`) instead of silently dropping
+  `b`** (the old result was `{}`: silent data loss). The undefined optional
+  removes `a` (S13.11), so the required `${a}` has nothing to resolve to.
+  Only an optional `${?x}` may itself become undefined; the resolver used to
+  hand the target's "undefined" back as the result of the referring
+  substitution whatever its optional flag. This matches Lightbend 1.4.9
+  (`UnresolvedSubstitution`).
+- Every position errors the same way: a field value, an array element
+  (`[${a}]` was `[]`), a string concat (`x${a}` was `"x"`), an object concat
+  (`${a} {x=1}` was `{x:1}`), an array concat (`[1] ${a}` was `[1]`), a path
+  into a removed nested field (`x { y = ${?nope} }`, `${x.y}`), a reference
+  inside an object that a later object merges with (`b { c = ${a} }` then
+  `b = { d = 1 }`), and a reference that is the prior value an undefined
+  optional falls back to (`b = ${a}` then `b = ${?nope}`). A required
+  self-reference whose only earlier value is the removed optional errors too
+  (`a = ${?nope}` then `a = ${a}`, `${a}x`, `[${a}]`, `${a} {x=1}`; was `{}` /
+  `"x"` / `[]` / `{x:1}`). So does every way of removing the target:
+  `${?x}${?y}` with both undefined, optional cycles (`a = ${?b}`,
+  `b = ${?a}`), an optional self-reference with no earlier value
+  (`a = ${?a}`), an optional that leads back to its own object
+  (`a { n = ${?a} }`, `${a.n}`), and the include path fix-up (S14c.2): an
+  included `${x.y}` whose fixed-up `common.x.y` is removed, or whose fallback to
+  the original `x.y` reaches a removed field.
+- The lookup ends at the removed field: an environment variable of the same
+  name is not consulted (as before, and as in Lightbend), and for an included
+  substitution the original path is tried only when the fixed-up field is not
+  in the document at all (a fixed-up `common.x.y` that is removed errors even
+  when the original `x.y` has a value, as in Lightbend 1.4.9). When the
+  original path is the one found, its earlier value is honoured like any
+  target's (`x.y = 1` then `x.y = ${?nope}` gives the included `a = 1`, was
+  dropped).
+- Unchanged: `${?a}` to a removed field (still drops its field), a target
+  whose earlier or later value survives the optional (`a = 1`,
+  `a = ${?nope}`, `b = ${a}` is still `{"a":1,"b":1}`), hidden references
+  that a later non-object replaces (`b = ${a}` then `b = 5`, S13a.5), and
+  `${x}` to an object whose only field was removed (`{}`). Under
+  `AllowUnresolved` the reference stays an unresolved `${a}` placeholder like
+  any other, and a `WithFallback` layer that supplies `a` makes it resolve.
+- **Workaround**: write `${?a}` where the absence is intended, or give the
+  field a default before the optional (`a = default` then `a = ${?X}`).
+- Pinned by `subst-removed-target/rq01–rq29` (rq30–rq33, the multi-level
+  prior shapes above, are skipped as pending #125; the #126 shapes are
+  skipped inline), driven by
+  `issue123_subst_removed_target_test.go` (which also carries the cases
+  inline); `make testdata` now fetches the fixture directory.
+
 ### Fixed — **BREAKING (spec fix, S1.2.4)**: a raw control character inside a quoted string is a parse error ([xx.hocon#130](https://github.com/o3co/xx.hocon/issues/130))
 
 - **A raw C0 control character (U+0000–U+001F) inside a double-quoted string
