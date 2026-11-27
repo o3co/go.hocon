@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — **BREAKING (spec fix, S1.2.4)**: a raw control character inside a quoted string is a parse error ([xx.hocon#130](https://github.com/o3co/xx.hocon/issues/130))
+
+- **A raw C0 control character (U+0000–U+001F) inside a double-quoted string
+  is now rejected**, as JSON and Lightbend reject it. Only a raw newline was
+  rejected before; a tab, CR, U+0001, U+001F or NUL was accepted. This applies
+  wherever a quoted string can appear: values, keys, `${"..."}` paths and
+  `include "..."`. The error names the character and points at it:
+  `unescaped control character U+0009 in quoted string; use a backslash
+  escape (\u0009)`.
+- **Workaround**: write the character as an escape (`\t`, `\r`, `\b`, `\f`
+  or `\u0001`). For a value, a triple-quoted string (`"""..."""`) also works,
+  because it keeps control characters verbatim; a `${...}` path has no
+  triple-quoted form, so use the escape there. Unquoted strings, DEL (U+007F) and C1
+  (U+0080–U+009F) are unchanged and still accepted.
+- **A lexer error is now always reported as itself.** Some key and include
+  paths in the parser read the next token without checking for an error, so
+  the error came out as a different, misleading one: `include "x<tab>y"` gave
+  "'include' is reserved as a key name", and an unterminated string in a key
+  segment (`a."b = 1`) gave "path has a trailing period". These inputs were
+  already rejected; they now report the lexer's error (`unterminated string`,
+  or the control-character error above), as ts, rs and py already did.
+- **`RenderHOCON` escapes every C0 control** (xx.hocon E18 decision 5), in values
+  and keys, using the five short forms `\b \f \n \r \t` and lowercase `\u00xx`
+  for every other U+0000–U+001F. LF, CR and TAB were already written as
+  `\n \r \t`; the other C0 controls were written raw, which the parser now
+  rejects. A
+  multi-line string is triple-quoted only when its only C0
+  characters are LF and TAB. DEL and C1 are still written verbatim. A key is
+  never triple-quoted, even when it contains LF: ts, rs and py reject a
+  triple-quoted key, so the output did not round-trip there.
+
 ### Fixed
 
 - `RenderJSONForTest` now writes keys and strings as RFC 8259 JSON. It used

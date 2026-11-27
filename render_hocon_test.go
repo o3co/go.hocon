@@ -223,3 +223,67 @@ func TestTripleQuotedCRPreserved(t *testing.T) {
 		t.Errorf("b = %q, want %q", got, "p\rq")
 	}
 }
+
+// xx.hocon#130 / S1.2.4: a raw C0 control inside double quotes is a parse
+// error, so RenderHOCON must escape every one it writes there.
+// TestE18_RenderHOCONEscapesControlChars: every C0 control round-trips in
+// values and keys, single- and multi-line, and none is written raw inside
+// double quotes.
+func TestE18_RenderHOCONEscapesControlChars(t *testing.T) {
+	var all strings.Builder
+	for r := rune(0); r < 0x20; r++ {
+		all.WriteRune(r)
+	}
+	tree := map[string]any{
+		"all-c0":           all.String(),
+		"bare-but-control": "abc\x01def",
+		"k\x01ey":          "key quotes only because of the control",
+		"\x00":             "nul key",
+		"multi-ctrl":       "line1\x01\nline2\x00",
+		"multi-tab":        "col1\tcol2\nrow2",
+		"del-c1":           "x\x7f\u0085y",
+	}
+	assertRoundTrip(t, "control-chars", tree)
+
+	cfg, err := FromMap(tree, "test")
+	if err != nil {
+		t.Fatalf("FromMap: %v", err)
+	}
+	out, err := cfg.RenderHOCON()
+	if err != nil {
+		t.Fatalf("RenderHOCON: %v", err)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		for _, r := range line {
+			if r < 0x20 && r != '\t' {
+				t.Errorf("raw control U+%04X in rendered line %q", r, line)
+			}
+		}
+	}
+	// Short forms where JSON has one, lowercase \u00xx otherwise.
+	for _, want := range []string{`\b`, `\f`, `\u0000`, `\u001f`, `\u0001`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered output lacks %s:\n%s", want, out)
+		}
+	}
+	// A key is never triple-quoted, even with LF (E18 decision 3).
+	keyCfg, err := FromMap(map[string]any{"multi\nline key": 1}, "test")
+	if err != nil {
+		t.Fatalf("FromMap: %v", err)
+	}
+	keyOut, err := keyCfg.RenderHOCON()
+	if err != nil {
+		t.Fatalf("RenderHOCON: %v", err)
+	}
+	if !strings.Contains(keyOut, `"multi\nline key"`) {
+		t.Errorf("LF key is not in the escaped form:\n%s", keyOut)
+	}
+	// A multi-line string with only LF and TAB keeps the triple-quoted form.
+	if !strings.Contains(out, "\"\"\"col1\tcol2\nrow2\"\"\"") {
+		t.Errorf("LF+TAB string is not triple-quoted:\n%s", out)
+	}
+	// DEL and C1 are legal in quotes and stay verbatim.
+	if !strings.Contains(out, "x\x7f\u0085y") {
+		t.Errorf("DEL / C1 were escaped:\n%s", out)
+	}
+}

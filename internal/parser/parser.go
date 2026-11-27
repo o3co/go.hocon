@@ -86,7 +86,16 @@ func Parse(src string) (*ObjectNode, error) {
 	}
 	p := &parser{lex: lexer.New(src)}
 	p.advance()
-	return p.parseRoot()
+	root, err := p.parseRoot()
+	// A lexer error always wins over whatever the parse made of the error
+	// token. Several parse paths read p.current without checking its type
+	// (key continuations, include arguments), so without this an error such
+	// as a raw control character in a quoted string (S1.2.4) could surface as
+	// a misleading message or be skipped over.
+	if p.lexErr != nil {
+		return nil, p.lexErr
+	}
+	return root, err
 }
 
 // invalidUTF8Position returns the 1-based line/col of the first invalid UTF-8
@@ -118,10 +127,14 @@ func ParseBytes(src []byte) (*ObjectNode, error) {
 type parser struct {
 	lex     *lexer.Lexer
 	current lexer.Token
+	lexErr  error // first TokenError the lexer produced; see Parse
 }
 
 func (p *parser) advance() {
 	p.current = p.lex.Next()
+	if p.current.Type == lexer.TokenError && p.lexErr == nil {
+		p.lexErr = newError(p.current.Line, p.current.Col, "%s", p.current.Value)
+	}
 }
 
 func (p *parser) skipNewlines() {
