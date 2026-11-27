@@ -32,7 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `\f` as short forms, the others as `\u00xx` (lowercase hex), in values
   and keys. Before, they were written raw, which the parser now rejects. A
   multi-line string is triple-quoted only when its only C0
-  characters are LF and TAB. DEL and C1 are still written verbatim.
+  characters are LF and TAB. DEL and C1 are still written verbatim. A key is
+  never triple-quoted, even when it contains LF: ts, rs and py reject a
+  triple-quoted key, so the output did not round-trip there.
 
 ### Fixed
 

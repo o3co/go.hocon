@@ -135,13 +135,17 @@ func renderKey(k string) string {
 	// `include` is reserved unquoted at the start of a key (S12.5/S14a) — the
 	// parser (and Lightbend: "include keyword is not followed by a quoted
 	// string") rejects `include = 1`, so the key must be quoted to round-trip.
+	//
+	// A quoted key always takes the escaped form, never triple quotes (E18
+	// decision 3): the rs, ts and py parsers reject a triple-quoted key, so a
+	// key containing LF would not round-trip there.
 	if k == "include" {
-		return quoteString(k)
+		return escapeQuoted(k)
 	}
 	if safeUnquotedKey.MatchString(k) {
 		return k
 	}
-	return quoteString(k)
+	return escapeQuoted(k)
 }
 
 // safeBareString matches a string value that cannot be misread as another
@@ -172,6 +176,11 @@ func quoteString(s string) string {
 		!strings.Contains(s, `"""`) && !strings.HasSuffix(s, `"`) {
 		return `"""` + s + `"""`
 	}
+	return escapeQuoted(s)
+}
+
+// escapeQuoted writes s as a double-quoted string with JSON escapes.
+func escapeQuoted(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')
 	for _, r := range s {

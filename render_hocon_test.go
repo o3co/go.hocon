@@ -266,6 +266,18 @@ func TestE18_RenderHOCONEscapesControlChars(t *testing.T) {
 			t.Errorf("rendered output lacks %s:\n%s", want, out)
 		}
 	}
+	// A key is never triple-quoted, even with LF (E18 decision 3).
+	keyCfg, err := FromMap(map[string]any{"multi\nline key": 1}, "test")
+	if err != nil {
+		t.Fatalf("FromMap: %v", err)
+	}
+	keyOut, err := keyCfg.RenderHOCON()
+	if err != nil {
+		t.Fatalf("RenderHOCON: %v", err)
+	}
+	if !strings.Contains(keyOut, `"multi\nline key"`) {
+		t.Errorf("LF key is not in the escaped form:\n%s", keyOut)
+	}
 	// A multi-line string with only LF and TAB keeps the triple-quoted form.
 	if !strings.Contains(out, "\"\"\"col1\tcol2\nrow2\"\"\"") {
 		t.Errorf("LF+TAB string is not triple-quoted:\n%s", out)
