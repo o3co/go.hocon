@@ -1303,16 +1303,18 @@ func completeJSONFraction(s string) string {
 //
 // strconv.Quote is not a substitute: it writes Go syntax (`\x01`,
 // `\U000e0001`), which is not JSON (go.hocon#215).
+//
+// On error, part of the string may already be in sb; renderJSON discards sb.
 func writeJSONString(sb *strings.Builder, s string) error {
-	if !utf8.ValidString(s) {
-		// The value itself stays out of the message: it may come from the
-		// environment and hold a secret (see xx.hocon#119).
-		return fmt.Errorf("renderJSON: string is not valid UTF-8 (first invalid byte at offset %d)", firstInvalidUTF8(s))
-	}
 	const hex = "0123456789abcdef"
 	sb.WriteByte('"')
 	for i := 0; i < len(s); {
 		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			// The value itself stays out of the message: it may come from the
+			// environment and hold a secret (see xx.hocon#119).
+			return fmt.Errorf("renderJSON: string is not valid UTF-8 (first invalid byte at offset %d)", i)
+		}
 		i += size
 		switch {
 		case r == '"':
@@ -1339,19 +1341,6 @@ func writeJSONString(sb *strings.Builder, s string) error {
 	}
 	sb.WriteByte('"')
 	return nil
-}
-
-// firstInvalidUTF8 returns the byte offset of the first byte in s that does
-// not start a valid UTF-8 sequence, or -1 if s is valid.
-func firstInvalidUTF8(s string) int {
-	for i := 0; i < len(s); {
-		r, size := utf8.DecodeRuneInString(s[i:])
-		if r == utf8.RuneError && size == 1 {
-			return i
-		}
-		i += size
-	}
-	return -1
 }
 
 func writeValJSON(sb *strings.Builder, v resolver.Val) error {
@@ -1391,8 +1380,10 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 		switch vv.Type {
 		case resolver.ScalarNull:
 			sb.WriteString("null")
+			return nil
 		case resolver.ScalarBoolean:
 			sb.WriteString(vv.Raw)
+			return nil
 		case resolver.ScalarNumber:
 			// Canonicalize leading zeros so the lexeme renders as a valid JSON
 			// number matching Lightbend/rs.hocon (e.g. "023"->23, "-08.5"->-8.5);
@@ -1405,18 +1396,11 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			norm := completeJSONFraction(normalizeLeadingZeroNumber(vv.Raw))
 			if jsonNumberRegex.MatchString(norm) {
 				sb.WriteString(norm)
-			} else if err := writeJSONString(sb, vv.Raw); err != nil {
-				return err
-			}
-		case resolver.ScalarString:
-			if err := writeJSONString(sb, vv.Raw); err != nil {
-				return err
-			}
-		default:
-			if err := writeJSONString(sb, vv.Raw); err != nil {
-				return err
+				return nil
 			}
 		}
+		// A string, or a number lexeme that JSON cannot spell: quote it.
+		return writeJSONString(sb, vv.Raw)
 	default:
 		return fmt.Errorf("renderJSON: unsupported value type %T (contains unresolved placeholder?)", v)
 	}
