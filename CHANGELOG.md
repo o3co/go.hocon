@@ -28,9 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   segment (`a."b = 1`) gave "path has a trailing period". These inputs were
   already rejected; they now report the lexer's error (`unterminated string`,
   or the control-character error above), as ts, rs and py already did.
-- **`RenderHOCON` escapes every C0 control** (xx.hocon E18 decision 5): `\b`
-  and `\f` as short forms, the others as `\u00xx` (lowercase hex), in values
-  and keys. Before, they were written raw, which the parser now rejects. A
+- **`RenderHOCON` escapes every C0 control** (xx.hocon E18 decision 5), in values
+  and keys, using the five short forms `\b \f \n \r \t` and lowercase `\u00xx`
+  for every other U+0000–U+001F. LF, CR and TAB were already written as
+  `\n \r \t`; the other C0 controls were written raw, which the parser now
+  rejects. A
   multi-line string is triple-quoted only when its only C0
   characters are LF and TAB. DEL and C1 are still written verbatim. A key is
   never triple-quoted, even when it contains LF: ts, rs and py reject a
