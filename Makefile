@@ -98,6 +98,10 @@ testdata:
 	  mkdir -p testdata/hocon/array-root && \
 	  cp "$$tmpdir/testdata/hocon/array-root/"*.conf testdata/hocon/array-root/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/include-optional-prior" ]; then \
+	  mkdir -p testdata/hocon/include-optional-prior && \
+	  cp "$$tmpdir/testdata/hocon/include-optional-prior/"*.conf testdata/hocon/include-optional-prior/ 2>/dev/null || true; \
+	fi && \
 	if [ -d "$$tmpdir/testdata/hocon/path-empty-segment" ]; then \
 	  mkdir -p testdata/hocon/path-empty-segment && \
 	  cp "$$tmpdir/testdata/hocon/path-empty-segment/"*.conf testdata/hocon/path-empty-segment/ 2>/dev/null || true; \

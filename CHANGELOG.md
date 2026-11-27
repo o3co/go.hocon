@@ -80,6 +80,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     U+0085 and U+2028, which `strconv.Quote` wrote as `\uXXXX` and which are
     now written as-is. A JSON parser reads the same string either way.
 
+### Tests — xx.hocon#115 include-optional-prior pinned (no behaviour change)
+
+- **An included root-level value keeps the including file's prior** (S13.11 /
+  S14b.3, [xx.hocon#115](https://github.com/o3co/xx.hocon/issues/115)): `a = 1`
+  then an included `a = ${?UNSET}` stays `{"a":1}`, and an included
+  `a = ${b}` merges with a's earlier object. rs/ts/py dropped the including
+  file's value; go already matched Lightbend 1.4.9, so nothing reads
+  differently. Pinned by `include-optional-prior/io01–io16`, driven by
+  `issue115_include_optional_prior_test.go` (which also carries the cases
+  inline); `make testdata` now fetches the fixture directory.
+
 ## [1.14.2] - 2026-10-17
 
 **Patch.** An opt-in `requireunit` struct tag option makes a `time.Duration`,

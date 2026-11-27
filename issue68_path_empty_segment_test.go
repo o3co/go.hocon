@@ -79,6 +79,11 @@ func runSidecarFixtures(t *testing.T, label, confDir, expectedDir string) {
 			continue
 		}
 		stem := strings.TrimSuffix(name, ".conf")
+		// `<id>-inner.conf` is the xx.hocon convention for a file that another
+		// fixture includes: it is not a fixture of its own and has no sidecar.
+		if strings.HasSuffix(stem, "-inner") {
+			continue
+		}
 		confPath := filepath.Join(confDir, name)
 		errorSidecar := filepath.Join(expectedDir, stem+".error")
 		jsonSidecar := filepath.Join(expectedDir, stem+"-expected.json")
