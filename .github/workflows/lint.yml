@@ -2,9 +2,9 @@ name: Lint
 
 on:
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, "release/**"]
   push:
-    branches: [develop, main]
+    branches: [develop, main, "release/**"]
 
 # The repository default is write, so a workflow that says nothing gets it.
 # Nothing here writes.

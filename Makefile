@@ -1,5 +1,6 @@
 TESTDATA_REPO  := o3co/xx.hocon
-TESTDATA_REF   := main
+# 1.14.x maintenance: the corpus as of 1.14.2/1.14.3, before #130 / the window fixtures (xx#135, #136)
+TESTDATA_REF   := 38d02ca195477ad0227baa4bd2ec766ed272f048
 EXPECTED_DIR   := testdata/expected
 
 .PHONY: testdata test test-adapters test-all
