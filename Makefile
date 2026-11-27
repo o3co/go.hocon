@@ -106,6 +106,10 @@ testdata:
 	  mkdir -p testdata/hocon/unquoted-forbidden && \
 	  cp "$$tmpdir/testdata/hocon/unquoted-forbidden/"*.conf testdata/hocon/unquoted-forbidden/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/quoted-control" ]; then \
+	  mkdir -p testdata/hocon/quoted-control && \
+	  cp "$$tmpdir/testdata/hocon/quoted-control/"*.conf testdata/hocon/quoted-control/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 

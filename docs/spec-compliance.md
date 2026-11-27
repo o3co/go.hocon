@@ -35,7 +35,7 @@ This file extends [`xx.hocon/docs/spec-checklist.md`](https://github.com/o3co/xx
   status: ✅
 
 - **S1.2.4** Unescaped control char / raw newline in quoted string is rejected — §Unchanged from JSON (L118)
-  tests: testdata/hocon/subst-tokenize/st-err07-newline-in-string.conf (fixture)
+  tests: testdata/hocon/subst-tokenize/st-err07-newline-in-string.conf (fixture); testdata/hocon/quoted-control/qc01–qc12 (fixtures, xx.hocon#130); issue130_quoted_control_test.go (TestS1_2_4_RawControlInQuotedStringRejected — full C0 sweep + key / path / array / substitution / include positions; TestS1_2_4_ControlCharsLegalOutsideSingleQuotes); render_hocon_test.go (TestE18_RenderHOCONEscapesControlChars)
   status: ✅
 
 - **S1.2.5** Unterminated quoted string is rejected — §Unchanged from JSON (L118)

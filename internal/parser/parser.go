@@ -322,6 +322,9 @@ func (p *parser) skipToIncludePath(directiveLine, directiveCol int, directiveLab
 		if p.current.Type == lexer.TokenString && p.current.IsQuoted {
 			return sawFile, nil
 		}
+		if p.current.Type == lexer.TokenError {
+			return false, newError(p.current.Line, p.current.Col, "%s", p.current.Value)
+		}
 		if p.current.Type == lexer.TokenEOF || p.current.Type == lexer.TokenNewline {
 			return false, newError(directiveLine, directiveCol,
 				"expected include path string in include %s directive", directiveLabel)
@@ -358,6 +361,11 @@ func (p *parser) parseInclude() (*IncludeNode, error) {
 	isFile := false
 
 	switch {
+	case cur.Type == lexer.TokenError:
+		// A lexer error in the argument (e.g. a raw control character inside
+		// the quoted path, S1.2.4) is reported as is, not as a key misuse.
+		return nil, newError(cur.Line, cur.Col, "%s", cur.Value)
+
 	case cur.Type == lexer.TokenString && cur.IsQuoted:
 		// include "path"
 		path = cur.Value

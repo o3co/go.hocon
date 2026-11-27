@@ -300,6 +300,13 @@ func (l *Lexer) readQuotedStringBody(startLine, startCol int) (string, *Token) {
 			l.advance() // consume closing '"'
 			return sb.String(), nil
 		}
+		// S1.2.4: JSON forbids a raw C0 control inside a quoted string, as
+		// Lightbend does. LF is reported as unterminated above. Triple-quoted
+		// and unquoted strings keep controls verbatim.
+		if ch < 0x20 {
+			errTok := Token{Type: TokenError, Value: fmt.Sprintf("unescaped control character U+%04X in quoted string; use a backslash escape (\\u%04x)", ch, ch), Line: l.line, Col: l.col}
+			return "", &errTok
+		}
 		if ch == '\\' {
 			l.advance()         // consume '\'
 			escCol := l.col - 1 // column of the backslash

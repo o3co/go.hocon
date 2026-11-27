@@ -163,11 +163,12 @@ func renderString(s string) string {
 
 func quoteString(s string) string {
 	// A string containing newlines is triple-quoted when that is unambiguous
-	// and lossless: no embedded `"""`, no trailing `"`, and no carriage return
-	// (the lexer now preserves CR verbatim per S9.2 — as Lightbend does — but
-	// an invisible raw CR inside triple quotes is ambiguous to readers, so CR
-	// strings take the escaped double-quoted form below).
-	if strings.Contains(s, "\n") && !strings.Contains(s, "\r") &&
+	// and lossless: no embedded `"""`, no trailing `"`, and no C0 control
+	// other than LF and TAB (E18 decision 5). Raw controls are valid inside
+	// triple quotes (S9.1, and the lexer preserves CR verbatim per S9.2), but
+	// an invisible one is ambiguous to readers, so such strings take the
+	// escaped double-quoted form below.
+	if strings.Contains(s, "\n") && !hasControlOtherThanLFTab(s) &&
 		!strings.Contains(s, `"""`) && !strings.HasSuffix(s, `"`) {
 		return `"""` + s + `"""`
 	}
@@ -185,10 +186,32 @@ func quoteString(s string) string {
 			b.WriteString(`\r`)
 		case '\t':
 			b.WriteString(`\t`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
 		default:
-			b.WriteRune(r)
+			// S1.2.4: a raw C0 control inside quotes is a parse error, so
+			// every other one is written as \u00xx (lowercase, as Lightbend's
+			// renderer does). DEL and C1 are legal and stay verbatim.
+			if r < 0x20 {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				b.WriteRune(r)
+			}
 		}
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// hasControlOtherThanLFTab reports whether s holds a C0 control character
+// (U+0000–U+001F) other than LF and TAB.
+func hasControlOtherThanLFTab(s string) bool {
+	for _, r := range s {
+		if r < 0x20 && r != '\n' && r != '\t' {
+			return true
+		}
+	}
+	return false
 }
