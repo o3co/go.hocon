@@ -507,6 +507,120 @@ type resolver struct {
 	// is reported as unresolvable instead of recursing forever. Lazily
 	// initialized at first use.
 	resolvingPrefixPriors map[string]bool
+	// resolvingPriors guards the in-progress branch of resolveSubst, which
+	// resolves a key's saved prior while the key itself is being resolved
+	// (go.hocon#218). See priorReentry. Lazily initialized at first use.
+	resolvingPriors map[string]priorReentry
+	// cutCycles memoizes, per key, the states (cycleState) in which a
+	// substitution to the key resolved to nothing because a cycle was cut
+	// inside it. Without it, cutting a cycle was exponential: a key whose
+	// value resolves to nothing falls back to its saved prior, which is the
+	// same lookup in the same state, so a ring of n optional keys written
+	// twice walked both branches at every level (go.hocon#218 review).
+	//
+	// Why it cannot change a config that loads: it only records after a cut,
+	// and a cut only happens where the resolver would otherwise never have
+	// terminated (priorReentry). Its key is a fingerprint, not a proof of
+	// equal computations; any gap in it can only affect what an input that
+	// used to crash now produces. Lazily initialized; ordinary configs never
+	// record anything, so they never build a fingerprint.
+	cutCycles map[string]map[string]bool
+	// cuts counts the times priorReentry refused a re-entry. cutCycles only
+	// records a result whose computation included a cut.
+	cuts int
+	// maxSubstLen is the longest substitution path (in segments) in the tree,
+	// computed on first use by the priorReentry guard (maxSubstLenKnown).
+	maxSubstLen      int
+	maxSubstLenKnown bool
+}
+
+// priorReentry records the resolver state when a key's saved prior started
+// resolving in the in-progress branch of resolveSubst.
+//
+// A prior can reach another in-progress key and resolve that key's prior,
+// which can come back to the first key. Re-entering a key's prior is legal
+// and usually terminates, because the keys entered in between are now
+// in progress too and take a different branch. But `a = ${?b}` / `b = ${?a}`
+// written twice re-entered with nothing new in progress and walked
+// a → b → a … until the stack overflowed.
+//
+// Along one call path the in-progress set only grows and the resolved cache
+// only grows, so a re-entry that sees neither grown is the same computation
+// again and cannot terminate: that cycle cannot be broken, so the optional
+// form is nonexistent and the required form is an error, as in Lightbend.
+// Any other re-entry proceeds as before. The prefix-prior guard set counts
+// as progress too: once a prefix prior is being resolved, the S13a.12 branch
+// takes its other path the second time. So does a deeper field path, up to
+// the longest substitution path: the S13a.12 branch and the self-ref owner
+// check compare the field path against a substitution's segments, so deeper
+// elements never matter (and an unbounded field path would never repeat).
+// Along one call path the field path is a stack. All four counts are
+// bounded, so the nesting is finite.
+//
+// Interim guard; the full fix is the resolver redesign in o3co/xx.hocon#67 /
+// #125.
+type priorReentry struct {
+	resolving, cached, prefixPriors, fieldPath int
+}
+
+// maxSubstLenOf returns the longest substitution path (in segments) in v,
+// saved priors included.
+func maxSubstLenOf(v Val) int {
+	m := 0
+	switch t := v.(type) {
+	case *substPlaceholder:
+		m = len(t.segments)
+	case *concatPlaceholder:
+		for _, e := range t.vals {
+			m = max(m, maxSubstLenOf(e))
+		}
+	case *ArrayVal:
+		for _, e := range t.Elements {
+			m = max(m, maxSubstLenOf(e))
+		}
+	case *ObjectVal:
+		for _, e := range t.values {
+			m = max(m, maxSubstLenOf(e))
+		}
+		for _, e := range t.priorValues {
+			m = max(m, maxSubstLenOf(e))
+		}
+	}
+	return m
+}
+
+// cycleState fingerprints the resolver state that decides how a substitution
+// resolves, for cutCycles (see there for why it is safe).
+func (r *resolver) cycleState(optional bool) string {
+	var b strings.Builder
+	if optional {
+		b.WriteByte('?')
+	}
+	writeSet := func(m map[string]bool) {
+		ks := make([]string, 0, len(m))
+		for k := range m {
+			ks = append(ks, k)
+		}
+		sort.Strings(ks)
+		for _, k := range ks {
+			b.WriteByte(0)
+			b.WriteString(k)
+		}
+		b.WriteByte(1)
+	}
+	writeSet(r.resolving)
+	writeSet(r.resolvingPrefixPriors)
+	pks := make([]string, 0, len(r.resolvingPriors))
+	for k := range r.resolvingPriors {
+		pks = append(pks, k)
+	}
+	sort.Strings(pks)
+	for _, k := range pks {
+		e := r.resolvingPriors[k]
+		fmt.Fprintf(&b, "\x00%s=%d,%d,%d,%d", k, e.resolving, e.cached, e.prefixPriors, e.fieldPath)
+	}
+	fmt.Fprintf(&b, "\x01%d\x01%s", len(r.resolvedCache), segmentsToKey(r.resolvingFieldPath))
+	return b.String()
 }
 
 func (r *resolver) resolveObject(node *parser.ObjectNode, fallback *ObjectVal, pathPrefix []string) (*ObjectVal, error) {
@@ -863,7 +977,7 @@ func (r *resolver) resolveVal(v Val, root *ObjectVal, path string) (Val, error) 
 	}
 }
 
-func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, error) {
+func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (out Val, err error) {
 	if s.knownAbsent {
 		// A knownAbsent sentinel (produced by foldOptionalSelfRefAbsent at a
 		// phase-1 prior-save site, #134) that reached resolution unfilled means
@@ -958,14 +1072,59 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (Val, erro
 		// ("foo.a = \"x\"\nfoo.a = ${?foo.a}bar" → "xbar").  Adding a redundant
 		// test here would not improve coverage (same code path, same branch).
 		if prior := r.findPrior(root, segStrs, key); prior != nil {
-			// Resolve the prior value (it may itself contain placeholders).
-			return r.resolveVal(prior, root, key)
+			if !r.maxSubstLenKnown {
+				r.maxSubstLen, r.maxSubstLenKnown = maxSubstLenOf(root), true
+			}
+			now := priorReentry{
+				resolving:    len(r.resolving),
+				cached:       len(r.resolvedCache),
+				prefixPriors: len(r.resolvingPrefixPriors),
+				fieldPath:    min(len(r.resolvingFieldPath), r.maxSubstLen),
+			}
+			outer, reentry := r.resolvingPriors[key]
+			if !reentry || outer != now {
+				// Resolve the prior value (it may itself contain placeholders).
+				if r.resolvingPriors == nil {
+					r.resolvingPriors = make(map[string]priorReentry)
+				}
+				r.resolvingPriors[key] = now
+				defer func() {
+					if reentry {
+						r.resolvingPriors[key] = outer
+					} else {
+						delete(r.resolvingPriors, key)
+					}
+				}()
+				return r.resolveVal(prior, root, key)
+			}
+			// Same state as the outer resolution of this prior: an
+			// unbreakable cycle (see priorReentry). Fall through.
+			r.cuts++
 		}
 		if !n.Optional {
 			return nil, &ResolveError{Message: "circular reference detected", Path: key, Line: n.Line(), Col: n.Col()}
 		}
 		return nil, nil
 	}
+	// A substitution that already resolved to nothing in this exact state,
+	// because a cycle was cut inside it, resolves to nothing again (see
+	// cutCycles). The defer runs after `delete(r.resolving, key)` below, so
+	// cycleState sees the same state as on entry.
+	if seen := r.cutCycles[key]; len(seen) > 0 && seen[r.cycleState(n.Optional)] {
+		return nil, nil
+	}
+	cutsBefore := r.cuts
+	defer func() {
+		if out == nil && err == nil && r.cuts != cutsBefore {
+			if r.cutCycles == nil {
+				r.cutCycles = make(map[string]map[string]bool)
+			}
+			if r.cutCycles[key] == nil {
+				r.cutCycles[key] = make(map[string]bool)
+			}
+			r.cutCycles[key][r.cycleState(n.Optional)] = true
+		}
+	}()
 	r.resolving[key] = true
 	defer delete(r.resolving, key)
 

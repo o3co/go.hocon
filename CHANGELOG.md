@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a substitution cycle written twice crashed the process ([#218](https://github.com/o3co/go.hocon/issues/218))
+
+- **`a = ${?b}` / `b = ${?a}` written twice overflowed the stack** and killed
+  the process (`fatal error: stack overflow`, not a returned error); so did the
+  required form, longer cycles, nested paths, and a repetition that came from
+  an included file. Resolving a long ring of such optional substitutions is
+  also no longer exponential. While a key was in progress, the resolver resolved its
+  saved prior, and that prior could reach another in-progress key and resolve
+  that key's prior in turn, forever. A re-entry in an unchanged state (nothing
+  new in progress, the same prefix-prior guards, the same relevant field
+  path) is now treated as an unbreakable cycle: an optional substitution is
+  nonexistent and a required one is a `ResolveError`, as in Lightbend
+  (`{}` and `UnresolvedSubstitution` for the input above). This is an interim
+  guard; the resolver redesign in o3co/xx.hocon#67 / #125 replaces it.
+- Every input that loaded before reads the same. Only inputs that crashed now
+  load or fail with an error. Some of those still differ from Lightbend
+  (cycles through string concatenation or nested objects); that is left to
+  the redesign.
+
 ## [1.14.2] - 2026-10-17
 
 **Patch.** An opt-in `requireunit` struct tag option makes a `time.Duration`,
