@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-11-28
+
+**Patch.** A substitution cycle written twice (`a = ${?b}` / `b = ${?a}`,
+twice) no longer crashes the process with a stack overflow (#218). Such a
+cycle now resolves as Lightbend does (`{}` for the optional form, a
+`ResolveError` for the required one), and resolution after a cut cycle is
+bounded in work and value size. Every config that loaded before reads the
+same; only inputs that crashed now load or fail with an error. Also:
+`RenderJSONForTest` and `cmd/hocon-json` write RFC 8259 JSON instead of Go
+string syntax (#215; conformance tooling only, parsing is unchanged). The
+adapters module is unchanged and stays at `adapters/v1.14.0`.
+
 ### Fixed — a substitution cycle written twice crashed the process ([#218](https://github.com/o3co/go.hocon/issues/218))
 
 - **`a = ${?b}` / `b = ${?a}` written twice overflowed the stack** and killed
@@ -1314,7 +1326,8 @@ A subset of these fixes change observable runtime behavior. The most likely user
 - README in English and Japanese.
 - Apache 2.0 LICENSE.
 
-[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.14.2...HEAD
+[Unreleased]: https://github.com/o3co/go.hocon/compare/v1.14.3...HEAD
+[1.14.3]: https://github.com/o3co/go.hocon/compare/v1.14.2...v1.14.3
 [1.14.2]: https://github.com/o3co/go.hocon/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/o3co/go.hocon/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/o3co/go.hocon/compare/v1.13.0...v1.14.0
