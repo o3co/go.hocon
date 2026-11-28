@@ -21,8 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and contains `+` (E8 step 4). So are `a = x -.5e+3` (was the string
     `"x -.5e+3"`), `a = -.5e+3ms` (was a -500 ms duration string) and the key
     `-.5e+3 = 1`.
-  - `GetFloat64` and the other numeric getters still read the string `"-.5"`
-    as -0.5.
+  - `GetFloat64` (and its `E` / `Option` forms) still reads the string `"-.5"`
+    as -0.5. The integer getters reject it, as they did when it was the
+    number -0.5.
   - Every other number reads as before: `-0.5`, `-5.`, `-1.5e+3`, `.5` (text).
   - Quoted durations and byte sizes are unaffected: `"-.5s"` is still -500 ms.
 - **Workaround**: write the leading zero, `a = -0.5`, to keep a number.
