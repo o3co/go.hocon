@@ -24,8 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A ring of array or string substitutions written twice doubles its value on
   every lap; after the guard has cut a cycle, resolution now fails with
   `resolved value too large` once the values it produces exceed 10,000 nodes
-  per node of the document (string text counts too). Only inputs that crashed
-  before reach that limit.
+  per node of the document, capped at 2,000,000 (string and key text count
+  too), and with `substitution cycle too complex to resolve` after 2,000,000
+  more substitution lookups, which bounds dense cycles that re-explore without
+  growing any value. Only inputs that crashed before reach either limit.
 - Every input that loaded before reads the same. Only inputs that crashed now
   load or fail with an error. Some of those still differ from Lightbend
   (cycles through string concatenation or nested objects); that is left to
