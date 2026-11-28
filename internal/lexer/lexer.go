@@ -769,7 +769,8 @@ func isNumberRunChar(c rune) bool {
 func numberRunType(run string) (TokenType, bool) {
 	// Lightbend 1.4.10 (lightbend/config#861): a run that starts with "-."
 	// is not a number, like one that starts with "." — `-.5` is the text
-	// "-.5", and with step 3 above `-.5e+3` is an error (xx.hocon#140).
+	// "-.5", and by the `+` rule (E8 step 4) `-.5e+3` is an error
+	// (xx.hocon#140).
 	if strings.HasPrefix(run, "-.") {
 		return 0, false
 	}

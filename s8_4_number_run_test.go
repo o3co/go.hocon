@@ -120,6 +120,23 @@ func TestS8_4_NumberRun_DigitsDot(t *testing.T) {
 	})
 }
 
+// TestS8_4_NumberRun_NegativeLeadingDot pins a run that starts with "-." in
+// every position (Lightbend 1.4.10, xx.hocon#140): it is text, and with a '+'
+// it is an error.
+func TestS8_4_NumberRun_NegativeLeadingDot(t *testing.T) {
+	checkRunCases(t, []runCase{
+		{"-.5 = 1", `{"-":{"5":1}}`},
+		{"-.5e+3 = 1", runErr},
+		{"a = x -.5e+3", runErr},
+		{"a = -.5 b", `{"a":"-.5 b"}`},
+		{"a = [-.5]", `{"a":["-.5"]}`},
+		{"a = [-.5e+3]", runErr},
+		{"b = 1\na = ${b}-.5", `{"a":"1-.5","b":1}`},
+		{"b = 1\na = ${b}-.5e+3", runErr},
+		{"a = -.5e+3ms", runErr},
+	})
+}
+
 // TestS8_4_NumberRun_KeyPosition pins the key-position table.
 func TestS8_4_NumberRun_KeyPosition(t *testing.T) {
 	checkRunCases(t, []runCase{
@@ -158,6 +175,16 @@ func TestS8_4_NumberRun_PlusErrorColumn(t *testing.T) {
 	var pe *hocon.ParseError
 	if !errors.As(err, &pe) || pe.Line != 1 || pe.Col != 7 {
 		t.Errorf("err = %v; want a *ParseError at line 1, col 7", err)
+	}
+}
+
+// TestS8_4_NumberRun_NegativeLeadingDotErrorColumn: for a "-." run the
+// error also points at the '+' (xx.hocon#140).
+func TestS8_4_NumberRun_NegativeLeadingDotErrorColumn(t *testing.T) {
+	_, err := hocon.ParseString("a = -.5e+3")
+	var pe *hocon.ParseError
+	if !errors.As(err, &pe) || pe.Line != 1 || pe.Col != 9 {
+		t.Errorf("err = %v; want a *ParseError at line 1, col 9", err)
 	}
 }
 

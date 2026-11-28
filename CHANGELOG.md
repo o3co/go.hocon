@@ -11,12 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An unquoted run that starts with `-.` is no longer a number**, as in
   Lightbend 1.4.10 (lightbend/config#861), the same as a run that starts with
-  `.`. Lightbend 1.4.9 and earlier, and go 1.14.0 through this release, read
-  `-.5` as `-0.5`.
+  `.`. Lightbend 1.4.9 and earlier, and every go 1.14.x release, read `-.5`
+  as `-0.5` (before 1.14.0 go read it as the string, as now). This applies
+  wherever a run starts with `-.`: values, keys, concatenations, arrays and
+  unit values.
   - `a = -.5` is now the string `"-.5"` (was the number `-0.5`); so are
     `-.5e3` (was `-500`) and `-.5e999` (was an overflow error).
   - `a = -.5e+3` is now a parse error (was `-500`): the run is not a number
-    and contains `+` (E8 step 4).
+    and contains `+` (E8 step 4). So are `a = x -.5e+3` (was the string
+    `"x -.5e+3"`), `a = -.5e+3ms` (was a -500 ms duration string) and the key
+    `-.5e+3 = 1`.
+  - `GetFloat64` and the other numeric getters still read the string `"-.5"`
+    as -0.5.
   - Every other number reads as before: `-0.5`, `-5.`, `-1.5e+3`, `.5` (text).
   - Quoted durations and byte sizes are unaffected: `"-.5s"` is still -500 ms.
 - **Workaround**: write the leading zero, `a = -0.5`, to keep a number.
