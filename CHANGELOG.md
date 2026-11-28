@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (cycles through string concatenation or nested objects); that is left to
   the redesign.
 
+### Fixed — `RenderJSONForTest` writes RFC 8259 JSON ([#215](https://github.com/o3co/go.hocon/issues/215))
+
+- `RenderJSONForTest` now writes keys and strings as RFC 8259 JSON. It used
+  `strconv.Quote`, which writes Go syntax: a control character came out as
+  `\x01`, which no JSON parser accepts. Control characters are now `\b`,
+  `\f`, `\n`, `\r`, `\t` or `\u00XX`, and every other character is written
+  as-is (#215). Parsing is unchanged; only this conformance-tooling renderer
+  and the `cmd/hocon-json` adapter built on it are affected.
+  - A string that is not valid UTF-8 (reachable through environment
+    substitution or `FromMap`) is now a rendering error. It used to come out
+    as `\xNN`; writing U+FFFD instead would change the value, and two keys
+    could become one.
+  - The output bytes change for some valid characters too, for example
+    U+0085 and U+2028, which `strconv.Quote` wrote as `\uXXXX` and which are
+    now written as-is. A JSON parser reads the same string either way.
+
 ## [1.14.2] - 2026-10-17
 
 **Patch.** An opt-in `requireunit` struct tag option makes a `time.Duration`,
