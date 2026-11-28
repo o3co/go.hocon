@@ -9,6 +9,7 @@
 package resolver
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -56,23 +57,56 @@ func TestIssue218_SourceNodesCountsSharedContainersOnce(t *testing.T) {
 }
 
 func TestIssue218_ValueWeightCountsSharedContainersOnce(t *testing.T) {
-	leaf := &ScalarVal{Raw: strings.Repeat("y", 48)} // 1 + 48/16
+	long := strings.Repeat("k", 48)                  // a key of 48 bytes weighs 48/16 = 3
+	leaf := &ScalarVal{Raw: strings.Repeat("y", 48)} // 1 + 48/16 = 4
 	arr := &ArrayVal{Elements: []Val{leaf, leaf}}
+	inner := newObjectVal()
+	inner.set(long, &ScalarVal{Raw: "1"}) // key 3 + scalar 1
 	obj := newObjectVal()
 	obj.set("a", arr)
-	obj.set("b", arr) // shared
+	obj.set("b", arr) // shared array: its contents count once
 	obj.set("c", &ScalarVal{Raw: "z"})
-	inner := newObjectVal()
-	inner.set("v", &ScalarVal{Raw: "1"})
-	obj.set("d", inner)
-	obj.set("e", inner) // shared
-	// obj 1 + arr 1 + leaf 4 twice (scalars are not tracked as shared) + c 1
-	// + inner 2 once.
-	if got := valueWeight(obj, map[Val]struct{}{}); got != 13 {
-		t.Errorf("valueWeight = %d, want 11", got)
+	obj.set(long+"d", inner)
+	obj.set(long+"e", inner) // a distinct parent key counts even though its value is shared
+	// obj 1
+	// + arr 1 + leaf 4 twice (scalars are not tracked as shared) = 9, once
+	// + c 1
+	// + key long+"d" 3 + inner (1 + key 3 + scalar 1 = 5)
+	// + key long+"e" 3 (inner already counted)
+	if got := valueWeight(obj, map[Val]struct{}{}); got != 1+9+1+3+5+3 {
+		t.Errorf("valueWeight = %d, want %d", got, 1+9+1+3+5+3)
 	}
 	if got := valueWeight(subst("q"), map[Val]struct{}{}); got != 1 {
 		t.Errorf("valueWeight(other) = %d, want 1", got)
+	}
+}
+
+func TestIssue218_ValueBudgetForDoesNotOverflow(t *testing.T) {
+	for _, n := range []int{0, 1, 199, 200, 214_749, math.MaxInt32, math.MaxInt} {
+		got := valueBudgetFor(n)
+		want := maxValueBudget
+		if n < maxValueBudget/valueNodesPerSourceNode {
+			want = n * valueNodesPerSourceNode
+		}
+		if got != want || got < 0 {
+			t.Errorf("valueBudgetFor(%d) = %d, want %d", n, got, want)
+		}
+	}
+}
+
+func TestIssue218_ChargeValueInitializesTheCappedBudget(t *testing.T) {
+	root := newObjectVal()
+	arr := &ArrayVal{}
+	for i := 0; i < 300; i++ { // more than maxValueBudget / valueNodesPerSourceNode
+		arr.Elements = append(arr.Elements, &ScalarVal{Raw: "1"})
+	}
+	root.set("pad", arr)
+	r := &resolver{cuts: 1}
+	if err := r.chargeValue(&ScalarVal{Raw: "x"}, root, "a", 1, 1); err != nil {
+		t.Fatalf("chargeValue: %v", err)
+	}
+	if !r.valueBudgetSet || r.valueBudget != maxValueBudget-1 {
+		t.Errorf("valueBudget = %d (set %v), want %d", r.valueBudget, r.valueBudgetSet, maxValueBudget-1)
 	}
 }
 
