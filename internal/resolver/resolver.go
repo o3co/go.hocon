@@ -528,6 +528,10 @@ type resolver struct {
 	// cuts counts the times priorReentry refused a re-entry. cutCycles only
 	// records a result whose computation included a cut.
 	cuts int
+	// valueBudget bounds what substitutions may produce once a cycle has been
+	// cut (see chargeValue); valueBudgetSet records that it was initialized.
+	valueBudget    int
+	valueBudgetSet bool
 	// maxSubstLen is the longest substitution path (in segments) in the tree,
 	// computed on first use by the priorReentry guard (maxSubstLenKnown).
 	maxSubstLen      int
@@ -564,29 +568,144 @@ type priorReentry struct {
 }
 
 // maxSubstLenOf returns the longest substitution path (in segments) in v,
-// saved priors included.
+// saved priors included. Current values and saved priors share children, so
+// each container is visited once (go.hocon#223 review: without that, nested
+// prefix overrides made the walk exponential).
 func maxSubstLenOf(v Val) int {
+	return maxSubstLenWalk(v, map[any]struct{}{})
+}
+
+func maxSubstLenWalk(v Val, seen map[any]struct{}) int {
 	m := 0
 	switch t := v.(type) {
 	case *substPlaceholder:
-		m = len(t.segments)
+		return len(t.segments)
 	case *concatPlaceholder:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
 		for _, e := range t.vals {
-			m = max(m, maxSubstLenOf(e))
+			m = max(m, maxSubstLenWalk(e, seen))
 		}
 	case *ArrayVal:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
 		for _, e := range t.Elements {
-			m = max(m, maxSubstLenOf(e))
+			m = max(m, maxSubstLenWalk(e, seen))
 		}
 	case *ObjectVal:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
 		for _, e := range t.values {
-			m = max(m, maxSubstLenOf(e))
+			m = max(m, maxSubstLenWalk(e, seen))
 		}
 		for _, e := range t.priorValues {
-			m = max(m, maxSubstLenOf(e))
+			m = max(m, maxSubstLenWalk(e, seen))
 		}
 	}
 	return m
+}
+
+// valueNodesPerSourceNode is the value budget per node of the document, once
+// a cycle has been cut. A ring of array or string substitutions written twice
+// doubles its value on every lap (go.hocon#223 review: a 12-key array ring
+// reached 3 GB before the process was killed). A cut only happens on an input
+// that never terminated before the guard, so no config that loads is ever
+// charged.
+const valueNodesPerSourceNode = 10_000
+
+// valueWeight counts the distinct containers and scalars in a resolved value,
+// plus one per 16 bytes of scalar text. Shared subtrees count once, so the
+// count follows the memory actually held.
+func valueWeight(v Val, seen map[Val]struct{}) int {
+	switch t := v.(type) {
+	case *ObjectVal:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
+		n := 1
+		for _, e := range t.values {
+			n += valueWeight(e, seen)
+		}
+		return n
+	case *ArrayVal:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
+		n := 1
+		for _, e := range t.Elements {
+			n += valueWeight(e, seen)
+		}
+		return n
+	case *ScalarVal:
+		return 1 + len(t.Raw)/16
+	}
+	return 1
+}
+
+// sourceNodes counts the nodes of the unresolved tree, saved priors included.
+func sourceNodes(v Val, seen map[Val]struct{}) int {
+	switch t := v.(type) {
+	case *ObjectVal:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
+		n := 1
+		for _, e := range t.values {
+			n += sourceNodes(e, seen)
+		}
+		for _, e := range t.priorValues {
+			n += sourceNodes(e, seen)
+		}
+		return n
+	case *ArrayVal:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
+		n := 1
+		for _, e := range t.Elements {
+			n += sourceNodes(e, seen)
+		}
+		return n
+	case *concatPlaceholder:
+		if _, ok := seen[t]; ok {
+			return 0
+		}
+		seen[t] = struct{}{}
+		n := 1
+		for _, e := range t.vals {
+			n += sourceNodes(e, seen)
+		}
+		return n
+	}
+	return 1
+}
+
+// chargeValue deducts a substitution result from the value budget once a
+// cycle has been cut, and reports an error when the budget is exhausted.
+func (r *resolver) chargeValue(v Val, root *ObjectVal, key string, line, col int) error {
+	if r.cuts == 0 || v == nil {
+		return nil
+	}
+	if !r.valueBudgetSet {
+		r.valueBudget = sourceNodes(root, map[Val]struct{}{}) * valueNodesPerSourceNode
+		r.valueBudgetSet = true
+	}
+	w := valueWeight(v, map[Val]struct{}{})
+	if w > r.valueBudget {
+		return &ResolveError{Message: "resolved value too large: substitution keeps growing (a cycle through nested values?)", Path: key, Line: line, Col: col}
+	}
+	r.valueBudget -= w
+	return nil
 }
 
 // cycleState fingerprints the resolver state that decides how a substitution
@@ -1002,6 +1121,15 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (out Val, 
 	n := s.node
 	segStrs := segTexts(s.segments)
 	key := segmentsToKey(segStrs)
+	// go.hocon#223 review: after a cut, charge every substitution result as
+	// it is produced (see valueNodesPerSourceNode).
+	defer func() {
+		if err == nil {
+			if cerr := r.chargeValue(out, root, key, n.Line(), n.Col()); cerr != nil {
+				out, err = nil, cerr
+			}
+		}
+	}()
 
 	// S13a.12 (HOCON.md L791): a substitution whose target lies INSIDE the
 	// field currently being resolved (the field path is a proper prefix of

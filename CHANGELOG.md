@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nonexistent and a required one is a `ResolveError`, as in Lightbend
   (`{}` and `UnresolvedSubstitution` for the input above). This is an interim
   guard; the resolver redesign in o3co/xx.hocon#67 / #125 replaces it.
+- A ring of array or string substitutions written twice doubles its value on
+  every lap; after the guard has cut a cycle, resolution now fails with
+  `resolved value too large` once the values it produces exceed 10,000 nodes
+  per node of the document (string text counts too). Only inputs that crashed
+  before reach that limit.
 - Every input that loaded before reads the same. Only inputs that crashed now
   load or fail with an error. Some of those still differ from Lightbend
   (cycles through string concatenation or nested objects); that is left to
