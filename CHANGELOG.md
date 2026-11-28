@@ -14,8 +14,10 @@ twice) no longer crashes the process with a stack overflow (#218). Such a
 cycle now resolves as Lightbend does (`{}` for the optional form, a
 `ResolveError` for the required one), and resolution after a cut cycle is
 bounded in work and value size. Every config that loaded before reads the
-same; only inputs that crashed now load or fail with an error. The adapters
-module is unchanged and stays at `adapters/v1.14.0`.
+same; only inputs that crashed now load or fail with an error. Also:
+`RenderJSONForTest` and `cmd/hocon-json` write RFC 8259 JSON instead of Go
+string syntax (#215; conformance tooling only, parsing is unchanged). The
+adapters module is unchanged and stays at `adapters/v1.14.0`.
 
 ### Fixed — a substitution cycle written twice crashed the process ([#218](https://github.com/o3co/go.hocon/issues/218))
 
