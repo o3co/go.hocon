@@ -73,7 +73,9 @@ func runSidecarFixtures(t *testing.T, label, confDir, expectedDir string) {
 	ran := 0
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasSuffix(name, ".conf") {
+		// `<stem>-inner.conf` is an include target of a sibling fixture,
+		// not a fixture of its own.
+		if !strings.HasSuffix(name, ".conf") || strings.HasSuffix(name, "-inner.conf") {
 			continue
 		}
 		stem := strings.TrimSuffix(name, ".conf")
