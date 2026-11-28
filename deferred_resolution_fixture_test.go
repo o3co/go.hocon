@@ -440,6 +440,9 @@ func compareJSON(t scenarioT, id string, expectedRaw []byte, cfg *hocon.Config) 
 	if err != nil {
 		t.Fatalf("scenario %s: renderJSON: %v", id, err)
 	}
+	if !drJSONValid(t, id, expectedRaw, []byte(actualStr)) {
+		return
+	}
 	if !drJSONEqual(expectedRaw, []byte(actualStr)) {
 		reportJSONMismatch(t, "scenario %s: JSON mismatch\n want: %s\n got:  %s", id, string(expectedRaw), actualStr)
 	}
@@ -451,9 +454,27 @@ func compareJSONString(t scenarioT, id, expected string, cfg *hocon.Config) {
 	if err != nil {
 		t.Fatalf("scenario %s: renderJSON: %v", id, err)
 	}
+	if !drJSONValid(t, id, []byte(expected), []byte(actual)) {
+		return
+	}
 	if !drJSONEqual([]byte(expected), []byte(actual)) {
 		reportJSONMismatch(t, "scenario %s: in-YAML JSON mismatch\n want: %s\n got:  %s", id, expected, actual)
 	}
+}
+
+// drJSONValid fails the scenario when either side is not valid JSON, so text
+// that cannot be compared never counts as a (known-gap) JSON mismatch.
+func drJSONValid(t scenarioT, id string, expected, actual []byte) bool {
+	t.Helper()
+	if !json.Valid(expected) {
+		t.Errorf("scenario %s: expected JSON is not valid JSON: %s", id, expected)
+		return false
+	}
+	if !json.Valid(actual) {
+		t.Errorf("scenario %s: rendered JSON is not valid JSON: %s", id, actual)
+		return false
+	}
+	return true
 }
 
 // drJSONEqual compares two JSON byte slices for semantic equality (ignoring
