@@ -110,6 +110,10 @@ testdata:
 	  mkdir -p testdata/hocon/quoted-control && \
 	  cp "$$tmpdir/testdata/hocon/quoted-control/"*.conf testdata/hocon/quoted-control/ 2>/dev/null || true; \
 	fi && \
+	if [ -d "$$tmpdir/testdata/hocon/optional-cycle-repeat" ]; then \
+	  mkdir -p testdata/hocon/optional-cycle-repeat && \
+	  cp "$$tmpdir/testdata/hocon/optional-cycle-repeat/"*.conf testdata/hocon/optional-cycle-repeat/ 2>/dev/null || true; \
+	fi && \
 	curl -sf "https://api.github.com/repos/$(TESTDATA_REPO)/commits/$(TESTDATA_REF)" | grep '"sha"' | head -1 | cut -d'"' -f4 > .xx-hocon-version && \
 	echo "Done. Fetched $$(cat .xx-hocon-version)"
 

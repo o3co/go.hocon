@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a substitution cycle written twice crashed the process ([#218](https://github.com/o3co/go.hocon/issues/218))
+
+- **`a = ${?b}` / `b = ${?a}` written twice overflowed the stack** and killed
+  the process (`fatal error: stack overflow`, not a returned error); so did the
+  required form, longer cycles, nested paths, and a repetition that came from
+  an included file. Resolving a long ring of such optional substitutions is
+  also no longer exponential. While a key was in progress, the resolver resolved its
+  saved prior, and that prior could reach another in-progress key and resolve
+  that key's prior in turn, forever. A re-entry in an unchanged state (nothing
+  new in progress, the same prefix-prior guards, the same relevant field
+  path) is now treated as an unbreakable cycle: an optional substitution is
+  nonexistent and a required one is a `ResolveError`, as in Lightbend
+  (`{}` and `UnresolvedSubstitution` for the input above). This is an interim
+  guard; the resolver redesign in o3co/xx.hocon#67 / #125 replaces it.
+- A ring of array or string substitutions written twice doubles its value on
+  every lap; after the guard has cut a cycle, resolution now fails with
+  `resolved value too large` once the values it produces exceed 10,000 nodes
+  per node of the document (string text counts too). Only inputs that crashed
+  before reach that limit.
+- Every input that loaded before reads the same. Only inputs that crashed now
+  load or fail with an error. Some of those still differ from Lightbend
+  (cycles through string concatenation or nested objects); that is left to
+  the redesign.
+
 ### Fixed — **BREAKING (spec fix, S1.2.4)**: a raw control character inside a quoted string is a parse error ([xx.hocon#130](https://github.com/o3co/xx.hocon/issues/130))
 
 - **A raw C0 control character (U+0000–U+001F) inside a double-quoted string
