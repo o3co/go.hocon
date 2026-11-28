@@ -103,9 +103,16 @@ func TestS8_4_NumberRun_DigitsDot(t *testing.T) {
 		{"a = .5", `{"a":".5"}`},
 		{"a = -.", `{"a":"-."}`},
 		{"a = 1.e", `{"a":"1.e"}`},
-		// '-' starts a number run (Lightbend firstNumberChars).
-		{"a = -.5", `{"a":-0.5}`},
-		{"a = -.5e+3", `{"a":-500}`},
+		// '-' starts a number run (Lightbend firstNumberChars), but since
+		// Lightbend 1.4.10 a run starting with "-." is not a number, like
+		// one starting with "." (xx.hocon#140): `-.5` is text, and the '+'
+		// rule then makes `-.5e+3` an error.
+		{"a = -.5", `{"a":"-.5"}`},
+		{"a = -.5e3", `{"a":"-.5e3"}`},
+		{"a = -.5e+3", runErr},
+		{"a = -0.5", `{"a":-0.5}`},
+		{"a = -5.", `{"a":-5}`},
+		{"a = -.5ms", `{"a":"-.5ms"}`},
 		{"a = -", `{"a":"-"}`},
 		{"a = -foo", `{"a":"-foo"}`},
 		{"a = --1", `{"a":"--1"}`},
@@ -135,7 +142,10 @@ func TestS8_4_NumberRun_KeyPosition(t *testing.T) {
 func TestS8_4_NumberRun_FloatOverflow(t *testing.T) {
 	checkRunCases(t, []runCase{
 		{"a = 1.e999", runErr},
-		{"a = -.5e999", runErr},
+		{"a = -0.5e999", runErr},
+		// Not a number since Lightbend 1.4.10 (xx.hocon#140), so not an
+		// overflow either.
+		{"a = -.5e999", `{"a":"-.5e999"}`},
 	})
 }
 

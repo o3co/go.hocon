@@ -1390,7 +1390,7 @@ func writeValJSON(sb *strings.Builder, v resolver.Val) error {
 			// xx.hocon#50. Render-only: GetString/concat still see the verbatim
 			// lexeme (S10.11), so this does not affect string coercion.
 			// Number lexemes that HOCON reads but JSON does not spell (`1.`,
-			// `-.5`, `1.e5` — numbers under the Lightbend number-run rule)
+			// `-1.`, `1.e5` — numbers under the Lightbend number-run rule)
 			// get the missing zero digit; quoting is only a last resort, so
 			// the output never contains a malformed JSON number.
 			norm := completeJSONFraction(normalizeLeadingZeroNumber(vv.Raw))

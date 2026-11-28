@@ -1232,7 +1232,7 @@ func TestConcatElementErrorIsReported(t *testing.T) {
 	for _, src := range []string{
 		"a = prefix 1e999",
 		"a = prefix 1.e999",
-		"a = prefix -.5e999",
+		"a = prefix -0.5e999",
 		"a = prefix 99999999999999999999",
 		"a = x y 1e999 z",
 	} {

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — **BREAKING (spec fix, E8)**: a value that starts with `-.` is text, not a number ([xx.hocon#140](https://github.com/o3co/xx.hocon/issues/140))
+
+- **An unquoted run that starts with `-.` is no longer a number**, as in
+  Lightbend 1.4.10 (lightbend/config#861), the same as a run that starts with
+  `.`. Lightbend 1.4.9 and earlier, and go 1.14.0 through this release, read
+  `-.5` as `-0.5`.
+  - `a = -.5` is now the string `"-.5"` (was the number `-0.5`); so are
+    `-.5e3` (was `-500`) and `-.5e999` (was an overflow error).
+  - `a = -.5e+3` is now a parse error (was `-500`): the run is not a number
+    and contains `+` (E8 step 4).
+  - Every other number reads as before: `-0.5`, `-5.`, `-1.5e+3`, `.5` (text).
+  - Quoted durations and byte sizes are unaffected: `"-.5s"` is still -500 ms.
+- **Workaround**: write the leading zero, `a = -0.5`, to keep a number.
+
 ### Fixed — a substitution cycle written twice crashed the process ([#218](https://github.com/o3co/go.hocon/issues/218))
 
 - **`a = ${?b}` / `b = ${?a}` written twice overflowed the stack** and killed

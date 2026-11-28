@@ -225,9 +225,10 @@ func (l *Lexer) nextToken() Token {
 
 	case ch == '-' || ch >= '0' && ch <= '9':
 		// '-' starts a number run like a digit does (Lightbend's
-		// firstNumberChars), so `-.5` is the number -0.5. A run that is not
-		// a number continues as unquoted text, which keeps bare `-`, `-foo`
-		// and `-.` the strings they were (E8, xx.hocon#31).
+		// firstNumberChars), so `-5` and `-0.5` are numbers. A run that is
+		// not a number continues as unquoted text, which keeps bare `-`,
+		// `-foo`, `-.` and (since Lightbend 1.4.10) `-.5` text (E8,
+		// xx.hocon#31, xx.hocon#140).
 		return l.readNumber(line, col)
 
 	default:
@@ -710,7 +711,8 @@ func (l *Lexer) readSubstitution(line, col int) Token {
 }
 
 // readNumber lexes a token that starts like a number (S8.4) the way the
-// Lightbend reference does (Tokenizer.pullNumber, measured on 1.4.6):
+// Lightbend reference does (Tokenizer.pullNumber, measured on 1.4.6; 1.4.10
+// for runs starting with "-."):
 //
 //  1. Take the greedy run of number characters [0-9.eE+-] from the start.
 //  2. If the whole run is a number, it is a number token: Java's
@@ -765,6 +767,12 @@ func isNumberRunChar(c rune) bool {
 // -?(digits(.digits*)?|.digits)([eE][+-]?digits)?. Without them it is
 // -?digits.
 func numberRunType(run string) (TokenType, bool) {
+	// Lightbend 1.4.10 (lightbend/config#861): a run that starts with "-."
+	// is not a number, like one that starts with "." — `-.5` is the text
+	// "-.5", and with step 3 above `-.5e+3` is an error (xx.hocon#140).
+	if strings.HasPrefix(run, "-.") {
+		return 0, false
+	}
 	i := 0
 	if i < len(run) && run[i] == '-' {
 		i++
