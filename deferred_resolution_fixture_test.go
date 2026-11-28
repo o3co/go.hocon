@@ -62,11 +62,12 @@ var errorContainsSkip = map[string]string{
 	//  divergence surfaces in new fixtures)
 }
 
-// drKnownGaps lists scenarios whose expected result go.hocon does not produce
-// yet. Each is a strict expected failure: the scenario still runs, its
-// failures are reported as a skip, and a scenario that passes fails the test
-// so the entry is removed. An entry whose scenario is not on disk has no
-// effect.
+// drKnownGaps lists scenarios whose expected tree go.hocon does not produce
+// yet. Each is a strict expected failure limited to the JSON comparison: the
+// scenario still runs, a JSON mismatch is reported as a skip, any other
+// failure (a step error, isResolved, a getter, a malformed scenario) fails the
+// test as usual, and a scenario that passes fails the test so the entry is
+// removed. An entry whose scenario is not on disk has no effect.
 var drKnownGaps = map[string]string{
 	"dr31": xx139KnownGap,
 	"dr32": xx139KnownGap,
@@ -117,10 +118,12 @@ type scenarioT interface {
 	Logf(format string, args ...any)
 }
 
-// gapRecorder collects a known gap's failures instead of reporting them.
+// gapRecorder collects a known gap's failures instead of reporting them;
+// runKnownGap reports them on the real t afterwards.
 type gapRecorder struct {
-	t        *testing.T
-	failures []string
+	t          *testing.T
+	mismatches []string // JSON mismatches: the expected failure
+	failures   []string // anything else: still a real failure
 }
 
 func (r *gapRecorder) Helper() {}
@@ -138,7 +141,21 @@ func (r *gapRecorder) Fatalf(format string, args ...any) {
 
 func (r *gapRecorder) Logf(format string, args ...any) { r.t.Logf(format, args...) }
 
-// runKnownGap runs a drKnownGaps scenario and requires it to fail.
+// reportJSONMismatch reports a resolved tree that differs from the expected
+// one. For a known gap this is the expected failure; on *testing.T it is an
+// ordinary t.Errorf.
+func reportJSONMismatch(t scenarioT, format string, args ...any) {
+	t.Helper()
+	if rec, ok := t.(*gapRecorder); ok {
+		rec.mismatches = append(rec.mismatches, fmt.Sprintf(format, args...))
+		return
+	}
+	t.Errorf(format, args...)
+}
+
+// runKnownGap runs a drKnownGaps scenario and requires it to fail on the JSON
+// comparison only. A panic inside the scenario goroutine still aborts the test
+// binary, as it would on the test goroutine.
 func runKnownGap(t *testing.T, id, yamlPath, reason string) {
 	t.Helper()
 	rec := &gapRecorder{t: t}
@@ -148,10 +165,13 @@ func runKnownGap(t *testing.T, id, yamlPath, reason string) {
 		runScenario(rec, id, yamlPath)
 	}()
 	<-done
-	if len(rec.failures) == 0 {
+	if len(rec.failures) > 0 {
+		t.Fatalf("scenario %s (known gap, but failed for another reason):\n%s", id, strings.Join(rec.failures, "\n"))
+	}
+	if len(rec.mismatches) == 0 {
 		t.Fatalf("scenario %s: listed in drKnownGaps but passes — remove the entry (%s)", id, reason)
 	}
-	t.Skipf("known gap: %s\n%s", reason, strings.Join(rec.failures, "\n"))
+	t.Skipf("known gap: %s\n%s", reason, strings.Join(rec.mismatches, "\n"))
 }
 
 func runScenario(t scenarioT, id, yamlPath string) {
@@ -421,7 +441,7 @@ func compareJSON(t scenarioT, id string, expectedRaw []byte, cfg *hocon.Config) 
 		t.Fatalf("scenario %s: renderJSON: %v", id, err)
 	}
 	if !drJSONEqual(expectedRaw, []byte(actualStr)) {
-		t.Errorf("scenario %s: JSON mismatch\n want: %s\n got:  %s", id, string(expectedRaw), actualStr)
+		reportJSONMismatch(t, "scenario %s: JSON mismatch\n want: %s\n got:  %s", id, string(expectedRaw), actualStr)
 	}
 }
 
@@ -432,7 +452,7 @@ func compareJSONString(t scenarioT, id, expected string, cfg *hocon.Config) {
 		t.Fatalf("scenario %s: renderJSON: %v", id, err)
 	}
 	if !drJSONEqual([]byte(expected), []byte(actual)) {
-		t.Errorf("scenario %s: in-YAML JSON mismatch\n want: %s\n got:  %s", id, expected, actual)
+		reportJSONMismatch(t, "scenario %s: in-YAML JSON mismatch\n want: %s\n got:  %s", id, expected, actual)
 	}
 }
 
