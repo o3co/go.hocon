@@ -705,6 +705,16 @@ func sourceNodes(v Val, seen map[Val]struct{}) int {
 	return 1
 }
 
+// valueBudgetFor is the value budget for a document of n source nodes:
+// valueNodesPerSourceNode × n, capped at maxValueBudget. n is clamped before
+// multiplying so the product cannot overflow a 32-bit int.
+func valueBudgetFor(n int) int {
+	if n >= maxValueBudget/valueNodesPerSourceNode {
+		return maxValueBudget
+	}
+	return n * valueNodesPerSourceNode
+}
+
 // chargeValue deducts a substitution result from the value budget once a
 // cycle has been cut, and reports an error when the budget is exhausted.
 func (r *resolver) chargeValue(v Val, root *ObjectVal, key string, line, col int) error {
@@ -712,7 +722,7 @@ func (r *resolver) chargeValue(v Val, root *ObjectVal, key string, line, col int
 		return nil
 	}
 	if !r.valueBudgetSet {
-		r.valueBudget = min(sourceNodes(root, map[Val]struct{}{})*valueNodesPerSourceNode, maxValueBudget)
+		r.valueBudget = valueBudgetFor(sourceNodes(root, map[Val]struct{}{}))
 		r.valueBudgetSet = true
 	}
 	w := valueWeight(v, map[Val]struct{}{})
