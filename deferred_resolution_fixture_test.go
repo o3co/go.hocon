@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -61,6 +62,20 @@ var errorContainsSkip = map[string]string{
 	//  divergence surfaces in new fixtures)
 }
 
+// drKnownGaps lists scenarios whose expected result go.hocon does not produce
+// yet. Each is a strict expected failure: the scenario still runs, its
+// failures are reported as a skip, and a scenario that passes fails the test
+// so the entry is removed. An entry whose scenario is not on disk has no
+// effect.
+var drKnownGaps = map[string]string{
+	"dr31": xx139KnownGap,
+	"dr32": xx139KnownGap,
+}
+
+const xx139KnownGap = "o3co/xx.hocon#139 (resolution-model §8.3): a cycle of optionals across a " +
+	"nested withFallback nests both fields instead of keeping the nested value in the receiver's " +
+	"field only — fixed by the resolution layer (o3co/xx.hocon#67 window); py: o3co/py.hocon#67"
+
 func TestDeferredResolutionFixtures(t *testing.T) {
 	entries, err := os.ReadDir(drYAMLDir)
 	if err != nil {
@@ -73,6 +88,10 @@ func TestDeferredResolutionFixtures(t *testing.T) {
 		id := scenarioID(e.Name())
 		if reason, skip := drYAMLSkip[id]; skip {
 			t.Run(id, func(t *testing.T) { t.Skip(reason) })
+			continue
+		}
+		if reason, gap := drKnownGaps[id]; gap {
+			t.Run(id, func(t *testing.T) { runKnownGap(t, id, filepath.Join(drYAMLDir, e.Name()), reason) })
 			continue
 		}
 		t.Run(id, func(t *testing.T) { runScenario(t, id, filepath.Join(drYAMLDir, e.Name())) })
@@ -89,7 +108,53 @@ func scenarioID(filename string) string {
 	return base
 }
 
-func runScenario(t *testing.T, id, yamlPath string) {
+// scenarioT is the part of *testing.T the scenario checks use, so a known
+// gap can run them against gapRecorder instead of failing the test.
+type scenarioT interface {
+	Helper()
+	Errorf(format string, args ...any)
+	Fatalf(format string, args ...any)
+	Logf(format string, args ...any)
+}
+
+// gapRecorder collects a known gap's failures instead of reporting them.
+type gapRecorder struct {
+	t        *testing.T
+	failures []string
+}
+
+func (r *gapRecorder) Helper() {}
+
+func (r *gapRecorder) Errorf(format string, args ...any) {
+	r.failures = append(r.failures, fmt.Sprintf(format, args...))
+}
+
+// Fatalf stops the scenario as t.Fatalf would; runKnownGap runs it on its own
+// goroutine so runtime.Goexit ends only that goroutine.
+func (r *gapRecorder) Fatalf(format string, args ...any) {
+	r.Errorf(format, args...)
+	runtime.Goexit()
+}
+
+func (r *gapRecorder) Logf(format string, args ...any) { r.t.Logf(format, args...) }
+
+// runKnownGap runs a drKnownGaps scenario and requires it to fail.
+func runKnownGap(t *testing.T, id, yamlPath, reason string) {
+	t.Helper()
+	rec := &gapRecorder{t: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runScenario(rec, id, yamlPath)
+	}()
+	<-done
+	if len(rec.failures) == 0 {
+		t.Fatalf("scenario %s: listed in drKnownGaps but passes — remove the entry (%s)", id, reason)
+	}
+	t.Skipf("known gap: %s\n%s", reason, strings.Join(rec.failures, "\n"))
+}
+
+func runScenario(t scenarioT, id, yamlPath string) {
 	t.Helper()
 
 	data, err := os.ReadFile(yamlPath)
@@ -247,7 +312,7 @@ func executeStep(i int, step yamlscenario.Step, artefacts map[string]*hocon.Conf
 	}
 }
 
-func validateSuccess(t *testing.T, id string, sc yamlscenario.Scenario, artefacts map[string]*hocon.Config, finalName string, stepErrors []error) {
+func validateSuccess(t scenarioT, id string, sc yamlscenario.Scenario, artefacts map[string]*hocon.Config, finalName string, stepErrors []error) {
 	t.Helper()
 	for i, e := range stepErrors {
 		if e != nil {
@@ -274,7 +339,7 @@ func validateSuccess(t *testing.T, id string, sc yamlscenario.Scenario, artefact
 	}
 }
 
-func validateError(t *testing.T, id string, sc yamlscenario.Scenario, stepErrors []error) {
+func validateError(t scenarioT, id string, sc yamlscenario.Scenario, stepErrors []error) {
 	t.Helper()
 	idx := -1
 	var firstErr error
@@ -349,7 +414,7 @@ func loadExpectedJSON(id string) ([]byte, error) {
 	return nil, fmt.Errorf("no expected json for %s", id)
 }
 
-func compareJSON(t *testing.T, id string, expectedRaw []byte, cfg *hocon.Config) {
+func compareJSON(t scenarioT, id string, expectedRaw []byte, cfg *hocon.Config) {
 	t.Helper()
 	actualStr, err := hocon.RenderJSON_ForTest(cfg)
 	if err != nil {
@@ -360,7 +425,7 @@ func compareJSON(t *testing.T, id string, expectedRaw []byte, cfg *hocon.Config)
 	}
 }
 
-func compareJSONString(t *testing.T, id, expected string, cfg *hocon.Config) {
+func compareJSONString(t scenarioT, id, expected string, cfg *hocon.Config) {
 	t.Helper()
 	actual, err := hocon.RenderJSON_ForTest(cfg)
 	if err != nil {
@@ -415,7 +480,7 @@ func drJSONDeepEqual(a, b any) bool {
 	}
 }
 
-func runGetter(t *testing.T, id string, cfg *hocon.Config, g yamlscenario.GetterAssert) {
+func runGetter(t scenarioT, id string, cfg *hocon.Config, g yamlscenario.GetterAssert) {
 	t.Helper()
 	if g.ExpectError == "NotResolved" {
 		defer func() {
