@@ -532,6 +532,9 @@ type resolver struct {
 	// cut (see chargeValue); valueBudgetSet records that it was initialized.
 	valueBudget    int
 	valueBudgetSet bool
+	// postCutCalls counts resolveSubst calls after the first cut (see
+	// maxPostCutCalls).
+	postCutCalls int
 	// maxSubstLen is the longest substitution path (in segments) in the tree,
 	// computed on first use by the priorReentry guard (maxSubstLenKnown).
 	maxSubstLen      int
@@ -619,6 +622,18 @@ func maxSubstLenWalk(v Val, seen map[any]struct{}) int {
 // charged.
 const valueNodesPerSourceNode = 10_000
 
+// maxValueBudget caps the value budget: valueNodesPerSourceNode × n alone let
+// a padded document reach hundreds of megabytes after a cut.
+const maxValueBudget = 2_000_000
+
+// maxPostCutCalls bounds resolveSubst calls once a cycle has been cut. A cut
+// substitution resolves to nothing, so dense cycles (10 keys each
+// referencing all 10, written twice) could re-explore subtrees without any
+// value growth for minutes (go.hocon#223 review). Every input with a cut
+// crashed before the guard; the most calls any of ~97,000 corpus inputs
+// made after a cut is far below this.
+const maxPostCutCalls = 2_000_000
+
 // valueWeight counts the distinct containers and scalars in a resolved value,
 // plus one per 16 bytes of scalar text. Shared subtrees count once, so the
 // count follows the memory actually held.
@@ -630,8 +645,8 @@ func valueWeight(v Val, seen map[Val]struct{}) int {
 		}
 		seen[t] = struct{}{}
 		n := 1
-		for _, e := range t.values {
-			n += valueWeight(e, seen)
+		for k, e := range t.values {
+			n += len(k)/16 + valueWeight(e, seen)
 		}
 		return n
 	case *ArrayVal:
@@ -690,6 +705,16 @@ func sourceNodes(v Val, seen map[Val]struct{}) int {
 	return 1
 }
 
+// valueBudgetFor is the value budget for a document of n source nodes:
+// valueNodesPerSourceNode × n, capped at maxValueBudget. n is clamped before
+// multiplying so the product cannot overflow a 32-bit int.
+func valueBudgetFor(n int) int {
+	if n >= maxValueBudget/valueNodesPerSourceNode {
+		return maxValueBudget
+	}
+	return n * valueNodesPerSourceNode
+}
+
 // chargeValue deducts a substitution result from the value budget once a
 // cycle has been cut, and reports an error when the budget is exhausted.
 func (r *resolver) chargeValue(v Val, root *ObjectVal, key string, line, col int) error {
@@ -697,7 +722,7 @@ func (r *resolver) chargeValue(v Val, root *ObjectVal, key string, line, col int
 		return nil
 	}
 	if !r.valueBudgetSet {
-		r.valueBudget = sourceNodes(root, map[Val]struct{}{}) * valueNodesPerSourceNode
+		r.valueBudget = valueBudgetFor(sourceNodes(root, map[Val]struct{}{}))
 		r.valueBudgetSet = true
 	}
 	w := valueWeight(v, map[Val]struct{}{})
@@ -1121,6 +1146,12 @@ func (r *resolver) resolveSubst(s *substPlaceholder, root *ObjectVal) (out Val, 
 	n := s.node
 	segStrs := segTexts(s.segments)
 	key := segmentsToKey(segStrs)
+	if r.cuts > 0 {
+		r.postCutCalls++
+		if r.postCutCalls > maxPostCutCalls {
+			return nil, &ResolveError{Message: "substitution cycle too complex to resolve", Path: key, Line: n.Line(), Col: n.Col()}
+		}
+	}
 	// go.hocon#223 review: after a cut, charge every substitution result as
 	// it is produced (see valueNodesPerSourceNode).
 	defer func() {

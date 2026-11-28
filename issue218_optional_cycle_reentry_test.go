@@ -142,6 +142,39 @@ func TestIssue218_DoublingRingsAreAnError(t *testing.T) {
 	}
 }
 
+// TestIssue218_PostCutResourceBounds: a cut substitution resolves to nothing,
+// so a dense cycle (10 keys each referencing all 10, written twice)
+// re-explored subtrees for minutes without growing any value, and padding
+// inflated the value budget into hundreds of megabytes. Both aborted before
+// the guard; now they fail promptly.
+func TestIssue218_PostCutResourceBounds(t *testing.T) {
+	var dense strings.Builder
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&dense, "k%d = ", i)
+		for j := 0; j < 10; j++ {
+			fmt.Fprintf(&dense, "${?k%d}", j)
+		}
+		dense.WriteString("\n")
+	}
+	var ring strings.Builder
+	for i := 0; i < 16; i++ {
+		fmt.Fprintf(&ring, "a%d = ${?a%d}${?a%d}x\n", i, (i+1)%16, (i+1)%16)
+	}
+	pad := "pad = [" + strings.Repeat("1,", 9999) + "1]\n"
+	for name, tc := range map[string]struct{ src, want string }{
+		"dense cycle": {dense.String() + dense.String(), "too complex"},
+		// Whichever bound it reaches first (the work budget, in go).
+		"padded string ring": {pad + ring.String() + ring.String(), "too "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := hocon.ParseString(tc.src)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("expected %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
 // TestIssue218_ValueBudgetSparesAcyclicConfigs: the budget only applies after
 // a cut, so an exponential but acyclic chain of references still loads.
 func TestIssue218_ValueBudgetSparesAcyclicConfigs(t *testing.T) {
