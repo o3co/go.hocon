@@ -117,6 +117,74 @@ func TestIssue218_LargeRingIsNotExponential(t *testing.T) {
 	}
 }
 
+// TestIssue218_DoublingRingsAreAnError: a ring of array or string
+// substitutions written twice doubles its value on every lap (a 12-key array
+// ring reached 3 GB). After a cut, every substitution result is charged as it
+// is produced, so it fails promptly instead of exhausting memory.
+func TestIssue218_DoublingRingsAreAnError(t *testing.T) {
+	for name, elem := range map[string]string{
+		"array":  "[${?a%d}, ${?a%d}]",
+		"string": "${?a%d}${?a%d}x",
+	} {
+		t.Run(name, func(t *testing.T) {
+			const n = 16
+			var b strings.Builder
+			for pass := 0; pass < 2; pass++ {
+				for i := 0; i < n; i++ {
+					fmt.Fprintf(&b, "a%d = "+elem+"\n", i, (i+1)%n, (i+1)%n)
+				}
+			}
+			_, err := hocon.ParseString(b.String())
+			if err == nil || !strings.Contains(err.Error(), "resolved value too large") {
+				t.Errorf("expected the value budget error, got %v", err)
+			}
+		})
+	}
+}
+
+// TestIssue218_ValueBudgetSparesAcyclicConfigs: the budget only applies after
+// a cut, so an exponential but acyclic chain of references still loads.
+func TestIssue218_ValueBudgetSparesAcyclicConfigs(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("a0 = { v = 1 }\n")
+	for i := 1; i <= 12; i++ {
+		fmt.Fprintf(&b, "a%d = { x = ${a%d}, y = ${a%d} }\n", i, i-1, i-1)
+	}
+	if _, err := hocon.ParseString(b.String()); err != nil {
+		t.Fatalf("an acyclic exponential chain must still load: %v", err)
+	}
+}
+
+// TestIssue218_SharedPriorsWalkIsLinear: current values and saved priors
+// share children, and nested prefixes overridden from deepest to shallowest
+// made the longest-substitution-path walk exponential (go.hocon#223 review:
+// depth 24 took a second, ×4 per two more levels). Depth 40 must finish.
+func TestIssue218_SharedPriorsWalkIsLinear(t *testing.T) {
+	const depth = 40
+	segs := make([]string, depth)
+	for i := range segs {
+		segs[i] = fmt.Sprintf("k%d", i)
+	}
+	var b strings.Builder
+	for i := depth; i > 0; i-- {
+		fmt.Fprintf(&b, "%s = { v = 1 }\n", strings.Join(segs[:i], "."))
+	}
+	b.WriteString("k0 = 1\no = { y = ${?a} }\na = ${o.y}\no.x = 5\no.y += [3]\n")
+	done := make(chan error, 1)
+	go func() {
+		_, err := hocon.ParseString(b.String())
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ParseString: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("depth-40 shared-prior document did not resolve within 20s")
+	}
+}
+
 // TestIssue218_CycleThroughIncludeTerminates: the repetition can come from an
 // included file (go crashed here even where rs did not).
 func TestIssue218_CycleThroughIncludeTerminates(t *testing.T) {
