@@ -103,13 +103,37 @@ func TestS8_4_NumberRun_DigitsDot(t *testing.T) {
 		{"a = .5", `{"a":".5"}`},
 		{"a = -.", `{"a":"-."}`},
 		{"a = 1.e", `{"a":"1.e"}`},
-		// '-' starts a number run (Lightbend firstNumberChars).
-		{"a = -.5", `{"a":-0.5}`},
-		{"a = -.5e+3", `{"a":-500}`},
+		// '-' starts a number run (Lightbend firstNumberChars), but since
+		// Lightbend 1.4.10 a run starting with "-." is not a number, like
+		// one starting with "." (xx.hocon#140): `-.5` is text, and the '+'
+		// rule then makes `-.5e+3` an error.
+		{"a = -.5", `{"a":"-.5"}`},
+		{"a = -.5e3", `{"a":"-.5e3"}`},
+		{"a = -.5e+3", runErr},
+		{"a = -0.5", `{"a":-0.5}`},
+		{"a = -5.", `{"a":-5}`},
+		{"a = -.5ms", `{"a":"-.5ms"}`},
 		{"a = -", `{"a":"-"}`},
 		{"a = -foo", `{"a":"-foo"}`},
 		{"a = --1", `{"a":"--1"}`},
 		{"-foo = 1", `{"-foo":1}`},
+	})
+}
+
+// TestS8_4_NumberRun_NegativeLeadingDot pins a run that starts with "-." in
+// every position (Lightbend 1.4.10, xx.hocon#140): it is text, and with a '+'
+// it is an error.
+func TestS8_4_NumberRun_NegativeLeadingDot(t *testing.T) {
+	checkRunCases(t, []runCase{
+		{"-.5 = 1", `{"-":{"5":1}}`},
+		{"-.5e+3 = 1", runErr},
+		{"a = x -.5e+3", runErr},
+		{"a = -.5 b", `{"a":"-.5 b"}`},
+		{"a = [-.5]", `{"a":["-.5"]}`},
+		{"a = [-.5e+3]", runErr},
+		{"b = 1\na = ${b}-.5", `{"a":"1-.5","b":1}`},
+		{"b = 1\na = ${b}-.5e+3", runErr},
+		{"a = -.5e+3ms", runErr},
 	})
 }
 
@@ -126,6 +150,9 @@ func TestS8_4_NumberRun_KeyPosition(t *testing.T) {
 		// Workaround: a space before `+=`.
 		{"1 = [1]\n1+= 2", runErr},
 		{"1 = [1]\n1 += 2", `{"1":[1,2]}`},
+		// A '-' still starts a number run, so `-.5+` is a run with '+' that
+		// is not a number, even though `-.5` alone is text (xx.hocon#140).
+		{"x = [1]\n-.5+= 2", runErr},
 	})
 }
 
@@ -135,7 +162,10 @@ func TestS8_4_NumberRun_KeyPosition(t *testing.T) {
 func TestS8_4_NumberRun_FloatOverflow(t *testing.T) {
 	checkRunCases(t, []runCase{
 		{"a = 1.e999", runErr},
-		{"a = -.5e999", runErr},
+		{"a = -0.5e999", runErr},
+		// Not a number since Lightbend 1.4.10 (xx.hocon#140), so not an
+		// overflow either.
+		{"a = -.5e999", `{"a":"-.5e999"}`},
 	})
 }
 
@@ -145,6 +175,16 @@ func TestS8_4_NumberRun_PlusErrorColumn(t *testing.T) {
 	var pe *hocon.ParseError
 	if !errors.As(err, &pe) || pe.Line != 1 || pe.Col != 7 {
 		t.Errorf("err = %v; want a *ParseError at line 1, col 7", err)
+	}
+}
+
+// TestS8_4_NumberRun_NegativeLeadingDotErrorColumn: for a "-." run the
+// error also points at the '+' (xx.hocon#140).
+func TestS8_4_NumberRun_NegativeLeadingDotErrorColumn(t *testing.T) {
+	_, err := hocon.ParseString("a = -.5e+3")
+	var pe *hocon.ParseError
+	if !errors.As(err, &pe) || pe.Line != 1 || pe.Col != 9 {
+		t.Errorf("err = %v; want a *ParseError at line 1, col 9", err)
 	}
 }
 

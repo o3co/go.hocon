@@ -87,7 +87,6 @@ var s8SuccessFixtures = []string{
 	"us54-key-exp-plus",
 	"us55-key-exp-plus-letter-tail",
 	"us58-plus-equals-list",
-	"us59-negative-leading-dot-exp-plus",
 	"us60-trailing-dot",
 	"us61-trailing-dot-exp",
 	"us62-negative-trailing-dot",
@@ -105,6 +104,10 @@ var s8SuccessFixtures = []string{
 // at the `+` token regardless of Lightbend's value-parser-layer message.
 var s8ErrorFixtures = []string{
 	"us15-incomplete-exp",
+	// us59 (xx.hocon#140): since Lightbend 1.4.10 a run that starts with
+	// "-." is not a number, so `-.5e+3` is a run with '+' that is not a
+	// number.
+	"us59-negative-leading-dot-exp-plus",
 	// us31–us67 (xx.hocon#110): a run that is not a number and contains
 	// `+`, or any other unquoted `+`.
 	"us31-plus-between-digits",
