@@ -133,6 +133,9 @@ func TestS8_4_NumberRun_KeyPosition(t *testing.T) {
 		// Workaround: a space before `+=`.
 		{"1 = [1]\n1+= 2", runErr},
 		{"1 = [1]\n1 += 2", `{"1":[1,2]}`},
+		// A '-' still starts a number run, so `-.5+` is a run with '+' that
+		// is not a number, even though `-.5` alone is text (xx.hocon#140).
+		{"x = [1]\n-.5+= 2", runErr},
 	})
 }
 
